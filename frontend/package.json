@@ -25,7 +25,8 @@
     "recharts": "^3.8.1",
     "socket.io-client": "^4.8.3",
     "tailwindcss": "^4.3.0",
-    "zustand": "^5.0.13"
+    "zustand": "^5.0.13",
+    "serve": "^14.2.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
