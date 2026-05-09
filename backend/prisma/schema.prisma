@@ -35,6 +35,7 @@ model User {
   chatbotFlows     ChatbotFlow[]
   automations      Automation[]
   pipelines        Pipeline[]
+  broadcasts       Broadcast[]
 
   @@map("users")
 }
@@ -58,6 +59,7 @@ model Workspace {
 
   users        User[]
   pipelines    Pipeline[]
+  broadcasts   Broadcast[]
   contacts     Contact[]
   leads        Lead[]
   tags         Tag[]
@@ -193,6 +195,7 @@ model Contact {
   workspaceId String
 
   leads        Lead[]
+  broadcastRecipients BroadcastRecipient[]
   messages     Message[]
   tags         TagOnContact[]
   customValues CustomFieldValue[]
