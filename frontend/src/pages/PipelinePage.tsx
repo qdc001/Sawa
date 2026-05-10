@@ -89,7 +89,7 @@ function useDragScroll(ref: React.RefObject<HTMLElement | null>, scrollButton: n
 // ============== Lead Card ==============
 function LeadCard({ lead, onClick, external = false, dimmed = false }: { lead: Lead; onClick: () => void; external?: boolean; dimmed?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: lead.id, disabled: external });
+    useSortable({ id: lead.id });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -109,11 +109,11 @@ function LeadCard({ lead, onClick, external = false, dimmed = false }: { lead: L
     <div
       ref={setNodeRef}
       style={style}
-      {...(external ? {} : attributes)}
-      {...(external ? {} : listeners)}
+      {...attributes}
+      {...listeners}
       onClick={onClick}
       data-lead-card="true"
-      className={`card p-3 mb-2 hover:shadow-md transition-shadow ${external ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
+      className="card p-3 mb-2 hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing"
     >
       {external && lead.pipeline && (
         <div className="mb-1.5">
@@ -1537,38 +1537,81 @@ export default function PipelinePage() {
     const overId = over.id as string;
 
     const activeLead = leads.find((l) => l.id === activeLeadId);
-    if (!activeLead) return;
+    if (!activeLead || !activePipeline) return;
 
-    // Na vista agregada nao se podem mover leads de outros pipelines
+    // Determinar a coluna alvo no pipeline activo (Principal ou outro)
+    let targetActiveStage: Stage | null = null;
+    const stageDirect = activePipeline.stages.find((s) => s.id === overId);
+    if (stageDirect) {
+      targetActiveStage = stageDirect;
+    } else {
+      const overLead = leads.find((l) => l.id === overId);
+      if (overLead) {
+        const mappedId = mapToColumnStageId(overLead);
+        targetActiveStage = activePipeline.stages.find((s) => s.id === mappedId) || null;
+      }
+    }
+    if (!targetActiveStage) return;
+
+    // Caso especial: vista agregada + lead de outro pipeline
+    // Mapear a coluna alvo do Principal para a etapa equivalente no pipeline original
     if (isAggregated && activeLead.pipelineId !== activePipelineId) {
-      toast('Para mover este lead, abre o pipeline original', { icon: 'ℹ️' });
+      const originalPipeline = pipelines.find((p) => p.id === activeLead.pipelineId);
+      if (!originalPipeline) {
+        toast.error('Pipeline original do lead nao encontrado');
+        return;
+      }
+      let newStageId: string | null = null;
+      if (targetActiveStage.type === 'WON') {
+        newStageId = originalPipeline.stages.find((s) => s.type === 'WON')?.id || null;
+      } else if (targetActiveStage.type === 'LOST') {
+        newStageId = originalPipeline.stages.find((s) => s.type === 'LOST')?.id || null;
+      } else {
+        const principalRegular = activePipeline.stages
+          .filter((s) => s.type === 'REGULAR')
+          .sort((a, b) => a.position - b.position);
+        const originalRegular = originalPipeline.stages
+          .filter((s) => s.type === 'REGULAR')
+          .sort((a, b) => a.position - b.position);
+        const idxInPrincipal = principalRegular.findIndex((s) => s.id === targetActiveStage!.id);
+        if (idxInPrincipal >= 0 && originalRegular.length > 0) {
+          const idx = Math.min(idxInPrincipal, originalRegular.length - 1);
+          newStageId = originalRegular[idx].id;
+        }
+      }
+      if (!newStageId) {
+        toast.error('Nao foi possivel mapear a etapa equivalente');
+        return;
+      }
+      if (newStageId === activeLead.stageId) return;
+
+      const oldStageId = activeLead.stageId;
+      setLeads((prev) =>
+        prev.map((l) => (l.id === activeLeadId ? { ...l, stageId: newStageId! } : l))
+      );
+      try {
+        await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId });
+        toast.success(`Movido em "${originalPipeline.name}"`);
+      } catch {
+        setLeads((prev) =>
+          prev.map((l) => (l.id === activeLeadId ? { ...l, stageId: oldStageId } : l))
+        );
+        toast.error('Erro ao mover lead');
+      }
       return;
     }
 
-    let newStageId: string | null = null;
+    // Caso normal: lead pertence ao pipeline activo
+    const newStageId = targetActiveStage.id;
+    if (newStageId === activeLead.stageId) return;
 
-    // Dropping over a stage column directly
-    const stageDirect = activePipeline?.stages.find((s) => s.id === overId);
-    if (stageDirect) {
-      newStageId = stageDirect.id;
-    } else {
-      // Dropping over another lead — get that lead's stage
-      const overLead = leads.find((l) => l.id === overId);
-      if (overLead) newStageId = overLead.stageId;
-    }
-
-    if (!newStageId || newStageId === activeLead.stageId) return;
-
-    // Optimistic update
     const oldStageId = activeLead.stageId;
     setLeads((prev) =>
-      prev.map((l) => (l.id === activeLeadId ? { ...l, stageId: newStageId! } : l))
+      prev.map((l) => (l.id === activeLeadId ? { ...l, stageId: newStageId } : l))
     );
-
     try {
       await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId });
     } catch {
-      // Rollback
       setLeads((prev) =>
         prev.map((l) => (l.id === activeLeadId ? { ...l, stageId: oldStageId } : l))
       );
