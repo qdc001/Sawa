@@ -535,8 +535,11 @@ function ManageLeadFieldsModal({
 
   useEffect(() => {
     api.get('/custom-fields?entity=lead')
-      .then(({ data }) => setFields(data))
-      .catch(() => toast.error('Erro ao carregar campos'))
+      .then(({ data }) => setFields(Array.isArray(data) ? data : []))
+      .catch((err) => {
+        console.error('custom-fields error:', err);
+        toast.error('Erro ao carregar campos. Reimplanta o backend?');
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -727,8 +730,8 @@ function AddLeadModal({
 
   const loadFields = () => {
     api.get('/custom-fields?entity=lead')
-      .then(({ data }) => setCustomFields(data))
-      .catch(() => {});
+      .then(({ data }) => setCustomFields(Array.isArray(data) ? data : []))
+      .catch(() => setCustomFields([]));
   };
   useEffect(loadFields, []);
 
