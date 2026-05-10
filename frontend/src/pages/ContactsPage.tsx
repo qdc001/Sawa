@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Plus, Search, X, Loader2, Trash2, Edit3, ExternalLink,
   ArrowUpDown, ArrowUp, ArrowDown, RotateCcw,
-  User as UserIcon, Building2, Mail, Phone, MapPin, Globe, FileText,
+  User as UserIcon, Building2, Mail, Phone, MapPin, Globe, FileText, Download,
+  MessageCircle, PhoneCall,
 } from 'lucide-react';
 import api, { Contact, Lead } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -339,6 +340,60 @@ export default function ContactsPage() {
     }
   };
 
+  // Exportar para CSV (respeita filtros e ordenacao)
+  const handleExportCSV = () => {
+    if (sortedContacts.length === 0) {
+      toast.error('Nada para exportar');
+      return;
+    }
+    const escape = (v: any) => {
+      if (v === null || v === undefined) return '';
+      const s = String(v);
+      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    };
+    const headers = [
+      'Tipo', 'Nome', 'Apelido', 'Empresa', 'Cargo',
+      'Email', 'Telefone', 'WhatsApp', 'Website',
+      'Endereco', 'Cidade', 'Pais', 'Notas', 'Nr Leads', 'Criado em',
+    ];
+    const rows = sortedContacts.map((c: any) => [
+      c.type === 'COMPANY' ? 'Empresa' : 'Pessoa',
+      c.firstName || '',
+      c.lastName || '',
+      c.company || '',
+      c.position || '',
+      c.email || '',
+      c.phone || '',
+      c.whatsapp || '',
+      c.website || '',
+      c.address || '',
+      c.city || '',
+      c.country || '',
+      c.notes || '',
+      c._count?.leads || 0,
+      c.createdAt ? new Date(c.createdAt).toLocaleString('pt-PT') : '',
+    ].map(escape).join(','));
+
+    // BOM UTF-8 para Excel reconhecer acentos
+    const csv = '﻿' + headers.join(',') + '\n' + rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const date = new Date().toISOString().slice(0, 10);
+    a.download = `contactos-${date}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`${sortedContacts.length} contactos exportados`);
+  };
+
+  const cleanPhone = (p?: string) => (p || '').replace(/[^0-9+]/g, '');
+
   const handleDelete = async (contact: Contact) => {
     const leadCount = (contact as any)._count?.leads || 0;
     const confirmMsg = leadCount > 0
@@ -365,12 +420,22 @@ export default function ContactsPage() {
         <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
           {total} total
         </span>
-        <button
-          onClick={() => setAdding(true)}
-          className="btn btn-primary py-2 px-3 ml-auto"
-        >
-          <Plus size={14} /> Novo Contacto
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            className="btn py-2 px-3"
+            style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+            title="Exportar para CSV (respeita filtros)"
+          >
+            <Download size={14} /> Exportar CSV
+          </button>
+          <button
+            onClick={() => setAdding(true)}
+            className="btn btn-primary py-2 px-3"
+          >
+            <Plus size={14} /> Novo Contacto
+          </button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -492,6 +557,38 @@ export default function ContactsPage() {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1">
+                      {c.whatsapp && (
+                        <a
+                          href={`https://wa.me/${cleanPhone(c.whatsapp)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1.5 rounded hover:bg-green-50"
+                          title="Abrir WhatsApp"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MessageCircle size={14} style={{ color: '#25D366' }} />
+                        </a>
+                      )}
+                      {c.phone && (
+                        <a
+                          href={`tel:${cleanPhone(c.phone)}`}
+                          className="p-1.5 rounded hover:bg-slate-100"
+                          title="Telefonar"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <PhoneCall size={14} style={{ color: 'var(--text-secondary)' }} />
+                        </a>
+                      )}
+                      {c.email && (
+                        <a
+                          href={`mailto:${c.email}`}
+                          className="p-1.5 rounded hover:bg-slate-100"
+                          title="Enviar email"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Mail size={14} style={{ color: 'var(--text-secondary)' }} />
+                        </a>
+                      )}
                       <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-slate-100" title="Editar">
                         <Edit3 size={14} style={{ color: 'var(--text-secondary)' }} />
                       </button>
