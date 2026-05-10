@@ -996,13 +996,13 @@ export default function TasksPage() {
   const handleAgendaMove = async (taskId: string, newDate: Date) => {
     const t = tasks.find((x) => x.id === taskId);
     if (!t) return;
-    const oldDate = t.dueAt ? new Date(t.dueAt) : null;
+    const oldDueAt = t.dueAt;
     setTasks((p) => p.map((x) => (x.id === taskId ? { ...x, dueAt: newDate.toISOString() } : x)));
     try {
       await api.patch(`/tasks/${taskId}`, { dueAt: newDate.toISOString() });
       toast.success('Data alterada');
     } catch {
-      setTasks((p) => p.map((x) => (x.id === taskId ? { ...x, dueAt: oldDate?.toISOString() || null } : x)));
+      setTasks((p) => p.map((x) => (x.id === taskId ? { ...x, dueAt: oldDueAt } : x)));
       toast.error('Erro');
     }
   };
