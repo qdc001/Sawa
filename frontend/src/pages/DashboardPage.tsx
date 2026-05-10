@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  DndContext, DragEndEvent, PointerSensor, useSensor, useSensors, closestCenter,
+} from '@dnd-kit/core';
+import {
+  arrayMove, SortableContext, useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { GripVertical } from 'lucide-react';
+import {
   Users, DollarSign, CheckSquare, Target, ArrowUpRight, ArrowDownRight,
   Clock, ExternalLink, AlertCircle, Activity as ActivityIcon, TrendingUp,
   Plus, Filter as FilterIcon, Printer, Trophy, Zap, Hourglass, Briefcase,
@@ -198,6 +206,7 @@ const ALL_WIDGETS = [
 ];
 
 const HIDDEN_KEY = 'kommo:dashboard-hidden';
+const ORDER_KEY = 'kommo:dashboard-order';
 
 function loadHidden(): Set<string> {
   try {
@@ -207,16 +216,68 @@ function loadHidden(): Set<string> {
   return new Set();
 }
 
-function CustomizeModal({ hidden, onChange, onClose }: {
+function loadOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(ORDER_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      // Garantir que todos os widgets actuais estao listados (em caso de novos)
+      const current = new Set(arr);
+      ALL_WIDGETS.forEach((w) => { if (!current.has(w.id)) arr.push(w.id); });
+      // Remover ids invalidos
+      const valid = new Set(ALL_WIDGETS.map((w) => w.id));
+      return arr.filter((id: string) => valid.has(id));
+    }
+  } catch {}
+  return ALL_WIDGETS.map((w) => w.id);
+}
+
+function SortableWidgetRow({ id, label, hidden, onToggle }: {
+  id: string; label: string; hidden: boolean; onToggle: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style}
+      className="flex items-center gap-2 p-2 rounded hover:bg-slate-50">
+      <button {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-1" title="Arrastar para reordenar">
+        <GripVertical size={14} style={{ color: 'var(--text-muted)' }} />
+      </button>
+      <span className="flex-1 text-sm" style={{ color: 'var(--text-primary)' }}>{label}</span>
+      <button onClick={onToggle} className="p-1 rounded hover:bg-slate-100" title={hidden ? 'Mostrar' : 'Esconder'}>
+        {!hidden ? <Eye size={14} style={{ color: 'var(--primary)' }} /> : <EyeOff size={14} style={{ color: 'var(--text-muted)' }} />}
+      </button>
+    </div>
+  );
+}
+
+function CustomizeModal({ hidden, onChange, order, onOrderChange, onClose, onReset }: {
   hidden: Set<string>;
   onChange: (next: Set<string>) => void;
+  order: string[];
+  onOrderChange: (next: string[]) => void;
   onClose: () => void;
+  onReset: () => void;
 }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const toggle = (id: string) => {
     const next = new Set(hidden);
     if (next.has(id)) next.delete(id); else next.add(id);
     onChange(next);
   };
+  const handleDragEnd = (e: DragEndEvent) => {
+    if (!e.over || e.active.id === e.over.id) return;
+    const oldIdx = order.indexOf(e.active.id as string);
+    const newIdx = order.indexOf(e.over.id as string);
+    if (oldIdx >= 0 && newIdx >= 0) onOrderChange(arrayMove(order, oldIdx, newIdx));
+  };
+
+  const widgetMap: Record<string, string> = {};
+  ALL_WIDGETS.forEach((w) => { widgetMap[w.id] = w.label; });
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
@@ -226,21 +287,29 @@ function CustomizeModal({ hidden, onChange, onClose }: {
           <button onClick={onClose}><X size={20} style={{ color: 'var(--text-muted)' }} /></button>
         </div>
         <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-          Escolhe quais widgets queres ver no dashboard.
+          Arrasta o icone <GripVertical size={11} className="inline" /> para reordenar. Clica no olho para mostrar/esconder.
         </p>
-        <div className="space-y-1">
-          {ALL_WIDGETS.map((w) => {
-            const visible = !hidden.has(w.id);
-            return (
-              <button key={w.id} onClick={() => toggle(w.id)}
-                className="w-full flex items-center justify-between p-2 rounded hover:bg-slate-50 text-left">
-                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>{w.label}</span>
-                {visible ? <Eye size={14} style={{ color: 'var(--primary)' }} /> : <EyeOff size={14} style={{ color: 'var(--text-muted)' }} />}
-              </button>
-            );
-          })}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={order} strategy={verticalListSortingStrategy}>
+            <div className="space-y-1">
+              {order.map((id) => (
+                <SortableWidgetRow
+                  key={id}
+                  id={id}
+                  label={widgetMap[id] || id}
+                  hidden={hidden.has(id)}
+                  onToggle={() => toggle(id)}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+        <div className="flex gap-2 mt-4">
+          <button onClick={onReset} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>
+            Repor padrao
+          </button>
+          <button onClick={onClose} className="btn btn-primary flex-1 py-2">Fechar</button>
         </div>
-        <button onClick={onClose} className="btn w-full py-2 mt-4" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
       </div>
     </div>
   );
@@ -337,11 +406,19 @@ export default function DashboardPage() {
 
   // Personalizacao
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
+  const [order, setOrder] = useState<string[]>(loadOrder);
   const [showCustomize, setShowCustomize] = useState(false);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
   useEffect(() => {
     localStorage.setItem(HIDDEN_KEY, JSON.stringify(Array.from(hidden)));
   }, [hidden]);
+  useEffect(() => {
+    localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+  }, [order]);
+  const resetCustomization = () => {
+    setHidden(new Set());
+    setOrder(ALL_WIDGETS.map((w) => w.id));
+  };
   const visible = (id: string) => !hidden.has(id);
 
   const now = new Date();
@@ -439,9 +516,9 @@ export default function DashboardPage() {
   if (wonStage) funnelData.push({ name: wonStage.name, value: wonStage.count, fill: wonStage.color });
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in print:p-2">
+    <div className="p-6 animate-fade-in print:p-2" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-3 print:gap-1">
+      <div style={{ order: -100 }} className="flex items-start justify-between flex-wrap gap-3 print:gap-1">
         <div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
             {greeting(user?.name)}
@@ -477,7 +554,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Selector de periodo */}
-      <div className="flex flex-wrap items-center gap-1 print:hidden">
+      <div style={{ order: -99 }} className="flex flex-wrap items-center gap-1 print:hidden">
         {(Object.keys(PERIOD_LABELS) as Period[]).filter((p) => p !== 'custom').map((p) => (
           <button key={p} onClick={() => setPeriod(p)} className="text-xs px-2 py-1 rounded font-medium"
             style={{ background: period === p ? 'var(--primary)' : 'var(--surface-3)', color: period === p ? '#fff' : 'var(--text-secondary)' }}>
@@ -499,7 +576,7 @@ export default function DashboardPage() {
 
       {/* Filtros */}
       {showFilters && (
-        <div className="card p-4 flex flex-wrap items-center gap-3 print:hidden">
+        <div style={{ order: -98 }} className="card p-4 flex flex-wrap items-center gap-3 print:hidden">
           <select value={pipelineId} onChange={(e) => setPipelineId(e.target.value)} className="input-base" style={{ width: 'auto' }}>
             <option value="">Todos os pipelines</option>
             {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -518,7 +595,7 @@ export default function DashboardPage() {
 
       {/* Goals / Metas */}
       {visible('goals') && (
-        <div className="card p-5">
+        <div style={{ order: order.indexOf('goals') }} className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
               <Flag size={16} style={{ color: '#F59E0B' }} />
@@ -527,13 +604,13 @@ export default function DashboardPage() {
                 ({new Date(goalYear, goalMonth - 1, 1).toLocaleDateString('pt-PT', { month: 'long' })})
               </span>
             </h3>
-            <button onClick={() => setShowGoalsModal(true)} className="btn py-1.5 px-3 print:hidden" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
+            <button type="button" onClick={() => setShowGoalsModal(true)} className="btn py-1.5 px-3 print:hidden" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
               <Flag size={12} /> Gerir metas
             </button>
           </div>
           {goals.length === 0 ? (
             <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>
-              Sem metas definidas. <button onClick={() => setShowGoalsModal(true)} className="hover:underline print:hidden" style={{ color: 'var(--primary)' }}>Definir metas</button>
+              Sem metas definidas. <button type="button" onClick={() => setShowGoalsModal(true)} className="hover:underline print:hidden" style={{ color: 'var(--primary)' }}>Definir metas</button>
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -561,7 +638,7 @@ export default function DashboardPage() {
 
       {/* Stat cards */}
       {visible('kpis') && (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div style={{ order: order.indexOf('kpis') }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card) => {
           const Icon = card.icon;
           const isPositive = card.growth >= 0;
@@ -591,7 +668,7 @@ export default function DashboardPage() {
 
       {/* Indicadores de conversao + forecast */}
       {visible('conversion') && convStats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div style={{ order: order.indexOf('conversion') }} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-1">
               <Hourglass size={16} style={{ color: '#8B5CF6' }} />
@@ -632,11 +709,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Charts row 1 */}
-      {(visible('revenueChart') || visible('wonLostPie')) && (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {visible('revenueChart') && (
-        <div className="card p-5 lg:col-span-2">
+      {/* Receita */}
+      {visible('revenueChart') && (
+        <div style={{ order: order.indexOf('revenueChart') }} className="card p-5">
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
             <TrendingUp size={16} style={{ color: 'var(--primary)' }} />
             Receita dos ultimos 6 meses
@@ -655,10 +730,11 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </div>
-        )}
+      )}
 
-        {visible('wonLostPie') && (
-        <div className="card p-5">
+      {/* Estado leads (pizza) */}
+      {visible('wonLostPie') && (
+        <div style={{ order: order.indexOf('wonLostPie') }} className="card p-5">
           <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Estado dos leads</h3>
           {wonLostData.length === 0 ? (
             <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem leads</p>
@@ -674,15 +750,11 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </div>
-        )}
-      </div>
       )}
 
-      {/* Funil + Origens */}
-      {(visible('funnel') || visible('sources')) && (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {visible('funnel') && (
-        <div className="card p-5">
+      {/* Funil */}
+      {visible('funnel') && (
+        <div style={{ order: order.indexOf('funnel') }} className="card p-5">
           <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Funil de conversao</h3>
           {funnelData.length === 0 || funnelData.every((f) => f.value === 0) ? (
             <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem dados</p>
@@ -712,10 +784,11 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        )}
+      )}
 
-        {visible('sources') && (
-        <div className="card p-5">
+      {/* Origem leads */}
+      {visible('sources') && (
+        <div style={{ order: order.indexOf('sources') }} className="card p-5">
           <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Origem dos leads</h3>
           {sources.length === 0 ? (
             <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem dados de origem</p>
@@ -738,13 +811,11 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        )}
-      </div>
       )}
 
       {/* Performance da equipa */}
       {visible('team') && (
-      <div className="card p-5">
+      <div style={{ order: order.indexOf('team') }} className="card p-5">
         <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
           <Trophy size={16} style={{ color: '#F59E0B' }} />
           Performance da equipa
@@ -803,7 +874,7 @@ export default function DashboardPage() {
 
       {/* Heatmap */}
       {visible('heatmap') && (
-        <div className="card p-5">
+        <div style={{ order: order.indexOf('heatmap') }} className="card p-5">
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
             <CalendarDays size={16} style={{ color: 'var(--primary)' }} />
             Mapa de actividade (ultimos 90 dias)
@@ -812,11 +883,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Pipeline + top leads */}
-      {(visible('pipelineDist') || visible('topLeads')) && (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {visible('pipelineDist') && (
-        <div className="card p-5">
+      {/* Distribuicao no Pipeline */}
+      {visible('pipelineDist') && (
+        <div style={{ order: order.indexOf('pipelineDist') }} className="card p-5">
           <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Distribuicao no Pipeline</h3>
           {dashboard.pipeline.length === 0 ? (
             <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>Sem etapas</p>
@@ -840,10 +909,11 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        )}
+      )}
 
-        {visible('topLeads') && (
-        <div className="card p-5">
+      {/* Top leads */}
+      {visible('topLeads') && (
+        <div style={{ order: order.indexOf('topLeads') }} className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
               <DollarSign size={16} style={{ color: 'var(--primary)' }} />
@@ -875,13 +945,11 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        )}
-      </div>
       )}
 
       {/* Leads parados */}
       {visible('stagnant') && convStats && convStats.stagnantLeads.length > 0 && (
-        <div className="card p-5" style={{ borderLeft: '4px solid #EF4444' }}>
+        <div className="card p-5" style={{ order: order.indexOf('stagnant'), borderLeft: '4px solid #EF4444' }}>
           <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: '#991B1B' }}>
             <AlertTriangle size={16} /> Leads parados (sem actividade ha mais de 14 dias)
           </h3>
@@ -902,11 +970,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Tarefas + Actividades */}
-      {(visible('tasks') || visible('activities')) && (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {visible('tasks') && (
-        <div className="card p-5">
+      {/* Proximas tarefas */}
+      {visible('tasks') && (
+        <div style={{ order: order.indexOf('tasks') }} className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
               <Clock size={16} style={{ color: 'var(--primary)' }} />
@@ -936,10 +1002,11 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        )}
+      )}
 
-        {visible('activities') && (
-        <div className="card p-5">
+      {/* Actividades */}
+      {visible('activities') && (
+        <div style={{ order: order.indexOf('activities') }} className="card p-5">
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
             <ActivityIcon size={16} style={{ color: 'var(--primary)' }} />
             Actividades recentes
@@ -967,13 +1034,11 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        )}
-      </div>
       )}
 
       {/* Overview cards */}
       {visible('overview') && (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div style={{ order: order.indexOf('overview') }} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
           { label: 'Total Leads', value: o.totalLeads, color: '#6366F1' },
           { label: 'Leads Abertos', value: o.openLeads, color: '#0EA5E9' },
@@ -992,7 +1057,16 @@ export default function DashboardPage() {
       </div>
       )}
 
-      {showCustomize && <CustomizeModal hidden={hidden} onChange={setHidden} onClose={() => setShowCustomize(false)} />}
+      {showCustomize && (
+        <CustomizeModal
+          hidden={hidden}
+          onChange={setHidden}
+          order={order}
+          onOrderChange={setOrder}
+          onClose={() => setShowCustomize(false)}
+          onReset={resetCustomization}
+        />
+      )}
       {showGoalsModal && <GoalsModal month={goalMonth} year={goalYear} onClose={() => setShowGoalsModal(false)} onChanged={reloadGoals} />}
     </div>
   );
