@@ -37,6 +37,7 @@ model User {
   pipelines        Pipeline[]
   broadcasts       Broadcast[]
   goals            Goal[]
+  assignedConversations ConversationMeta[]
 
   @@map("users")
 }
@@ -71,6 +72,7 @@ model Workspace {
   customFields CustomField[]
   webhooks     Webhook[]
   goals        Goal[]
+  conversationMetas ConversationMeta[]
 
   @@map("workspaces")
 }
@@ -201,6 +203,7 @@ model Contact {
   messages     Message[]
   tags         TagOnContact[]
   customValues CustomFieldValue[]
+  conversationMetas ConversationMeta[]
 
   @@map("contacts")
 }
@@ -458,6 +461,7 @@ model Tag {
   leads    TagOnLead[]
   contacts TagOnContact[]
   tasks    TagOnTask[]
+  conversations TagOnConversation[]
 
   @@unique([name, workspaceId])
   @@map("tags")
@@ -681,6 +685,38 @@ model BroadcastRecipient {
   contactId   String?
 
   @@map("broadcast_recipients")
+}
+
+// ==================== CONVERSATION META ====================
+// Metadata por conversa (uniao de contactId + channel ou contactId combinado)
+model ConversationMeta {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contactId    String?
+  contact      Contact?  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  leadId       String?
+  channel      String?   // null = combinado por contacto
+  isArchived   Boolean   @default(false)
+  isPinned     Boolean   @default(false)
+  assignedToId String?
+  assignedTo   User?     @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  tags         TagOnConversation[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([workspaceId, contactId, channel])
+  @@map("conversation_meta")
+}
+
+model TagOnConversation {
+  conversation   ConversationMeta @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId String
+  tag            Tag              @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId          String
+
+  @@id([conversationId, tagId])
+  @@map("tags_on_conversations")
 }
 
 // ==================== GOALS / METAS ====================

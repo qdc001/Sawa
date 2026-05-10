@@ -145,6 +145,17 @@ export interface MessageTemplate {
   variables: string[];
 }
 
+export interface ConversationMeta {
+  id: string;
+  contactId: string;
+  channel: string | null;
+  isArchived: boolean;
+  isPinned: boolean;
+  assignedToId?: string | null;
+  assignedTo?: { id: string; name: string; avatar?: string } | null;
+  tags?: { tag: Tag }[];
+}
+
 export interface Conversation {
   key: string;
   contact: {

@@ -187,6 +187,79 @@ router.post('/mark-conversation-read', async (req: AuthRequest, res: Response, n
   } catch (e) { next(e); }
 });
 
+// ==== Conversation metadata (favoritas, arquivadas, atribuir, tags) ====
+
+// GET /api/messages/meta/:contactId/:channel - obter metadata
+router.get('/meta/:contactId/:channelOrAll', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, channelOrAll } = req.params;
+    const channel = channelOrAll === 'all' ? null : channelOrAll;
+    const meta = await prisma.conversationMeta.findFirst({
+      where: { workspaceId: req.user!.workspaceId, contactId, channel },
+      include: { assignedTo: { select: { id: true, name: true } }, tags: { include: { tag: true } } },
+    });
+    res.json(meta);
+  } catch (e) { next(e); }
+});
+
+// GET /api/messages/meta - listar todas (para mostrar badges nas conversas)
+router.get('/meta', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const metas = await prisma.conversationMeta.findMany({
+      where: { workspaceId: req.user!.workspaceId },
+      include: { assignedTo: { select: { id: true, name: true, avatar: true } }, tags: { include: { tag: true } } },
+    });
+    res.json(metas);
+  } catch (e) { next(e); }
+});
+
+// POST /api/messages/meta - upsert
+router.post('/meta', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, channel, isArchived, isPinned, assignedToId, tagIds } = req.body;
+    const finalChannel = channel === 'all' ? null : channel;
+    const existing = await prisma.conversationMeta.findFirst({
+      where: { workspaceId: req.user!.workspaceId, contactId, channel: finalChannel },
+    });
+    let meta;
+    if (existing) {
+      meta = await prisma.conversationMeta.update({
+        where: { id: existing.id },
+        data: {
+          ...(isArchived !== undefined && { isArchived }),
+          ...(isPinned !== undefined && { isPinned }),
+          ...(assignedToId !== undefined && { assignedToId: assignedToId || null }),
+        },
+      });
+    } else {
+      meta = await prisma.conversationMeta.create({
+        data: {
+          workspaceId: req.user!.workspaceId,
+          contactId,
+          channel: finalChannel,
+          isArchived: !!isArchived,
+          isPinned: !!isPinned,
+          assignedToId: assignedToId || null,
+        },
+      });
+    }
+    // Substituir tags se enviadas
+    if (Array.isArray(tagIds)) {
+      await prisma.tagOnConversation.deleteMany({ where: { conversationId: meta.id } });
+      if (tagIds.length) {
+        await prisma.tagOnConversation.createMany({
+          data: tagIds.map((tagId: string) => ({ conversationId: meta.id, tagId })),
+        });
+      }
+    }
+    const result = await prisma.conversationMeta.findUnique({
+      where: { id: meta.id },
+      include: { assignedTo: { select: { id: true, name: true } }, tags: { include: { tag: true } } },
+    });
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
 // DELETE /api/messages/:id
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {

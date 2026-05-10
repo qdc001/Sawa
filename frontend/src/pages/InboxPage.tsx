@@ -8,9 +8,10 @@ import {
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
+  ConversationMeta, User, Tag as TagType,
 } from '../lib/api';
 import toast from 'react-hot-toast';
-import { useUIStore } from '../store';
+import { useAuthStore, useUIStore } from '../store';
 import { AddLeadModal } from './PipelinePage';
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -54,15 +55,7 @@ function fullName(c: Conversation['contact']) {
 }
 
 // localStorage helpers
-const FAV_KEY = 'kommo:inbox-favorites';
-const ARC_KEY = 'kommo:inbox-archived';
 const SNIPPET_KEY = 'kommo:inbox-snippets';
-
-function loadSet(key: string): Set<string> {
-  try { const r = localStorage.getItem(key); if (r) return new Set(JSON.parse(r)); } catch {}
-  return new Set();
-}
-function saveSet(key: string, s: Set<string>) { localStorage.setItem(key, JSON.stringify(Array.from(s))); }
 
 interface Snippet { key: string; value: string; }
 function loadSnippets(): Snippet[] {
@@ -313,6 +306,7 @@ function SnippetsModal({ snippets, onChange, onClose }: {
 export default function InboxPage() {
   const navigate = useNavigate();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
+  const { user } = useAuthStore();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConvs, setLoadingConvs] = useState(true);
@@ -324,7 +318,7 @@ export default function InboxPage() {
   const [channelFilter, setChannelFilter] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [combineByContact, setCombineByContact] = useState(false);
-  const [folderFilter, setFolderFilter] = useState<'all' | 'fav' | 'archive'>('all');
+  const [folderFilter, setFolderFilter] = useState<'all' | 'fav' | 'archive' | 'mine'>('all');
 
   // Pesquisa local na conversa
   const [convSearch, setConvSearch] = useState('');
@@ -352,12 +346,40 @@ export default function InboxPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [templates, setTemplates] = useState<MessageTemplateType[]>([]);
   const [snippets, setSnippets] = useState<Snippet[]>(loadSnippets);
+  const [users, setUsers] = useState<User[]>([]);
+  const [allTags, setAllTags] = useState<TagType[]>([]);
+  const [metas, setMetas] = useState<Record<string, ConversationMeta>>({}); // key contactId:channel
 
-  // Favoritas + arquivadas (localStorage)
-  const [favorites, setFavorites] = useState<Set<string>>(() => loadSet(FAV_KEY));
-  const [archived, setArchived] = useState<Set<string>>(() => loadSet(ARC_KEY));
-  useEffect(() => saveSet(FAV_KEY, favorites), [favorites]);
-  useEffect(() => saveSet(ARC_KEY, archived), [archived]);
+  const metaKey = (contactId: string, channel: string | null) => `${contactId}:${channel || 'all'}`;
+  const getMeta = (conv: Conversation): ConversationMeta | undefined => {
+    if (!conv.contact) return undefined;
+    const ch = conv.combined ? null : conv.channel;
+    return metas[metaKey(conv.contact.id, ch)];
+  };
+
+  const loadMetas = () => {
+    api.get('/messages/meta').then(({ data }) => {
+      const map: Record<string, ConversationMeta> = {};
+      (Array.isArray(data) ? data : []).forEach((m: ConversationMeta) => {
+        map[metaKey(m.contactId, m.channel)] = m;
+      });
+      setMetas(map);
+    }).catch(() => {});
+  };
+
+  const upsertMeta = async (conv: Conversation, patch: Partial<ConversationMeta> & { tagIds?: string[] }) => {
+    if (!conv.contact) return;
+    try {
+      const { data } = await api.post('/messages/meta', {
+        contactId: conv.contact.id,
+        channel: conv.combined ? 'all' : conv.channel,
+        ...patch,
+      });
+      setMetas((p) => ({ ...p, [metaKey(conv.contact!.id, conv.combined ? null : conv.channel)]: data }));
+    } catch {
+      toast.error('Erro a guardar');
+    }
+  };
 
   // IA
   const [aiSummary, setAiSummary] = useState('');
@@ -387,21 +409,26 @@ export default function InboxPage() {
   useEffect(() => {
     api.get('/contacts?limit=500').then(({ data }) => setContacts(data.contacts || [])).catch(() => {});
     api.get('/pipelines').then(({ data }) => setPipelines(Array.isArray(data) ? data : [])).catch(() => {});
+    api.get('/users').then(({ data }) => setUsers(Array.isArray(data) ? data : [])).catch(() => {});
+    api.get('/tags').then(({ data }) => setAllTags(Array.isArray(data) ? data : [])).catch(() => {});
     loadTemplates();
+    loadMetas();
   }, []);
 
   const loadTemplates = () => {
     api.get('/templates').then(({ data }) => setTemplates(Array.isArray(data) ? data : [])).catch(() => {});
   };
 
-  // Aplicar filtro de pasta (favoritas/arquivadas)
+  // Aplicar filtro de pasta (favoritas/arquivadas/atribuidas)
   const visibleConversations = useMemo(() => {
     let arr = conversations;
-    if (folderFilter === 'fav') arr = arr.filter((c) => favorites.has(c.key));
-    else if (folderFilter === 'archive') arr = arr.filter((c) => archived.has(c.key));
-    else arr = arr.filter((c) => !archived.has(c.key));
+    if (folderFilter === 'fav') arr = arr.filter((c) => getMeta(c)?.isPinned);
+    else if (folderFilter === 'archive') arr = arr.filter((c) => getMeta(c)?.isArchived);
+    else if (folderFilter === 'mine') arr = arr.filter((c) => getMeta(c)?.assignedToId === user?.id);
+    else arr = arr.filter((c) => !getMeta(c)?.isArchived);
     return arr;
-  }, [conversations, folderFilter, favorites, archived]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, folderFilter, metas, user]);
 
   const selected = useMemo(() => conversations.find((c) => c.key === selectedKey), [conversations, selectedKey]);
 
@@ -524,17 +551,26 @@ export default function InboxPage() {
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro'); }
   };
 
-  const toggleFavorite = (key: string) => {
-    const next = new Set(favorites);
-    next.has(key) ? next.delete(key) : next.add(key);
-    setFavorites(next);
+  const toggleFavorite = async (conv: Conversation) => {
+    const meta = getMeta(conv);
+    await upsertMeta(conv, { isPinned: !meta?.isPinned });
   };
 
-  const toggleArchive = (key: string) => {
-    const next = new Set(archived);
-    next.has(key) ? next.delete(key) : next.add(key);
-    setArchived(next);
-    if (selectedKey === key) setSelectedKey(null);
+  const toggleArchive = async (conv: Conversation) => {
+    const meta = getMeta(conv);
+    await upsertMeta(conv, { isArchived: !meta?.isArchived });
+    if (!meta?.isArchived && selectedKey === conv.key) setSelectedKey(null);
+  };
+
+  const assignTo = async (conv: Conversation, userId: string | null) => {
+    await upsertMeta(conv, { assignedToId: userId });
+  };
+
+  const toggleTag = async (conv: Conversation, tagId: string) => {
+    const meta = getMeta(conv);
+    const current = meta?.tags?.map((t) => t.tag.id) || [];
+    const next = current.includes(tagId) ? current.filter((t) => t !== tagId) : [...current, tagId];
+    await upsertMeta(conv, { tagIds: next });
   };
 
   const handleAISummary = async () => {
@@ -637,9 +673,10 @@ export default function InboxPage() {
             <input className="input-base text-sm" style={{ paddingLeft: 32 }} placeholder="Pesquisar..." value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           {/* Folders */}
-          <div className="flex gap-1 mb-2">
+          <div className="flex gap-1 mb-2 flex-wrap">
             {([
               { v: 'all', label: 'Activas' },
+              { v: 'mine', label: 'Minhas' },
               { v: 'fav', label: 'Favoritas' },
               { v: 'archive', label: 'Arquivadas' },
             ] as const).map((f) => (
@@ -684,8 +721,9 @@ export default function InboxPage() {
           ) : (
             visibleConversations.map((conv) => {
               const isSelected = selectedKey === conv.key;
-              const isFav = favorites.has(conv.key);
-              const isArc = archived.has(conv.key);
+              const meta = getMeta(conv);
+              const isFav = !!meta?.isPinned;
+              const isArc = !!meta?.isArchived;
               const initial = (conv.contact?.firstName?.[0] || '?').toUpperCase();
               return (
                 <div key={conv.key} className="relative group">
@@ -727,13 +765,21 @@ export default function InboxPage() {
                       </div>
                     </div>
                   </button>
+                  {/* Tags da conversa (sempre visiveis) */}
+                  {meta?.tags && meta.tags.length > 0 && (
+                    <div className="absolute left-14 bottom-1 flex gap-0.5 pointer-events-none">
+                      {meta.tags.slice(0, 3).map((t) => (
+                        <span key={t.tag.id} className="w-2 h-2 rounded-full" style={{ background: t.tag.color }} title={t.tag.name} />
+                      ))}
+                    </div>
+                  )}
                   {/* Acções rápidas no hover */}
                   <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
-                    <button onClick={(e) => { e.stopPropagation(); toggleFavorite(conv.key); }}
+                    <button onClick={(e) => { e.stopPropagation(); toggleFavorite(conv); }}
                       className="p-1 rounded bg-white shadow-sm" title={isFav ? 'Remover dos favoritos' : 'Marcar como favorito'}>
                       <Star size={12} style={{ color: isFav ? '#F59E0B' : 'var(--text-muted)' }} fill={isFav ? '#F59E0B' : 'none'} />
                     </button>
-                    <button onClick={(e) => { e.stopPropagation(); toggleArchive(conv.key); }}
+                    <button onClick={(e) => { e.stopPropagation(); toggleArchive(conv); }}
                       className="p-1 rounded bg-white shadow-sm" title={isArc ? 'Restaurar' : 'Arquivar'}>
                       <Archive size={12} style={{ color: isArc ? 'var(--primary)' : 'var(--text-muted)' }} />
                     </button>
@@ -1071,16 +1117,50 @@ export default function InboxPage() {
             </div>
 
             <div className="flex justify-center gap-1">
-              <button onClick={() => toggleFavorite(selected.key)} className="btn py-1.5 px-3 text-xs"
-                style={{ background: favorites.has(selected.key) ? '#FEF3C7' : 'var(--surface-3)', color: favorites.has(selected.key) ? '#92400E' : 'var(--text-secondary)' }}>
-                <Star size={12} fill={favorites.has(selected.key) ? '#F59E0B' : 'none'} />
-                {favorites.has(selected.key) ? 'Favorita' : 'Favoritar'}
+              <button onClick={() => toggleFavorite(selected)} className="btn py-1.5 px-3 text-xs"
+                style={{ background: getMeta(selected)?.isPinned ? '#FEF3C7' : 'var(--surface-3)', color: getMeta(selected)?.isPinned ? '#92400E' : 'var(--text-secondary)' }}>
+                <Star size={12} fill={getMeta(selected)?.isPinned ? '#F59E0B' : 'none'} />
+                {getMeta(selected)?.isPinned ? 'Favorita' : 'Favoritar'}
               </button>
-              <button onClick={() => toggleArchive(selected.key)} className="btn py-1.5 px-3 text-xs"
+              <button onClick={() => toggleArchive(selected)} className="btn py-1.5 px-3 text-xs"
                 style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
                 <Archive size={12} />
-                {archived.has(selected.key) ? 'Restaurar' : 'Arquivar'}
+                {getMeta(selected)?.isArchived ? 'Restaurar' : 'Arquivar'}
               </button>
+            </div>
+
+            {/* Atribuir responsavel */}
+            <div className="space-y-1">
+              <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Responsavel</p>
+              <select
+                value={getMeta(selected)?.assignedToId || ''}
+                onChange={(e) => assignTo(selected, e.target.value || null)}
+                className="input-base text-xs"
+                style={{ padding: '6px 8px' }}
+              >
+                <option value="">— Sem atribuir —</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+
+            {/* Tags da conversa */}
+            <div className="space-y-1">
+              <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Tags da conversa</p>
+              <div className="flex flex-wrap gap-1 p-2 rounded" style={{ background: 'var(--surface-2)', minHeight: 32 }}>
+                {allTags.length === 0 && (
+                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Sem tags. Cria nos Contactos.</span>
+                )}
+                {allTags.map((tag) => {
+                  const sel = !!getMeta(selected)?.tags?.find((t) => t.tag.id === tag.id);
+                  return (
+                    <button key={tag.id} onClick={() => toggleTag(selected, tag.id)}
+                      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: sel ? tag.color : tag.color + '22', color: sel ? '#fff' : tag.color, border: `1px solid ${tag.color}` }}>
+                      {tag.name}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="space-y-2 text-xs">
