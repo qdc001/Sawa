@@ -5,82 +5,132 @@ import { AuthRequest } from '../middleware/auth';
 const router = Router();
 const prisma = new PrismaClient();
 
+// Helpers para parsear filtros comuns
+function getDateRange(req: AuthRequest): { from: Date; to: Date; prevFrom: Date; prevTo: Date } {
+  const now = new Date();
+  let from: Date;
+  let to: Date = now;
+
+  if (req.query.from && req.query.to) {
+    from = new Date(req.query.from as string);
+    to = new Date(req.query.to as string);
+  } else if (req.query.period) {
+    const p = req.query.period as string;
+    if (p === 'today') {
+      from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (p === '7d') {
+      from = new Date(now); from.setDate(from.getDate() - 7);
+    } else if (p === '30d') {
+      from = new Date(now); from.setDate(from.getDate() - 30);
+    } else if (p === '3m') {
+      from = new Date(now); from.setMonth(from.getMonth() - 3);
+    } else if (p === '6m') {
+      from = new Date(now); from.setMonth(from.getMonth() - 6);
+    } else if (p === '1y') {
+      from = new Date(now); from.setFullYear(from.getFullYear() - 1);
+    } else {
+      from = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+  } else {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+
+  const dur = to.getTime() - from.getTime();
+  const prevTo = new Date(from);
+  const prevFrom = new Date(from.getTime() - dur);
+
+  return { from, to, prevFrom, prevTo };
+}
+
+function getFilters(req: AuthRequest): { pipelineId?: string; assignedToId?: string } {
+  return {
+    pipelineId: (req.query.pipelineId as string) || undefined,
+    assignedToId: (req.query.assignedToId as string) || undefined,
+  };
+}
+
+function buildLeadWhere(workspaceId: string, filters: any, dateField: string, from?: Date, to?: Date) {
+  const where: any = { workspaceId };
+  if (filters.pipelineId) where.pipelineId = filters.pipelineId;
+  if (filters.assignedToId) where.assignedToId = filters.assignedToId;
+  if (from && to) where[dateField] = { gte: from, lte: to };
+  return where;
+}
+
 // GET /api/analytics/dashboard
 router.get('/dashboard', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+    const { from, to, prevFrom, prevTo } = getDateRange(req);
+    const filters = getFilters(req);
+
+    const baseWhere: any = { workspaceId };
+    if (filters.pipelineId) baseWhere.pipelineId = filters.pipelineId;
+    if (filters.assignedToId) baseWhere.assignedToId = filters.assignedToId;
 
     const [
-      totalLeads,
-      openLeads,
-      wonLeads,
-      lostLeads,
-      totalContacts,
-      monthLeads,
-      lastMonthLeads,
-      wonThisMonth,
-      wonLastMonth,
-      revenueThisMonth,
-      revenueLastMonth,
+      totalLeads, openLeads, wonLeads, lostLeads, totalContacts,
+      periodLeadsCreated, prevLeadsCreated,
+      periodWon, prevWon,
+      periodRevenue, prevRevenue,
       tasksDue,
       leadsPerStage,
       recentActivities,
     ] = await Promise.all([
-      prisma.lead.count({ where: { workspaceId } }),
-      prisma.lead.count({ where: { workspaceId, status: 'OPEN' } }),
-      prisma.lead.count({ where: { workspaceId, status: 'WON' } }),
-      prisma.lead.count({ where: { workspaceId, status: 'LOST' } }),
+      prisma.lead.count({ where: baseWhere }),
+      prisma.lead.count({ where: { ...baseWhere, status: 'OPEN' } }),
+      prisma.lead.count({ where: { ...baseWhere, status: 'WON' } }),
+      prisma.lead.count({ where: { ...baseWhere, status: 'LOST' } }),
       prisma.contact.count({ where: { workspaceId } }),
-      prisma.lead.count({ where: { workspaceId, createdAt: { gte: startOfMonth } } }),
-      prisma.lead.count({ where: { workspaceId, createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } } }),
-      prisma.lead.count({ where: { workspaceId, status: 'WON', closedAt: { gte: startOfMonth } } }),
-      prisma.lead.count({ where: { workspaceId, status: 'WON', closedAt: { gte: startOfLastMonth, lte: endOfLastMonth } } }),
-      prisma.lead.aggregate({ where: { workspaceId, status: 'WON', closedAt: { gte: startOfMonth } }, _sum: { value: true } }),
-      prisma.lead.aggregate({ where: { workspaceId, status: 'WON', closedAt: { gte: startOfLastMonth, lte: endOfLastMonth } }, _sum: { value: true } }),
-      prisma.task.count({ where: { assignedTo: { workspaceId }, status: 'PENDING', dueAt: { lte: new Date() } } }),
+      prisma.lead.count({ where: { ...baseWhere, createdAt: { gte: from, lte: to } } }),
+      prisma.lead.count({ where: { ...baseWhere, createdAt: { gte: prevFrom, lte: prevTo } } }),
+      prisma.lead.count({ where: { ...baseWhere, status: 'WON', closedAt: { gte: from, lte: to } } }),
+      prisma.lead.count({ where: { ...baseWhere, status: 'WON', closedAt: { gte: prevFrom, lte: prevTo } } }),
+      prisma.lead.aggregate({ where: { ...baseWhere, status: 'WON', closedAt: { gte: from, lte: to } }, _sum: { value: true } }),
+      prisma.lead.aggregate({ where: { ...baseWhere, status: 'WON', closedAt: { gte: prevFrom, lte: prevTo } }, _sum: { value: true } }),
+      prisma.task.count({
+        where: {
+          assignedTo: { workspaceId, ...(filters.assignedToId && { id: filters.assignedToId }) },
+          status: 'PENDING', dueAt: { lte: new Date() },
+        },
+      }),
       prisma.stage.findMany({
-        where: { pipeline: { workspaceId } },
+        where: {
+          pipeline: { workspaceId, ...(filters.pipelineId && { id: filters.pipelineId }) },
+        },
         include: { _count: { select: { leads: { where: { status: 'OPEN' } } } } },
         orderBy: { position: 'asc' },
       }),
       prisma.activity.findMany({
         where: { lead: { workspaceId } },
-        include: { user: { select: { id: true, name: true, avatar: true } }, lead: { select: { id: true, title: true } } },
+        include: {
+          user: { select: { id: true, name: true, avatar: true } },
+          lead: { select: { id: true, title: true } },
+        },
         orderBy: { createdAt: 'desc' },
         take: 10,
       }),
     ]);
 
     const conversionRate = totalLeads > 0 ? Math.round((wonLeads / totalLeads) * 100) : 0;
+    const growth = (cur: number, prev: number) => prev > 0 ? Math.round(((cur - prev) / prev) * 100) : (cur > 0 ? 100 : 0);
+    const rev = periodRevenue._sum.value || 0;
+    const prevRev = prevRevenue._sum.value || 0;
 
     res.json({
       overview: {
-        totalLeads,
-        openLeads,
-        wonLeads,
-        lostLeads,
-        totalContacts,
-        conversionRate,
-        tasksDue,
+        totalLeads, openLeads, wonLeads, lostLeads, totalContacts, conversionRate, tasksDue,
       },
       monthly: {
-        leadsCreated: monthLeads,
-        leadsCreatedGrowth: lastMonthLeads > 0 ? Math.round(((monthLeads - lastMonthLeads) / lastMonthLeads) * 100) : 0,
-        leadsWon: wonThisMonth,
-        leadsWonGrowth: wonLastMonth > 0 ? Math.round(((wonThisMonth - wonLastMonth) / wonLastMonth) * 100) : 0,
-        revenue: revenueThisMonth._sum.value || 0,
-        revenueGrowth: (revenueLastMonth._sum.value || 0) > 0
-          ? Math.round((((revenueThisMonth._sum.value || 0) - (revenueLastMonth._sum.value || 0)) / (revenueLastMonth._sum.value || 0)) * 100)
-          : 0,
+        leadsCreated: periodLeadsCreated,
+        leadsCreatedGrowth: growth(periodLeadsCreated, prevLeadsCreated),
+        leadsWon: periodWon,
+        leadsWonGrowth: growth(periodWon, prevWon),
+        revenue: rev,
+        revenueGrowth: growth(rev, prevRev),
       },
-      pipeline: leadsPerStage.map(s => ({
-        id: s.id,
-        name: s.name,
-        color: s.color,
+      pipeline: leadsPerStage.map((s: any) => ({
+        id: s.id, name: s.name, color: s.color, position: s.position, type: s.type,
         count: s._count.leads,
       })),
       recentActivities,
@@ -88,12 +138,44 @@ router.get('/dashboard', async (req: AuthRequest, res: Response, next) => {
   } catch (error) { next(error); }
 });
 
-// GET /api/analytics/upcoming-tasks - proximas tarefas pendentes
+// GET /api/analytics/revenue
+router.get('/revenue', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const filters = getFilters(req);
+    const months = parseInt((req.query.months as string) || '6', 10);
+    const data = [];
+
+    for (let i = months - 1; i >= 0; i--) {
+      const date = new Date();
+      const start = new Date(date.getFullYear(), date.getMonth() - i, 1);
+      const end = new Date(date.getFullYear(), date.getMonth() - i + 1, 0);
+
+      const where: any = { workspaceId, status: 'WON', closedAt: { gte: start, lte: end } };
+      if (filters.pipelineId) where.pipelineId = filters.pipelineId;
+      if (filters.assignedToId) where.assignedToId = filters.assignedToId;
+
+      const result = await prisma.lead.aggregate({ where, _sum: { value: true }, _count: true });
+      data.push({
+        month: start.toLocaleString('pt', { month: 'short' }),
+        revenue: result._sum.value || 0,
+        deals: result._count,
+      });
+    }
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// GET /api/analytics/upcoming-tasks
 router.get('/upcoming-tasks', async (req: AuthRequest, res: Response, next) => {
   try {
+    const filters = getFilters(req);
     const tasks = await prisma.task.findMany({
       where: {
-        assignedTo: { workspaceId: req.user!.workspaceId },
+        assignedTo: {
+          workspaceId: req.user!.workspaceId,
+          ...(filters.assignedToId && { id: filters.assignedToId }),
+        },
         status: { in: ['PENDING', 'IN_PROGRESS'] },
       },
       include: {
@@ -107,11 +189,16 @@ router.get('/upcoming-tasks', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/analytics/top-leads - leads abertos com maior valor
+// GET /api/analytics/top-leads
 router.get('/top-leads', async (req: AuthRequest, res: Response, next) => {
   try {
+    const filters = getFilters(req);
+    const where: any = { workspaceId: req.user!.workspaceId, status: 'OPEN', value: { not: null } };
+    if (filters.pipelineId) where.pipelineId = filters.pipelineId;
+    if (filters.assignedToId) where.assignedToId = filters.assignedToId;
+
     const leads = await prisma.lead.findMany({
-      where: { workspaceId: req.user!.workspaceId, status: 'OPEN', value: { not: null } },
+      where,
       include: {
         stage: true,
         pipeline: { select: { name: true } },
@@ -125,33 +212,147 @@ router.get('/top-leads', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/analytics/revenue
-router.get('/revenue', async (req: AuthRequest, res: Response, next) => {
+// GET /api/analytics/team-performance
+router.get('/team-performance', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
-    const months = 6;
-    const data = [];
+    const { from, to } = getDateRange(req);
+    const filters = getFilters(req);
 
-    for (let i = months - 1; i >= 0; i--) {
-      const date = new Date();
-      const start = new Date(date.getFullYear(), date.getMonth() - i, 1);
-      const end = new Date(date.getFullYear(), date.getMonth() - i + 1, 0);
+    const users = await prisma.user.findMany({
+      where: { workspaceId },
+      select: { id: true, name: true, avatar: true },
+    });
 
-      const result = await prisma.lead.aggregate({
-        where: { workspaceId, status: 'WON', closedAt: { gte: start, lte: end } },
-        _sum: { value: true },
-        _count: true,
-      });
+    const stats = await Promise.all(users.map(async (u) => {
+      const leadWhere: any = { workspaceId, assignedToId: u.id };
+      if (filters.pipelineId) leadWhere.pipelineId = filters.pipelineId;
 
-      data.push({
-        month: start.toLocaleString('pt', { month: 'short' }),
-        revenue: result._sum.value || 0,
-        deals: result._count,
-      });
-    }
+      const [created, won, lost, revenue, openCount, openValue, tasksOpen] = await Promise.all([
+        prisma.lead.count({ where: { ...leadWhere, createdAt: { gte: from, lte: to } } }),
+        prisma.lead.count({ where: { ...leadWhere, status: 'WON', closedAt: { gte: from, lte: to } } }),
+        prisma.lead.count({ where: { ...leadWhere, status: 'LOST', closedAt: { gte: from, lte: to } } }),
+        prisma.lead.aggregate({ where: { ...leadWhere, status: 'WON', closedAt: { gte: from, lte: to } }, _sum: { value: true } }),
+        prisma.lead.count({ where: { ...leadWhere, status: 'OPEN' } }),
+        prisma.lead.aggregate({ where: { ...leadWhere, status: 'OPEN' }, _sum: { value: true } }),
+        prisma.task.count({ where: { assignedToId: u.id, status: { in: ['PENDING', 'IN_PROGRESS'] } } }),
+      ]);
 
-    res.json(data);
-  } catch (error) { next(error); }
+      const totalClosed = won + lost;
+      const winRate = totalClosed > 0 ? Math.round((won / totalClosed) * 100) : 0;
+      return {
+        id: u.id, name: u.name, avatar: u.avatar,
+        created, won, lost, winRate,
+        revenue: revenue._sum.value || 0,
+        openCount, openValue: openValue._sum.value || 0,
+        tasksOpen,
+      };
+    }));
+
+    stats.sort((a, b) => b.revenue - a.revenue);
+    res.json(stats);
+  } catch (e) { next(e); }
+});
+
+// GET /api/analytics/lead-sources
+router.get('/lead-sources', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const { from, to } = getDateRange(req);
+    const filters = getFilters(req);
+
+    const where: any = { workspaceId, createdAt: { gte: from, lte: to } };
+    if (filters.pipelineId) where.pipelineId = filters.pipelineId;
+    if (filters.assignedToId) where.assignedToId = filters.assignedToId;
+
+    const grouped = await prisma.lead.groupBy({
+      by: ['source'],
+      where,
+      _count: true,
+      _sum: { value: true },
+    });
+
+    const wonGrouped = await prisma.lead.groupBy({
+      by: ['source'],
+      where: { ...where, status: 'WON' },
+      _count: true,
+    });
+    const wonMap: Record<string, number> = {};
+    wonGrouped.forEach((g) => { wonMap[g.source || '__null__'] = g._count; });
+
+    const result = grouped.map((g) => {
+      const total = g._count;
+      const won = wonMap[g.source || '__null__'] || 0;
+      return {
+        source: g.source || 'Sem origem',
+        total,
+        won,
+        revenue: g._sum.value || 0,
+        winRate: total > 0 ? Math.round((won / total) * 100) : 0,
+      };
+    }).sort((a, b) => b.total - a.total);
+
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
+// GET /api/analytics/conversion-stats
+router.get('/conversion-stats', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const { from, to } = getDateRange(req);
+    const filters = getFilters(req);
+
+    const baseWhere: any = { workspaceId };
+    if (filters.pipelineId) baseWhere.pipelineId = filters.pipelineId;
+    if (filters.assignedToId) baseWhere.assignedToId = filters.assignedToId;
+
+    // Tempo medio de conversao
+    const wonLeads = await prisma.lead.findMany({
+      where: { ...baseWhere, status: 'WON', closedAt: { not: null, gte: from, lte: to } },
+      select: { createdAt: true, closedAt: true },
+    });
+    const days = wonLeads
+      .map((l) => l.closedAt ? (new Date(l.closedAt).getTime() - new Date(l.createdAt).getTime()) / (1000 * 60 * 60 * 24) : 0)
+      .filter((x) => x > 0);
+    const avgConversionDays = days.length > 0 ? Math.round(days.reduce((a, b) => a + b, 0) / days.length) : 0;
+
+    // Forecast (soma de leads abertos com valor)
+    const openAgg = await prisma.lead.aggregate({
+      where: { ...baseWhere, status: 'OPEN', value: { not: null } },
+      _sum: { value: true },
+      _count: true,
+    });
+    // Win rate global
+    const [allWon, allClosed] = await Promise.all([
+      prisma.lead.count({ where: { ...baseWhere, status: 'WON' } }),
+      prisma.lead.count({ where: { ...baseWhere, status: { in: ['WON', 'LOST'] } } }),
+    ]);
+    const winRateGlobal = allClosed > 0 ? allWon / allClosed : 0.3;
+    const forecast = Math.round((openAgg._sum.value || 0) * winRateGlobal);
+
+    // Leads parados (sem actividade ha > 14 dias e abertos)
+    const stagnantThreshold = new Date(); stagnantThreshold.setDate(stagnantThreshold.getDate() - 14);
+    const stagnantLeads = await prisma.lead.findMany({
+      where: { ...baseWhere, status: 'OPEN', updatedAt: { lt: stagnantThreshold } },
+      include: {
+        stage: { select: { name: true, color: true } },
+        pipeline: { select: { name: true } },
+        contact: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: 10,
+    });
+
+    res.json({
+      avgConversionDays,
+      forecastValue: forecast,
+      forecastBaseValue: openAgg._sum.value || 0,
+      forecastOpenCount: openAgg._count,
+      winRateGlobal: Math.round(winRateGlobal * 100),
+      stagnantLeads,
+    });
+  } catch (e) { next(e); }
 });
 
 export default router;

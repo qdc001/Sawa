@@ -87,3 +87,11 @@ h1,h2,h3,h4,h5 { font-family: 'Plus Jakarta Sans', sans-serif; }
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 .input-base::placeholder { color: var(--text-muted); }
+
+/* ========== Print (exportar PDF do Dashboard) ========== */
+@media print {
+  body { background: #fff !important; }
+  aside, header { display: none !important; }
+  .card { break-inside: avoid; box-shadow: none !important; border: 1px solid #E2E8F0 !important; }
+  main { overflow: visible !important; }
+}

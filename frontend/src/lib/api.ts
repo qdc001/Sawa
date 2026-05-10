@@ -207,8 +207,39 @@ export interface DashboardData {
     revenue: number;
     revenueGrowth: number;
   };
-  pipeline: { id: string; name: string; color: string; count: number }[];
+  pipeline: { id: string; name: string; color: string; count: number; position?: number; type?: string }[];
   recentActivities: Activity[];
+}
+
+export interface TeamMemberStats {
+  id: string;
+  name: string;
+  avatar?: string;
+  created: number;
+  won: number;
+  lost: number;
+  winRate: number;
+  revenue: number;
+  openCount: number;
+  openValue: number;
+  tasksOpen: number;
+}
+
+export interface LeadSourceStat {
+  source: string;
+  total: number;
+  won: number;
+  revenue: number;
+  winRate: number;
+}
+
+export interface ConversionStats {
+  avgConversionDays: number;
+  forecastValue: number;
+  forecastBaseValue: number;
+  forecastOpenCount: number;
+  winRateGlobal: number;
+  stagnantLeads: any[];
 }
 
 export interface RevenueData {
