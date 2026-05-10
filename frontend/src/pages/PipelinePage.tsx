@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import api, { Lead, Pipeline, Stage, CustomField, CustomFieldType } from '../lib/api';
 import toast from 'react-hot-toast';
+import { useUIStore } from '../store';
 
 // ============== Hook: pan-scroll com botao do rato ==============
 // scrollButton: 0 = esquerdo, 1 = meio, 2 = direito; -1 = desactivado
@@ -86,14 +87,15 @@ function useDragScroll(ref: React.RefObject<HTMLElement | null>, scrollButton: n
 }
 
 // ============== Lead Card ==============
-function LeadCard({ lead, onClick, external = false }: { lead: Lead; onClick: () => void; external?: boolean }) {
+function LeadCard({ lead, onClick, external = false, dimmed = false }: { lead: Lead; onClick: () => void; external?: boolean; dimmed?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: lead.id, disabled: external });
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
+    opacity: isDragging ? 0.4 : dimmed ? 0.25 : 1,
+    filter: dimmed ? 'grayscale(0.6)' : 'none',
   };
 
   const priorityColors: Record<string, string> = {
@@ -174,12 +176,14 @@ function StageColumn({
   onAddLead,
   onLeadClick,
   isExternal,
+  isDimmed,
 }: {
   stage: Stage;
   leads: Lead[];
   onAddLead: (stageId: string) => void;
   onLeadClick: (lead: Lead) => void;
   isExternal?: (lead: Lead) => boolean;
+  isDimmed?: (lead: Lead) => boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   const totalValue = leads.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
@@ -236,6 +240,7 @@ function StageColumn({
               lead={lead}
               onClick={() => onLeadClick(lead)}
               external={isExternal ? isExternal(lead) : false}
+              dimmed={isDimmed ? isDimmed(lead) : false}
             />
           ))}
         </SortableContext>
@@ -1235,6 +1240,7 @@ function ManagePipelinesModal({
 
 // ============== Main Pipeline Page ==============
 export default function PipelinePage() {
+  const { globalSearchQuery } = useUIStore();
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [activePipelineId, setActivePipelineId] = useState<string>('');
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -1331,6 +1337,29 @@ export default function PipelinePage() {
     };
     loadLeads();
   }, [activePipelineId, isAggregated]);
+
+  // Lead corresponde a pesquisa global?
+  const matchesSearch = (lead: Lead): boolean => {
+    const q = globalSearchQuery.trim().toLowerCase();
+    if (!q) return true;
+    const haystack = [
+      lead.title,
+      String(lead.value ?? ''),
+      lead.contact?.firstName,
+      lead.contact?.lastName,
+      lead.contact?.email,
+      lead.contact?.phone,
+      lead.contact?.company,
+      lead.pipeline?.name,
+      lead.stage?.name,
+      lead.priority,
+      lead.assignedTo?.name,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(q);
+  };
 
   // Mapeia o lead para a coluna correcta no Pipeline Principal (vista agregada)
   const mapToColumnStageId = (lead: Lead): string | null => {
@@ -1515,6 +1544,14 @@ export default function PipelinePage() {
         </div>
 
         <div className="ml-auto flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          {globalSearchQuery.trim() && (
+            <span
+              className="text-xs px-2 py-1 rounded font-medium"
+              style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+            >
+              {leads.filter(matchesSearch).length} resultados de "{globalSearchQuery.trim()}"
+            </span>
+          )}
           <span>Total: <strong style={{ color: 'var(--text-primary)' }}>{leads.length}</strong> leads</span>
           <span>•</span>
           <span>
@@ -1542,6 +1579,7 @@ export default function PipelinePage() {
                 onAddLead={setAddingToStage}
                 onLeadClick={setSelectedLead}
                 isExternal={(lead) => isAggregated && lead.pipelineId !== activePipelineId}
+                isDimmed={(lead) => !matchesSearch(lead)}
               />
             ))}
           </div>

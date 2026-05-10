@@ -38,15 +38,19 @@ export const useAuthStore = create<AuthStore>()(
 interface UIStore {
   sidebarOpen: boolean;
   activePipelineId: string | null;
+  globalSearchQuery: string;
   toggleSidebar: () => void;
   setActivePipeline: (id: string) => void;
+  setGlobalSearchQuery: (q: string) => void;
 }
 
 export const useUIStore = create<UIStore>((set) => ({
   sidebarOpen: true,
   activePipelineId: null,
+  globalSearchQuery: '',
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setActivePipeline: (id) => set({ activePipelineId: id }),
+  setGlobalSearchQuery: (q) => set({ globalSearchQuery: q }),
 }));
 
 interface PipelineStore {

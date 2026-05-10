@@ -5,7 +5,7 @@ import {
   Zap, Bot, BarChart3, FileText, Plug, Settings, LogOut,
   Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2
 } from 'lucide-react';
-import { useAuthStore } from '../../store';
+import { useAuthStore, useUIStore } from '../../store';
 import CopilotPanel from '../ai/CopilotPanel';
 import toast from 'react-hot-toast';
 import api, { Lead, Contact } from '../../lib/api';
@@ -32,8 +32,8 @@ export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
 
-  // Pesquisa global
-  const [query, setQuery] = useState('');
+  // Pesquisa global (partilhada via store para destacar tambem no kanban)
+  const { globalSearchQuery: query, setGlobalSearchQuery: setQuery } = useUIStore();
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<{ leads: Lead[]; contacts: Contact[] }>({ leads: [], contacts: [] });
   const [showResults, setShowResults] = useState(false);
