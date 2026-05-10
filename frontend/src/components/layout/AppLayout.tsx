@@ -1,13 +1,14 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   LayoutDashboard, GitBranch, Users, MessageSquare, CheckSquare,
   Zap, Bot, BarChart3, FileText, Plug, Settings, LogOut,
-  Bell, Search, ChevronDown, Menu, X, UserPlus, Radio
+  Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2
 } from 'lucide-react';
 import { useAuthStore } from '../../store';
 import CopilotPanel from '../ai/CopilotPanel';
 import toast from 'react-hot-toast';
+import api, { Lead, Contact } from '../../lib/api';
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
@@ -29,14 +30,90 @@ export default function AppLayout() {
   const { user, workspace, logout } = useAuthStore();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
+
+  // Pesquisa global
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<{ leads: Lead[]; contacts: Contact[] }>({ leads: [], contacts: [] });
+  const [showResults, setShowResults] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const handleLogout = () => {
     logout();
     toast.success('Sessão terminada');
     navigate('/login');
   };
+
+  // Pesquisa com debounce
+  useEffect(() => {
+    if (!query.trim() || query.trim().length < 2) {
+      setResults({ leads: [], contacts: [] });
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const q = encodeURIComponent(query.trim());
+        const [leadsRes, contactsRes] = await Promise.all([
+          api.get(`/leads?search=${q}&limit=6`),
+          api.get(`/contacts?search=${q}&limit=6`),
+        ]);
+        setResults({
+          leads: leadsRes.data.leads || [],
+          contacts: contactsRes.data.contacts || [],
+        });
+      } catch {
+        // silencioso
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  // Fechar dropdown com clique fora
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setShowResults(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  // Atalho Ctrl/Cmd+K
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        setShowResults(true);
+      }
+      if (e.key === 'Escape') {
+        setShowResults(false);
+        searchInputRef.current?.blur();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const goToLead = (lead: Lead) => {
+    setShowResults(false);
+    setQuery('');
+    navigate(`/pipeline?leadId=${lead.id}`);
+  };
+
+  const goToContact = (contact: Contact) => {
+    setShowResults(false);
+    setQuery('');
+    navigate(`/contacts?contactId=${contact.id}`);
+  };
+
+  const totalResults = results.leads.length + results.contacts.length;
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--surface-2)' }}>
@@ -135,15 +212,109 @@ export default function AppLayout() {
         {/* Topbar */}
         <header className="flex items-center gap-4 px-6 flex-shrink-0" style={{ height: 64, background: 'var(--surface)', borderBottom: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
           {/* Search */}
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-2 flex-1 max-w-xs px-3 py-2 rounded-lg text-sm transition-colors"
-            style={{ background: 'var(--surface-3)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
-          >
-            <Search size={14} />
-            <span>Pesquisar leads, contactos...</span>
-            <kbd className="ml-auto text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--border)', color: 'var(--text-muted)' }}>⌘K</kbd>
-          </button>
+          <div ref={searchBoxRef} className="relative flex-1 max-w-xs">
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
+              style={{ background: 'var(--surface-3)', border: '1px solid var(--border)' }}
+            >
+              <Search size={14} style={{ color: 'var(--text-muted)' }} />
+              <input
+                ref={searchInputRef}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setShowResults(true);
+                }}
+                onFocus={() => setShowResults(true)}
+                placeholder="Pesquisar leads, contactos..."
+                className="flex-1 bg-transparent outline-none"
+                style={{ color: 'var(--text-primary)' }}
+              />
+              {searching ? (
+                <Loader2 size={14} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+              ) : query ? (
+                <button
+                  onClick={() => { setQuery(''); searchInputRef.current?.focus(); }}
+                  className="p-0.5 rounded hover:bg-white/40"
+                >
+                  <X size={12} style={{ color: 'var(--text-muted)' }} />
+                </button>
+              ) : (
+                <kbd className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--border)', color: 'var(--text-muted)' }}>Ctrl+K</kbd>
+              )}
+            </div>
+
+            {/* Dropdown de resultados */}
+            {showResults && query.trim().length >= 2 && (
+              <div
+                className="absolute top-full mt-1 left-0 right-0 z-50 card overflow-hidden"
+                style={{ background: 'var(--surface)', maxHeight: 400, overflowY: 'auto' }}
+              >
+                {searching && totalResults === 0 && (
+                  <div className="p-4 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+                    A pesquisar...
+                  </div>
+                )}
+
+                {!searching && totalResults === 0 && (
+                  <div className="p-4 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+                    Nenhum resultado para "{query}"
+                  </div>
+                )}
+
+                {results.leads.length > 0 && (
+                  <div>
+                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
+                      Leads ({results.leads.length})
+                    </div>
+                    {results.leads.map((lead) => (
+                      <button
+                        key={lead.id}
+                        onClick={() => goToLead(lead)}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-center gap-2"
+                      >
+                        <GitBranch size={14} style={{ color: 'var(--text-muted)' }} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                            {lead.title}
+                          </p>
+                          <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                            {lead.pipeline?.name} · {lead.stage?.name}
+                            {lead.value ? ` · MZN ${Number(lead.value).toLocaleString()}` : ''}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {results.contacts.length > 0 && (
+                  <div>
+                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
+                      Contactos ({results.contacts.length})
+                    </div>
+                    {results.contacts.map((contact) => (
+                      <button
+                        key={contact.id}
+                        onClick={() => goToContact(contact)}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors flex items-center gap-2"
+                      >
+                        <UserPlus size={14} style={{ color: 'var(--text-muted)' }} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                            {contact.firstName} {contact.lastName || ''}
+                          </p>
+                          <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                            {contact.email || contact.phone || contact.company || '—'}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center gap-2 ml-auto">
             {/* Copilot */}
@@ -181,21 +352,6 @@ export default function AppLayout() {
         </div>
       )}
 
-      {/* Search Modal */}
-      {searchOpen && (
-        <div className="modal-overlay" onClick={() => setSearchOpen(false)}>
-          <div className="modal-content p-0" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 p-4" style={{ borderBottom: '1px solid var(--border)' }}>
-              <Search size={18} style={{ color: 'var(--text-muted)' }} />
-              <input autoFocus className="flex-1 text-sm outline-none" style={{ color: 'var(--text-primary)' }} placeholder="Pesquisar leads, contactos, tarefas..." />
-              <kbd onClick={() => setSearchOpen(false)} className="text-xs px-2 py-1 rounded cursor-pointer" style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}>Esc</kbd>
-            </div>
-            <div className="p-4 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              Começa a escrever para pesquisar...
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

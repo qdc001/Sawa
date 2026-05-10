@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   DndContext,
   DragEndEvent,
@@ -904,6 +905,33 @@ export default function PipelinePage() {
 
   const boardRef = useRef<HTMLDivElement>(null);
   useDragScroll(boardRef, scrollButton);
+
+  // Query param ?leadId=... vindo da pesquisa global
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryLeadId = searchParams.get('leadId');
+  useEffect(() => {
+    if (!queryLeadId) return;
+    const inLoaded = leads.find((l) => l.id === queryLeadId);
+    if (inLoaded) {
+      setSelectedLead(inLoaded);
+      // limpa o param da URL
+      const next = new URLSearchParams(searchParams);
+      next.delete('leadId');
+      setSearchParams(next, { replace: true });
+    } else {
+      // tenta carregar directamente da API
+      api
+        .get(`/leads/${queryLeadId}`)
+        .then(({ data }) => {
+          setSelectedLead(data);
+          const next = new URLSearchParams(searchParams);
+          next.delete('leadId');
+          setSearchParams(next, { replace: true });
+        })
+        .catch(() => toast.error('Lead nao encontrado'));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryLeadId, leads]);
 
   useEffect(() => {
     localStorage.setItem('kommo:scrollButton', String(scrollButton));
