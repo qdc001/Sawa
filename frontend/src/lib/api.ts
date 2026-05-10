@@ -34,6 +34,10 @@ export interface User {
   phone?: string;
   role: 'OWNER' | 'ADMIN' | 'MANAGER' | 'AGENT';
   workspaceId: string;
+  isActive?: boolean;
+  lastLoginAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Workspace {
@@ -176,6 +180,10 @@ export interface IntegrationItem {
   isActive: boolean;
   credentials: any;
   settings: any;
+}
+
+export interface WorkspaceFull extends Workspace {
+  _count?: { users: number; leads: number; contacts: number };
 }
 
 export interface Conversation {
