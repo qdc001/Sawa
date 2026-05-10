@@ -130,12 +130,17 @@ export interface Task {
   description?: string;
   type: 'CALL' | 'EMAIL' | 'MEETING' | 'FOLLOW_UP' | 'DEMO' | 'OTHER';
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   dueAt?: string;
   completedAt?: string;
+  recurrence?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | null;
   createdAt: string;
   leadId?: string;
   lead?: { id: string; title: string };
   assignedTo: User;
+  parentTaskId?: string | null;
+  subtasks?: Task[];
+  tags?: { tag: Tag }[];
 }
 
 export interface Note {

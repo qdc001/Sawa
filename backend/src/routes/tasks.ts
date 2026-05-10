@@ -1,23 +1,29 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
+import { AppError } from '../middleware/errorHandler';
 const prisma = new PrismaClient();
 const router = Router();
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, avatar: true } },
   lead: { select: { id: true, title: true, pipelineId: true } },
+  subtasks: { orderBy: { createdAt: 'asc' as const } },
+  tags: { include: { tag: true } },
 };
 
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { leadId, status, type, assignedToId, dueFrom, dueTo, search } = req.query;
+    const { leadId, status, type, priority, assignedToId, dueFrom, dueTo, search, tagId, parentOnly } = req.query;
     const where: any = { assignedTo: { workspaceId: req.user!.workspaceId } };
     if (leadId) where.leadId = leadId;
     if (status) where.status = status;
     if (type) where.type = type;
+    if (priority) where.priority = priority;
     if (assignedToId) where.assignedToId = assignedToId;
     if (search) where.title = { contains: search as string, mode: 'insensitive' };
+    if (tagId) where.tags = { some: { tagId: tagId as string } };
+    if (parentOnly === 'true') where.parentTaskId = null;
     if (dueFrom || dueTo) {
       where.dueAt = {};
       if (dueFrom) where.dueAt.gte = new Date(dueFrom as string);
@@ -34,20 +40,26 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { title, description, type, status, dueAt, leadId, assignedToId } = req.body;
+    const { title, description, type, status, priority, dueAt, leadId, assignedToId, recurrence, parentTaskId, tags } = req.body;
     const task = await prisma.task.create({
       data: {
         title,
         description,
         type: type || 'CALL',
         status: status || 'PENDING',
+        priority: priority || 'MEDIUM',
         dueAt: dueAt ? new Date(dueAt) : null,
         leadId: leadId || null,
+        recurrence: recurrence || null,
+        parentTaskId: parentTaskId || null,
         assignedToId: assignedToId || req.user!.id,
+        tags: Array.isArray(tags) && tags.length
+          ? { create: tags.map((tagId: string) => ({ tagId })) }
+          : undefined,
       },
       include: taskInclude,
     });
-    if (task.leadId) {
+    if (task.leadId && !parentTaskId) {
       await prisma.activity.create({
         data: { type: 'TASK_CREATED', description: `Tarefa "${task.title}" criada`, leadId: task.leadId, userId: req.user!.id },
       });
@@ -56,17 +68,62 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// Helper: calcular proxima ocorrencia
+function nextDueDate(dueAt: Date, recurrence: string): Date {
+  const d = new Date(dueAt);
+  switch (recurrence) {
+    case 'DAILY': d.setDate(d.getDate() + 1); break;
+    case 'WEEKLY': d.setDate(d.getDate() + 7); break;
+    case 'MONTHLY': d.setMonth(d.getMonth() + 1); break;
+  }
+  return d;
+}
+
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
-    const data: any = { ...req.body };
+    const { tags, ...rest } = req.body;
+    const data: any = { ...rest };
     if (data.dueAt) data.dueAt = new Date(data.dueAt);
     if (data.status === 'COMPLETED') data.completedAt = new Date();
     if (data.status && data.status !== 'COMPLETED') data.completedAt = null;
+
+    if (Array.isArray(tags)) {
+      await prisma.tagOnTask.deleteMany({ where: { taskId: req.params.id } });
+      if (tags.length) {
+        await prisma.tagOnTask.createMany({
+          data: tags.map((tagId: string) => ({ taskId: req.params.id, tagId })),
+        });
+      }
+    }
+
+    const before = await prisma.task.findUnique({ where: { id: req.params.id } });
     const task = await prisma.task.update({
       where: { id: req.params.id },
       data,
       include: taskInclude,
     });
+
+    // Se concluiu uma tarefa recorrente, criar a proxima
+    if (
+      before && before.status !== 'COMPLETED' && task.status === 'COMPLETED' &&
+      task.recurrence && task.dueAt && !task.parentTaskId
+    ) {
+      const nextDue = nextDueDate(task.dueAt, task.recurrence);
+      await prisma.task.create({
+        data: {
+          title: task.title,
+          description: task.description,
+          type: task.type,
+          status: 'PENDING',
+          priority: task.priority,
+          dueAt: nextDue,
+          leadId: task.leadId,
+          recurrence: task.recurrence,
+          assignedToId: task.assignedToId,
+        },
+      });
+    }
+
     if (req.body.status === 'COMPLETED' && task.leadId) {
       await prisma.activity.create({
         data: { type: 'TASK_COMPLETED', description: `Tarefa "${task.title}" concluída`, leadId: task.leadId, userId: req.user!.id },
@@ -80,6 +137,60 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     await prisma.task.delete({ where: { id: req.params.id } });
     res.json({ message: 'Tarefa eliminada' });
+  } catch (e) { next(e); }
+});
+
+// Bulk operations
+router.post('/bulk-complete', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) throw new AppError('ids vazio', 400);
+    const result = await prisma.task.updateMany({
+      where: { id: { in: ids }, assignedTo: { workspaceId: req.user!.workspaceId } },
+      data: { status: 'COMPLETED', completedAt: new Date() },
+    });
+    res.json({ updated: result.count });
+  } catch (e) { next(e); }
+});
+
+router.post('/bulk-delete', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) throw new AppError('ids vazio', 400);
+    const result = await prisma.task.deleteMany({
+      where: { id: { in: ids }, assignedTo: { workspaceId: req.user!.workspaceId } },
+    });
+    res.json({ deleted: result.count });
+  } catch (e) { next(e); }
+});
+
+router.post('/bulk-assign', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { ids, assignedToId } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0 || !assignedToId) throw new AppError('ids e assignedToId obrigatorios', 400);
+    const result = await prisma.task.updateMany({
+      where: { id: { in: ids }, assignedTo: { workspaceId: req.user!.workspaceId } },
+      data: { assignedToId },
+    });
+    res.json({ updated: result.count });
+  } catch (e) { next(e); }
+});
+
+// Tags
+router.post('/:id/tags', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { tagId } = req.body;
+    if (!tagId) throw new AppError('tagId obrigatorio', 400);
+    await prisma.tagOnTask.create({ data: { taskId: req.params.id, tagId } }).catch(() => {});
+    const task = await prisma.task.findUnique({ where: { id: req.params.id }, include: taskInclude });
+    res.json(task);
+  } catch (e) { next(e); }
+});
+
+router.delete('/:id/tags/:tagId', async (req: AuthRequest, res: Response, next) => {
+  try {
+    await prisma.tagOnTask.deleteMany({ where: { taskId: req.params.id, tagId: req.params.tagId } });
+    res.json({ message: 'Tag removida' });
   } catch (e) { next(e); }
 });
 

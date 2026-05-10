@@ -277,8 +277,10 @@ model Task {
   description String?
   type        TaskType   @default(CALL)
   status      TaskStatus @default(PENDING)
+  priority    Priority   @default(MEDIUM)
   dueAt       DateTime?
   completedAt DateTime?
+  recurrence  String?    // DAILY | WEEKLY | MONTHLY (null = nao recorrente)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
@@ -286,6 +288,12 @@ model Task {
   leadId      String?
   assignedTo  User   @relation(fields: [assignedToId], references: [id])
   assignedToId String
+
+  parentTaskId String?
+  parentTask   Task?  @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks     Task[] @relation("Subtasks")
+
+  tags         TagOnTask[]
 
   @@map("tasks")
 }
@@ -441,6 +449,7 @@ model Tag {
 
   leads    TagOnLead[]
   contacts TagOnContact[]
+  tasks    TagOnTask[]
 
   @@unique([name, workspaceId])
   @@map("tags")
@@ -464,6 +473,16 @@ model TagOnContact {
 
   @@id([contactId, tagId])
   @@map("tags_on_contacts")
+}
+
+model TagOnTask {
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId  String
+
+  @@id([taskId, tagId])
+  @@map("tags_on_tasks")
 }
 
 // ==================== CUSTOM FIELDS ====================
