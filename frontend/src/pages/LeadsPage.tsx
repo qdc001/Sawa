@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus, Search, X, Loader2, Trash2, Edit3, ExternalLink,
   ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown,
-  Filter as FilterIcon, RotateCcw,
+  Filter as FilterIcon, RotateCcw, RefreshCw,
 } from 'lucide-react';
 import api, { Lead, Pipeline, User } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -315,6 +315,34 @@ export default function LeadsPage() {
     setAssignedToId('');
   };
 
+  const [syncing, setSyncing] = useState(false);
+  const handleSyncStatuses = async () => {
+    if (!confirm('Sincronizar o estado de todos os leads com a etapa em que estao? (Aberto/Ganho/Perdido)')) return;
+    setSyncing(true);
+    try {
+      const { data } = await api.post('/leads/sync-statuses');
+      toast.success(data.message || 'Sincronizado');
+      // Recarrega a lista
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('limit', String(limit));
+      if (search.trim()) params.set('search', search.trim());
+      if (pipelineId) params.set('pipelineId', pipelineId);
+      if (stageId) params.set('stageId', stageId);
+      if (status) params.set('status', status);
+      if (assignedToId) params.set('assignedToId', assignedToId);
+      const { data: refreshed } = await api.get(`/leads?${params.toString()}`);
+      let list: Lead[] = refreshed.leads || [];
+      if (priority) list = list.filter((l) => l.priority === priority);
+      setLeads(list);
+      setTotal(refreshed.total || 0);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao sincronizar');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleDelete = async (lead: Lead) => {
     if (!confirm(`Eliminar o lead "${lead.title}"?`)) return;
     try {
@@ -338,12 +366,24 @@ export default function LeadsPage() {
         <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
           {total} total
         </span>
-        <button
-          onClick={() => setAdding(true)}
-          className="btn btn-primary py-2 px-3 ml-auto"
-        >
-          <Plus size={14} /> Novo Lead
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={handleSyncStatuses}
+            disabled={syncing}
+            className="btn py-2 px-3"
+            style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+            title="Corrigir estados que nao correspondem a etapa"
+          >
+            {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            Sincronizar estados
+          </button>
+          <button
+            onClick={() => setAdding(true)}
+            className="btn btn-primary py-2 px-3"
+          >
+            <Plus size={14} /> Novo Lead
+          </button>
+        </div>
       </div>
 
       {/* Filtros */}
