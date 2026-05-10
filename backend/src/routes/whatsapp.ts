@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
+import { triggerAutomations } from '../lib/automationEngine';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -217,6 +218,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
               io,
             }).catch((e) => console.error('Chatbot engine error:', e));
           }
+
+          // Disparar motor de automações
+          triggerAutomations({
+            type: 'message_received', workspaceId,
+            entityType: 'message', entityId: savedMessage.id,
+          }).catch((e) => console.error('Automation message_received error:', e));
         }
 
         // Process status updates

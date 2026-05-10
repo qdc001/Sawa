@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
+import { triggerAutomations } from '../lib/automationEngine';
 const prisma = new PrismaClient();
 const router = Router();
 
@@ -76,6 +77,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       },
       include: contactInclude,
     });
+    triggerAutomations({ type: 'contact_created', workspaceId: req.user!.workspaceId, entityType: 'contact', entityId: contact.id }).catch(() => {});
     res.status(201).json(contact);
   } catch (e) { next(e); }
 });

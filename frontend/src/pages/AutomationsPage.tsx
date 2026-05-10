@@ -1,291 +1,839 @@
-import { useState } from 'react';
-import { Plus, Zap, Play, Pause, Trash2, X, Save, ChevronRight, Loader2, ChevronDown } from 'lucide-react';
-import api from '../lib/api';
+import { useState, useEffect } from 'react';
+import {
+  Plus, Zap, Play, ZapOff, Trash2, Copy, X, Save, Loader2, AlertCircle,
+  History, Filter, ChevronRight, ChevronDown, CheckCircle2, XCircle, AlertTriangle,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
+import api, {
+  Automation, AutomationTrigger, AutomationTriggerType,
+  AutomationCondition, AutomationConditionOp, AutomationAction, AutomationActionType,
+  AutomationRun,
+} from '../lib/api';
 
-interface AutomationStep {
-  id: string;
-  type: 'trigger' | 'condition' | 'action' | 'delay';
-  config: Record<string, string>;
-}
-
-const TRIGGERS = [
-  { value: 'lead_created', label: 'Lead criado', icon: '✨' },
-  { value: 'stage_changed', label: 'Lead mudou de etapa', icon: '🔄' },
-  { value: 'lead_won', label: 'Lead marcado como Ganho', icon: '🏆' },
-  { value: 'lead_lost', label: 'Lead marcado como Perdido', icon: '❌' },
-  { value: 'message_received', label: 'Mensagem recebida', icon: '💬' },
-  { value: 'task_due', label: 'Tarefa em atraso', icon: '⏰' },
-  { value: 'no_activity', label: 'Sem actividade há X dias', icon: '😴' },
-  { value: 'tag_added', label: 'Tag adicionada', icon: '🏷️' },
-  { value: 'contact_created', label: 'Contacto criado', icon: '👤' },
+// ── Constantes ─────────────────────────────────────────
+const TRIGGERS: { type: AutomationTriggerType; label: string; icon: string; entity: string }[] = [
+  { type: 'lead_created', label: 'Lead criado', icon: '🎯', entity: 'lead' },
+  { type: 'lead_stage_changed', label: 'Lead muda de etapa', icon: '🔀', entity: 'lead' },
+  { type: 'lead_won', label: 'Lead ganho', icon: '🏆', entity: 'lead' },
+  { type: 'lead_lost', label: 'Lead perdido', icon: '❌', entity: 'lead' },
+  { type: 'lead_assigned', label: 'Lead atribuído', icon: '👤', entity: 'lead' },
+  { type: 'task_created', label: 'Tarefa criada', icon: '📋', entity: 'task' },
+  { type: 'task_completed', label: 'Tarefa concluída', icon: '✅', entity: 'task' },
+  { type: 'task_overdue', label: 'Tarefa atrasada', icon: '⏰', entity: 'task' },
+  { type: 'message_received', label: 'Mensagem recebida', icon: '💬', entity: 'message' },
+  { type: 'contact_created', label: 'Contacto criado', icon: '👥', entity: 'contact' },
 ];
 
-const ACTIONS = [
-  { value: 'send_whatsapp', label: 'Enviar mensagem WhatsApp', icon: '💬' },
-  { value: 'send_email', label: 'Enviar email', icon: '📧' },
-  { value: 'create_task', label: 'Criar tarefa', icon: '✅' },
-  { value: 'move_stage', label: 'Mover para etapa', icon: '📍' },
-  { value: 'assign_user', label: 'Atribuir a agente', icon: '👤' },
-  { value: 'add_tag', label: 'Adicionar tag', icon: '🏷️' },
-  { value: 'update_field', label: 'Actualizar campo', icon: '✏️' },
-  { value: 'webhook', label: 'Disparar webhook', icon: '🔗' },
-  { value: 'ai_reply', label: 'Resposta automática com IA', icon: '🤖' },
-  { value: 'notify_user', label: 'Notificar agente', icon: '🔔' },
+const ACTIONS: { type: AutomationActionType; label: string; icon: string }[] = [
+  { type: 'send_message', label: 'Enviar mensagem WhatsApp', icon: '💬' },
+  { type: 'send_email', label: 'Enviar email', icon: '📧' },
+  { type: 'create_task', label: 'Criar tarefa', icon: '📋' },
+  { type: 'assign_user', label: 'Atribuir lead a utilizador', icon: '👤' },
+  { type: 'change_stage', label: 'Mudar etapa do lead', icon: '🔀' },
+  { type: 'add_tag', label: 'Adicionar tag', icon: '🏷️' },
+  { type: 'set_priority', label: 'Definir prioridade', icon: '⚡' },
+  { type: 'send_notification', label: 'Notificar utilizador', icon: '🔔' },
+  { type: 'webhook', label: 'Chamar webhook', icon: '🔌' },
 ];
 
-const STEP_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  trigger: { bg: '#EEF2FF', border: '#6366F1', text: '#4338CA' },
-  condition: { bg: '#FFFBEB', border: '#F59E0B', text: '#92400E' },
-  action: { bg: '#ECFDF5', border: '#10B981', text: '#065F46' },
-  delay: { bg: '#F5F3FF', border: '#8B5CF6', text: '#5B21B6' },
+const CONDITION_OPS: { op: AutomationConditionOp; label: string }[] = [
+  { op: 'equals', label: 'igual a' },
+  { op: 'not_equals', label: 'diferente de' },
+  { op: 'contains', label: 'contém' },
+  { op: 'greater_than', label: 'maior que' },
+  { op: 'less_than', label: 'menor que' },
+  { op: 'has_tag', label: 'tem tag' },
+  { op: 'is_empty', label: 'está vazio' },
+  { op: 'is_not_empty', label: 'não está vazio' },
+];
+
+const FIELD_SUGGESTIONS: Record<string, { value: string; label: string }[]> = {
+  lead: [
+    { value: 'priority', label: 'priority' },
+    { value: 'value', label: 'value' },
+    { value: 'source', label: 'source' },
+    { value: 'status', label: 'status' },
+    { value: 'stage.type', label: 'stage.type' },
+    { value: 'stage.name', label: 'stage.name' },
+    { value: 'pipeline.name', label: 'pipeline.name' },
+    { value: 'assignedToId', label: 'assignedToId' },
+    { value: 'contact.country', label: 'contact.country' },
+    { value: 'contact.company', label: 'contact.company' },
+    { value: 'tags', label: 'tags' },
+  ],
+  task: [
+    { value: 'priority', label: 'priority' },
+    { value: 'type', label: 'type' },
+    { value: 'status', label: 'status' },
+    { value: 'assignedToId', label: 'assignedToId' },
+    { value: 'lead.title', label: 'lead.title' },
+  ],
+  message: [
+    { value: 'channel', label: 'channel' },
+    { value: 'content', label: 'content' },
+    { value: 'contact.country', label: 'contact.country' },
+  ],
+  contact: [
+    { value: 'country', label: 'country' },
+    { value: 'company', label: 'company' },
+    { value: 'tags', label: 'tags' },
+  ],
 };
 
-const STEP_ICONS: Record<string, string> = { trigger: '⚡', condition: '🔀', action: '⚙️', delay: '⏱️' };
+function triggerLabel(t: AutomationTrigger): string {
+  return TRIGGERS.find((x) => x.type === t.type)?.label || t.type;
+}
+function triggerIcon(t: string): string {
+  return TRIGGERS.find((x) => x.type === t)?.icon || '⚡';
+}
+function actionIcon(t: AutomationActionType): string {
+  return ACTIONS.find((x) => x.type === t)?.icon || '⚙️';
+}
+function entityForTrigger(t: AutomationTriggerType): string {
+  return TRIGGERS.find((x) => x.type === t)?.entity || 'lead';
+}
 
-function StepCard({ step, index, onChange, onRemove }: { step: AutomationStep; index: number; onChange: (s: AutomationStep) => void; onRemove: () => void }) {
-  const [expanded, setExpanded] = useState(true);
-  const c = STEP_COLORS[step.type];
+// ── Pickers ────────────────────────────────────────────
+function UserPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => { api.get('/users').then((r) => setUsers(r.data)).catch(() => {}); }, []);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="input-base w-full text-xs">
+      <option value="">-- Escolher utilizador --</option>
+      {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+    </select>
+  );
+}
+
+function StagePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [pipelines, setPipelines] = useState<any[]>([]);
+  useEffect(() => { api.get('/pipelines').then((r) => setPipelines(r.data)).catch(() => {}); }, []);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="input-base w-full text-xs">
+      <option value="">-- Escolher etapa --</option>
+      {pipelines.map((p) => (
+        <optgroup key={p.id} label={p.name}>
+          {(p.stages || []).map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
+
+function TagPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [tags, setTags] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => { api.get('/tags').then((r) => setTags(r.data)).catch(() => {}); }, []);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="input-base w-full text-xs">
+      <option value="">-- Escolher tag --</option>
+      {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+    </select>
+  );
+}
+
+// ── Condition row ──────────────────────────────────────
+function ConditionRow({ condition, fields, onChange, onRemove }: {
+  condition: AutomationCondition; fields: { value: string; label: string }[];
+  onChange: (c: AutomationCondition) => void; onRemove: () => void;
+}) {
+  const showValueInput = condition.op !== 'is_empty' && condition.op !== 'is_not_empty';
+  return (
+    <div className="flex gap-2 items-start">
+      <input
+        list="auto-fields-list"
+        value={condition.field}
+        onChange={(e) => onChange({ ...condition, field: e.target.value })}
+        placeholder="campo (ex: priority)"
+        className="input-base text-xs flex-1"
+      />
+      <datalist id="auto-fields-list">
+        {fields.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+      </datalist>
+      <select
+        value={condition.op}
+        onChange={(e) => onChange({ ...condition, op: e.target.value as AutomationConditionOp })}
+        className="input-base text-xs"
+        style={{ width: 140 }}
+      >
+        {CONDITION_OPS.map((op) => <option key={op.op} value={op.op}>{op.label}</option>)}
+      </select>
+      {showValueInput && (
+        condition.op === 'has_tag' ? (
+          <div style={{ flex: 1 }}>
+            <TagPicker value={condition.value || ''} onChange={(v) => onChange({ ...condition, value: v })} />
+          </div>
+        ) : (
+          <input
+            value={condition.value ?? ''}
+            onChange={(e) => onChange({ ...condition, value: e.target.value })}
+            placeholder="valor"
+            className="input-base text-xs flex-1"
+          />
+        )
+      )}
+      <button onClick={onRemove} className="text-red-500 p-1.5 hover:bg-red-50 rounded">
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+}
+
+// ── Action editor ──────────────────────────────────────
+function ActionEditor({ action, onChange, onRemove }: {
+  action: AutomationAction; onChange: (a: AutomationAction) => void; onRemove: () => void;
+}) {
+  const params = action.params || {};
+  const updateParam = (k: string, v: any) => onChange({ ...action, params: { ...params, [k]: v } });
 
   return (
-    <div style={{ border: `2px solid ${c.border}`, borderRadius: 12, overflow: 'hidden', marginBottom: 4 }}>
-      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer" style={{ background: c.bg }} onClick={() => setExpanded(!expanded)}>
-        <span style={{ fontSize: 18 }}>{STEP_ICONS[step.type]}</span>
-        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: c.text }}>{step.type}</span>
-        <span className="flex-1 text-sm font-medium" style={{ color: '#0F172A' }}>
-          {step.type === 'trigger' && (TRIGGERS.find((t) => t.value === step.config.event)?.label || 'Seleccionar trigger')}
-          {step.type === 'action' && (ACTIONS.find((a) => a.value === step.config.type)?.label || 'Seleccionar acção')}
-          {step.type === 'delay' && (step.config.duration ? `Esperar ${step.config.duration} ${step.config.unit || 'horas'}` : 'Configurar espera')}
-          {step.type === 'condition' && (step.config.field ? `Se ${step.config.field} ${step.config.operator} "${step.config.value}"` : 'Configurar condição')}
-        </span>
-        <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="p-1 rounded hover:bg-white/50">
-          <Trash2 size={13} style={{ color: '#EF4444' }} />
+    <div className="card p-3" style={{ background: 'var(--surface-2)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        <span style={{ fontSize: 18 }}>{actionIcon(action.type)}</span>
+        <select
+          value={action.type}
+          onChange={(e) => onChange({ type: e.target.value as AutomationActionType, params: {} })}
+          className="input-base text-xs flex-1"
+        >
+          {ACTIONS.map((a) => <option key={a.type} value={a.type}>{a.label}</option>)}
+        </select>
+        <button onClick={onRemove} className="text-red-500 p-1.5 hover:bg-red-50 rounded">
+          <Trash2 size={13} />
         </button>
-        <ChevronDown size={14} style={{ transform: expanded ? 'rotate(180deg)' : '', transition: '.2s', color: c.text }} />
       </div>
 
-      {expanded && (
-        <div className="p-4 space-y-3" style={{ background: 'white' }}>
-          {step.type === 'trigger' && (
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Evento</label>
-              <select className="input-base text-sm" value={step.config.event || ''} onChange={(e) => onChange({ ...step, config: { ...step.config, event: e.target.value } })}>
-                <option value="">Seleccionar...</option>
-                {TRIGGERS.map((t) => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
-              </select>
-            </div>
-          )}
+      {action.type === 'send_message' && (
+        <textarea
+          value={params.text || ''}
+          onChange={(e) => updateParam('text', e.target.value)}
+          rows={3}
+          className="input-base w-full text-xs"
+          placeholder="Olá {{contact.firstName}}, ..."
+        />
+      )}
 
-          {step.type === 'action' && (
-            <>
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Acção</label>
-                <select className="input-base text-sm" value={step.config.type || ''} onChange={(e) => onChange({ ...step, config: { ...step.config, type: e.target.value } })}>
-                  <option value="">Seleccionar...</option>
-                  {ACTIONS.map((a) => <option key={a.value} value={a.value}>{a.icon} {a.label}</option>)}
-                </select>
-              </div>
-              {(step.config.type === 'send_whatsapp' || step.config.type === 'send_email') && (
-                <div>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Mensagem</label>
-                  <textarea className="input-base text-sm" rows={3} placeholder="Usa {{nome}}, {{empresa}} para personalizar" value={step.config.message || ''} onChange={(e) => onChange({ ...step, config: { ...step.config, message: e.target.value } })} />
-                </div>
-              )}
-              {step.config.type === 'create_task' && (
-                <div>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Título da Tarefa</label>
-                  <input className="input-base text-sm" placeholder="Ex: Follow-up com {{nome}}" value={step.config.taskTitle || ''} onChange={(e) => onChange({ ...step, config: { ...step.config, taskTitle: e.target.value } })} />
-                </div>
-              )}
-            </>
-          )}
+      {action.type === 'send_email' && (
+        <div className="space-y-2">
+          <input
+            value={params.to || '{{contact.email}}'}
+            onChange={(e) => updateParam('to', e.target.value)}
+            className="input-base w-full text-xs"
+            placeholder="Para (email)"
+          />
+          <input
+            value={params.subject || ''}
+            onChange={(e) => updateParam('subject', e.target.value)}
+            className="input-base w-full text-xs"
+            placeholder="Assunto"
+          />
+          <textarea
+            value={params.body || ''}
+            onChange={(e) => updateParam('body', e.target.value)}
+            rows={3}
+            className="input-base w-full text-xs"
+            placeholder="Corpo (HTML aceite)"
+          />
+        </div>
+      )}
 
-          {step.type === 'delay' && (
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Duração</label>
-                <input type="number" className="input-base text-sm" placeholder="1" min="1" value={step.config.duration || ''} onChange={(e) => onChange({ ...step, config: { ...step.config, duration: e.target.value } })} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Unidade</label>
-                <select className="input-base text-sm" value={step.config.unit || 'hours'} onChange={(e) => onChange({ ...step, config: { ...step.config, unit: e.target.value } })}>
-                  <option value="minutes">Minutos</option>
-                  <option value="hours">Horas</option>
-                  <option value="days">Dias</option>
-                </select>
-              </div>
-            </div>
-          )}
+      {action.type === 'create_task' && (
+        <div className="space-y-2">
+          <input
+            value={params.title || ''}
+            onChange={(e) => updateParam('title', e.target.value)}
+            className="input-base w-full text-xs"
+            placeholder="Título da tarefa"
+          />
+          <textarea
+            value={params.description || ''}
+            onChange={(e) => updateParam('description', e.target.value)}
+            rows={2}
+            className="input-base w-full text-xs"
+            placeholder="Descrição"
+          />
+          <div className="flex gap-2">
+            <select
+              value={params.taskType || 'FOLLOW_UP'}
+              onChange={(e) => updateParam('taskType', e.target.value)}
+              className="input-base text-xs flex-1"
+            >
+              <option value="CALL">Chamada</option>
+              <option value="EMAIL">Email</option>
+              <option value="MEETING">Reunião</option>
+              <option value="FOLLOW_UP">Seguimento</option>
+              <option value="DEMO">Demo</option>
+              <option value="OTHER">Outra</option>
+            </select>
+            <select
+              value={params.priority || 'MEDIUM'}
+              onChange={(e) => updateParam('priority', e.target.value)}
+              className="input-base text-xs"
+              style={{ width: 90 }}
+            >
+              <option value="LOW">Baixa</option>
+              <option value="MEDIUM">Média</option>
+              <option value="HIGH">Alta</option>
+              <option value="URGENT">Urgente</option>
+            </select>
+            <input
+              type="number"
+              value={params.dueInHours || ''}
+              onChange={(e) => updateParam('dueInHours', e.target.value)}
+              className="input-base text-xs"
+              style={{ width: 100 }}
+              placeholder="Prazo (h)"
+            />
+          </div>
+        </div>
+      )}
 
-          {step.type === 'condition' && (
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Campo</label>
-                <select className="input-base text-sm" value={step.config.field || ''} onChange={(e) => onChange({ ...step, config: { ...step.config, field: e.target.value } })}>
-                  <option value="">Campo...</option>
-                  {['Etapa', 'Valor', 'Prioridade', 'Fonte', 'Responsável', 'Tag'].map((f) => <option key={f}>{f}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Operador</label>
-                <select className="input-base text-sm" value={step.config.operator || 'equals'} onChange={(e) => onChange({ ...step, config: { ...step.config, operator: e.target.value } })}>
-                  <option value="equals">é igual a</option>
-                  <option value="not_equals">não é igual a</option>
-                  <option value="contains">contém</option>
-                  <option value="greater_than">maior que</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Valor</label>
-                <input className="input-base text-sm" placeholder="Valor..." value={step.config.value || ''} onChange={(e) => onChange({ ...step, config: { ...step.config, value: e.target.value } })} />
-              </div>
-            </div>
-          )}
+      {action.type === 'assign_user' && (
+        <UserPicker value={params.userId || ''} onChange={(v) => updateParam('userId', v)} />
+      )}
+
+      {action.type === 'change_stage' && (
+        <StagePicker value={params.stageId || ''} onChange={(v) => updateParam('stageId', v)} />
+      )}
+
+      {action.type === 'add_tag' && (
+        <div className="space-y-2">
+          <select
+            value={params.entity || 'lead'}
+            onChange={(e) => updateParam('entity', e.target.value)}
+            className="input-base w-full text-xs"
+          >
+            <option value="lead">No lead</option>
+            <option value="contact">No contacto</option>
+          </select>
+          <TagPicker value={params.tagId || ''} onChange={(v) => updateParam('tagId', v)} />
+        </div>
+      )}
+
+      {action.type === 'set_priority' && (
+        <select
+          value={params.priority || 'MEDIUM'}
+          onChange={(e) => updateParam('priority', e.target.value)}
+          className="input-base w-full text-xs"
+        >
+          <option value="LOW">Baixa</option>
+          <option value="MEDIUM">Média</option>
+          <option value="HIGH">Alta</option>
+          <option value="URGENT">Urgente</option>
+        </select>
+      )}
+
+      {action.type === 'send_notification' && (
+        <div className="space-y-2">
+          <UserPicker value={params.userId || ''} onChange={(v) => updateParam('userId', v)} />
+          <input
+            value={params.title || ''}
+            onChange={(e) => updateParam('title', e.target.value)}
+            className="input-base w-full text-xs"
+            placeholder="Título"
+          />
+          <textarea
+            value={params.body || ''}
+            onChange={(e) => updateParam('body', e.target.value)}
+            rows={2}
+            className="input-base w-full text-xs"
+            placeholder="Mensagem"
+          />
+        </div>
+      )}
+
+      {action.type === 'webhook' && (
+        <div className="space-y-2">
+          <input
+            value={params.url || ''}
+            onChange={(e) => updateParam('url', e.target.value)}
+            className="input-base w-full text-xs"
+            placeholder="https://..."
+          />
+          <select
+            value={params.method || 'POST'}
+            onChange={(e) => updateParam('method', e.target.value)}
+            className="input-base w-full text-xs"
+          >
+            <option value="POST">POST</option>
+            <option value="GET">GET</option>
+            <option value="PUT">PUT</option>
+          </select>
         </div>
       )}
     </div>
   );
 }
 
-function AutomationEditor({ automation, onClose }: { automation?: any; onClose: () => void }) {
-  const [name, setName] = useState(automation?.name || 'Nova Automatização');
-  const [steps, setSteps] = useState<AutomationStep[]>(automation?.steps || [
-    { id: '1', type: 'trigger', config: { event: 'message_received' } },
-    { id: '2', type: 'action', config: { type: 'send_whatsapp', message: 'Olá {{nome}}! Recebemos a sua mensagem e entraremos em contacto brevemente.' } },
-  ]);
+// ── Editor de uma automation ───────────────────────────
+function AutomationEditor({ automation, onClose, onSaved }: {
+  automation: Automation; onClose: () => void; onSaved: (a: Automation) => void;
+}) {
+  const [draft, setDraft] = useState<Automation>(automation);
   const [saving, setSaving] = useState(false);
+  const [stages, setStages] = useState<{ id: string; name: string; pipelineName: string }[]>([]);
 
-  const addStep = (type: AutomationStep['type']) => {
-    setSteps((p) => [...p, { id: Date.now().toString(), type, config: {} }]);
+  useEffect(() => {
+    api.get('/pipelines').then((r) => {
+      const flat: { id: string; name: string; pipelineName: string }[] = [];
+      r.data.forEach((p: any) => (p.stages || []).forEach((s: any) => flat.push({ id: s.id, name: s.name, pipelineName: p.name })));
+      setStages(flat);
+    }).catch(() => {});
+  }, []);
+
+  const entityType = entityForTrigger(draft.trigger.type);
+  const fields = FIELD_SUGGESTIONS[entityType] || [];
+  const update = (patch: Partial<Automation>) => setDraft({ ...draft, ...patch });
+
+  const validate = (): string | null => {
+    if (!draft.name) return 'Define um nome.';
+    if (!draft.trigger.type) return 'Define o trigger.';
+    if (!draft.actions || draft.actions.length === 0) return 'Adiciona pelo menos uma acção.';
+    return null;
   };
 
-  const handleSave = async () => {
+  const save = async (): Promise<Automation | null> => {
+    const err = validate();
+    if (err) { toast.error(err); return null; }
     setSaving(true);
     try {
-      const data = { name, trigger: steps[0]?.config || {}, actions: steps.slice(1).map((s) => s.config) };
-      await api.post('/automations', data).catch(() => {});
-      toast.success('Automatização guardada!');
-      onClose();
-    } finally { setSaving(false); }
+      const res = await api.patch(`/automations/${draft.id}`, {
+        name: draft.name, description: draft.description,
+        trigger: draft.trigger, conditions: draft.conditions, actions: draft.actions,
+        isActive: draft.isActive,
+      });
+      toast.success('Automação guardada');
+      onSaved(res.data);
+      return res.data;
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro a guardar');
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const test = async () => {
+    const saved = await save();
+    if (!saved) return;
+    try {
+      const res = await api.post(`/automations/${saved.id}/test`, {});
+      const r = res.data;
+      if (r.matched) {
+        const lines = (r.steps || []).map((s: any) => `${s.action}${s.detail ? ` — ${s.detail}` : ''}`);
+        alert('Match!\n\nAcções que seriam executadas:\n\n' + (lines.join('\n') || '(nenhuma)'));
+      } else {
+        alert('Não corresponde: ' + (r.reason || 'condições não satisfeitas'));
+      }
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao testar');
+    }
   };
 
   return (
-    <div className="modal-overlay" style={{ alignItems: 'flex-start', paddingTop: 24 }} onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 640, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-3 p-5" style={{ borderBottom: '1px solid var(--border)' }}>
-          <Zap size={20} style={{ color: 'var(--primary)' }} />
-          <input className="flex-1 font-bold text-base outline-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }} value={name} onChange={(e) => setName(e.target.value)} />
-          <button onClick={onClose}><X size={18} /></button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5 space-y-3">
-          {steps.map((step, i) => (
-            <div key={step.id}>
-              <StepCard step={step} index={i} onChange={(s) => setSteps((p) => p.map((x) => x.id === s.id ? s : x))} onRemove={() => setSteps((p) => p.filter((x) => x.id !== step.id))} />
-              {i < steps.length - 1 && (
-                <div className="flex items-center justify-center py-1">
-                  <ChevronRight size={16} style={{ color: 'var(--border-2, #CBD5E1)', transform: 'rotate(90deg)' }} />
-                </div>
-              )}
-            </div>
-          ))}
-
-          {/* Add step buttons */}
-          <div className="flex flex-wrap gap-2 pt-2">
-            {(['trigger', 'condition', 'action', 'delay'] as const).map((type) => {
-              if (type === 'trigger' && steps.some((s) => s.type === 'trigger')) return null;
-              return (
-                <button key={type} onClick={() => addStep(type)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border-dashed border-2 transition-colors hover:bg-gray-50" style={{ borderColor: STEP_COLORS[type].border, color: STEP_COLORS[type].text }}>
-                  <Plus size={12} /> {STEP_ICONS[type]} Adicionar {type === 'trigger' ? 'trigger' : type === 'action' ? 'acção' : type === 'delay' ? 'espera' : 'condição'}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="flex gap-3 p-5" style={{ borderTop: '1px solid var(--border)' }}>
-          <button onClick={onClose} className="btn btn-outline flex-1">Cancelar</button>
-          <button onClick={handleSave} disabled={saving} className="btn btn-primary flex-1">
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
+    <div style={{ position: 'fixed', inset: 0, background: 'var(--surface)', zIndex: 50, display: 'flex', flexDirection: 'column' }}>
+      <div className="flex items-center gap-4 px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+        <input
+          className="font-bold text-base outline-none border-b-2 border-transparent focus:border-indigo-500 px-1"
+          style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}
+          value={draft.name}
+          onChange={(e) => update({ name: e.target.value })}
+        />
+        <div className="ml-auto flex items-center gap-2">
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={draft.isActive} onChange={(e) => update({ isActive: e.target.checked })} />
+            Activa
+          </label>
+          <button onClick={test} className="btn btn-outline text-sm py-1.5 gap-1.5"><Play size={13} /> Testar</button>
+          <button onClick={save} disabled={saving} className="btn btn-primary text-sm py-1.5 gap-1.5">
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar
           </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div>
+            <label className="block text-xs font-medium mb-1">Descrição (opcional)</label>
+            <input
+              value={draft.description || ''}
+              onChange={(e) => update({ description: e.target.value })}
+              className="input-base w-full text-sm"
+              placeholder="Para que serve esta automação?"
+            />
+          </div>
+
+          {/* TRIGGER */}
+          <section className="card p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Zap size={16} style={{ color: '#6366F1' }} />
+              <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>QUANDO</h3>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Trigger que dispara a automação</span>
+            </div>
+            <select
+              value={draft.trigger.type}
+              onChange={(e) => update({ trigger: { type: e.target.value as AutomationTriggerType, params: {} } })}
+              className="input-base w-full text-sm"
+            >
+              {TRIGGERS.map((t) => <option key={t.type} value={t.type}>{t.icon} {t.label}</option>)}
+            </select>
+            {draft.trigger.type === 'lead_stage_changed' && (
+              <div className="mt-3">
+                <label className="block text-xs font-medium mb-1">Etapa específica (opcional)</label>
+                <select
+                  value={draft.trigger.params?.stageId || ''}
+                  onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, stageId: e.target.value || undefined } } })}
+                  className="input-base w-full text-sm"
+                >
+                  <option value="">Qualquer etapa</option>
+                  {stages.map((s) => <option key={s.id} value={s.id}>{s.pipelineName}: {s.name}</option>)}
+                </select>
+              </div>
+            )}
+          </section>
+
+          {/* CONDITIONS */}
+          <section className="card p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Filter size={16} style={{ color: '#F59E0B' }} />
+              <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>SE</h3>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Condições (E lógico). Vazio = executa sempre.</span>
+            </div>
+            <div className="space-y-2">
+              {(draft.conditions || []).map((c, i) => (
+                <ConditionRow
+                  key={i}
+                  condition={c}
+                  fields={fields}
+                  onChange={(nc) => update({ conditions: draft.conditions.map((x, idx) => (idx === i ? nc : x)) })}
+                  onRemove={() => update({ conditions: draft.conditions.filter((_, idx) => idx !== i) })}
+                />
+              ))}
+            </div>
+            <button
+              onClick={() => update({ conditions: [...(draft.conditions || []), { field: '', op: 'equals', value: '' }] })}
+              className="btn btn-outline text-xs py-1.5 mt-3 gap-1"
+            >
+              <Plus size={11} /> Adicionar condição
+            </button>
+          </section>
+
+          {/* ACTIONS */}
+          <section className="card p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <ChevronRight size={16} style={{ color: '#10B981' }} />
+              <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>ENTÃO</h3>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Acções executadas em sequência</span>
+            </div>
+            <div className="space-y-3">
+              {(draft.actions || []).map((a, i) => (
+                <ActionEditor
+                  key={i}
+                  action={a}
+                  onChange={(na) => update({ actions: draft.actions.map((x, idx) => (idx === i ? na : x)) })}
+                  onRemove={() => update({ actions: draft.actions.filter((_, idx) => idx !== i) })}
+                />
+              ))}
+            </div>
+            <button
+              onClick={() => update({ actions: [...(draft.actions || []), { type: 'create_task', params: { title: 'Nova tarefa' } }] })}
+              className="btn btn-outline text-xs py-1.5 mt-3 gap-1"
+            >
+              <Plus size={11} /> Adicionar acção
+            </button>
+          </section>
+
+          <div className="card p-3 text-xs" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
+            <strong>Variáveis:</strong> nas mensagens podes usar <code>{'{{contact.firstName}}'}</code>, <code>{'{{title}}'}</code>, <code>{'{{stage.name}}'}</code>, etc.
+            O nome do campo é o do recurso disparador (lead/task/contact).
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-const DEMO_AUTOMATIONS = [
-  { id: '1', name: 'Mensagem de boas-vindas', isActive: true, trigger: 'Mensagem recebida', actions: ['Enviar WhatsApp', 'Criar lead'], executedCount: 234 },
-  { id: '2', name: 'Follow-up D+1', isActive: true, trigger: 'Lead criado', actions: ['Esperar 24h', 'Enviar WhatsApp'], executedCount: 89 },
-  { id: '3', name: 'Notificar gerente', isActive: false, trigger: 'Lead Ganho', actions: ['Notificar agente', 'Criar tarefa'], executedCount: 41 },
-  { id: '4', name: 'Reactivar leads frios', isActive: true, trigger: 'Sem actividade 7 dias', actions: ['Resposta IA', 'Mover etapa'], executedCount: 15 },
-];
+// ── Modal de histórico ─────────────────────────────────
+function HistoryModal({ automation, onClose }: { automation: Automation; onClose: () => void }) {
+  const [runs, setRuns] = useState<AutomationRun[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/automations/${automation.id}/runs`);
+      setRuns(res.data);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, [automation.id]);
+
+  const clear = async () => {
+    if (!confirm('Limpar todo o histórico?')) return;
+    try {
+      const res = await api.delete(`/automations/${automation.id}/runs`);
+      toast.success(`${res.data.deleted} entradas eliminadas`);
+      load();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div className="card" style={{ width: 700, maxHeight: '85vh', display: 'flex', flexDirection: 'column', background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <h3 className="font-bold text-base">Histórico — {automation.name}</h3>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{runs.length} execuções</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {runs.length > 0 && (
+              <button onClick={clear} className="btn text-xs py-1.5 px-3" style={{ color: '#EF4444', border: '1px solid #FEE2E2', background: 'transparent' }}>
+                <Trash2 size={12} /> Limpar tudo
+              </button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-100"><X size={16} /></button>
+          </div>
+        </div>
+
+        <div className="p-4" style={{ flex: 1, overflowY: 'auto' }}>
+          {loading ? (
+            <div className="flex justify-center py-10"><Loader2 className="animate-spin" size={20} /></div>
+          ) : runs.length === 0 ? (
+            <div className="text-center py-10 text-sm" style={{ color: 'var(--text-muted)' }}>
+              <History size={32} className="mx-auto mb-2 opacity-40" />
+              Sem execuções ainda.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {runs.map((r) => {
+                const expanded = expandedId === r.id;
+                const log = Array.isArray(r.log) ? r.log : [];
+                return (
+                  <div key={r.id} className="card p-3" style={{ background: 'var(--surface-2)' }}>
+                    <button onClick={() => setExpandedId(expanded ? null : r.id)} className="w-full flex items-center gap-3 text-left">
+                      {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      <span style={{ fontSize: 14 }}>{triggerIcon(r.triggeredBy)}</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">{r.triggeredBy}</p>
+                        <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                          {r.entityType || ''} {r.entityId ? `· ${r.entityId.substring(0, 8)}` : ''} · {new Date(r.createdAt).toLocaleString('pt-PT')}
+                        </p>
+                      </div>
+                      {r.status === 'OK' ? (
+                        <span className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full" style={{ background: '#ECFDF5', color: '#10B981' }}>
+                          <CheckCircle2 size={11} /> OK
+                        </span>
+                      ) : r.status === 'SKIPPED' ? (
+                        <span className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}>
+                          <AlertCircle size={11} /> Saltada
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full" style={{ background: '#FEE2E2', color: '#DC2626' }}>
+                          <XCircle size={11} /> Falhou
+                        </span>
+                      )}
+                    </button>
+                    {expanded && (
+                      <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                        {log.length === 0 ? (
+                          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>(sem detalhes)</p>
+                        ) : (
+                          <ol className="space-y-1.5">
+                            {log.map((e, i) => (
+                              <li key={i} className="text-xs flex gap-2">
+                                <span style={{ color: 'var(--text-muted)', minWidth: 60 }}>{new Date(e.at).toLocaleTimeString('pt-PT')}</span>
+                                <span className="flex-1">
+                                  {e.action}
+                                  {e.detail && <span style={{ color: 'var(--text-muted)' }}> — {e.detail}</span>}
+                                </span>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Página principal ───────────────────────────────────
 export default function AutomationsPage() {
-  const [automations, setAutomations] = useState(DEMO_AUTOMATIONS);
-  const [editing, setEditing] = useState<any>(null);
+  const [automations, setAutomations] = useState<Automation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Automation | null>(null);
+  const [historyFor, setHistoryFor] = useState<Automation | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/automations');
+      setAutomations(res.data);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro a carregar');
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    try {
+      const res = await api.post('/automations', {
+        name: 'Nova automação',
+        trigger: { type: 'lead_created' },
+        conditions: [],
+        actions: [],
+        isActive: false,
+      });
+      setAutomations((a) => [res.data, ...a]);
+      setEditing(res.data);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    } finally { setCreating(false); }
+  };
+
+  const toggle = async (a: Automation) => {
+    try {
+      const res = await api.patch(`/automations/${a.id}`, { isActive: !a.isActive });
+      setAutomations((arr) => arr.map((x) => (x.id === a.id ? res.data : x)));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    }
+  };
+
+  const remove = async (a: Automation) => {
+    if (!confirm(`Eliminar "${a.name}"?`)) return;
+    try {
+      await api.delete(`/automations/${a.id}`);
+      setAutomations((arr) => arr.filter((x) => x.id !== a.id));
+      toast.success('Eliminada');
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    }
+  };
+
+  const duplicate = async (a: Automation) => {
+    try {
+      const res = await api.post(`/automations/${a.id}/duplicate`);
+      setAutomations((arr) => [res.data, ...arr]);
+      toast.success('Duplicada');
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    }
+  };
+
+  if (editing) {
+    return (
+      <AutomationEditor
+        automation={editing}
+        onClose={() => { setEditing(null); load(); }}
+        onSaved={(a) => {
+          setAutomations((arr) => arr.map((x) => (x.id === a.id ? a : x)));
+          setEditing(a);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="p-6 animate-fade-in">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Automatizações</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Cria fluxos de trabalho automáticos para a tua equipa de vendas</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+            Regras "quando isto acontece, faz aquilo"
+          </p>
         </div>
-        <button onClick={() => setEditing({})} className="btn btn-primary gap-2"><Plus size={16} /> Nova Automatização</button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {automations.map((auto) => (
-          <div key={auto.id} className="card p-5">
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: auto.isActive ? '#EEF2FF' : 'var(--surface-3)' }}>
-                  <Zap size={18} style={{ color: auto.isActive ? 'var(--primary)' : 'var(--text-muted)' }} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>{auto.name}</h3>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Executada {auto.executedCount} vezes</p>
-                </div>
-              </div>
-              <button onClick={() => setAutomations((p) => p.map((a) => a.id === auto.id ? { ...a, isActive: !a.isActive } : a))}
-                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full"
-                style={{ background: auto.isActive ? '#ECFDF5' : 'var(--surface-3)', color: auto.isActive ? '#10B981' : 'var(--text-muted)' }}>
-                {auto.isActive ? <Play size={11} /> : <Pause size={11} />}
-                {auto.isActive ? 'Activa' : 'Inactiva'}
-              </button>
-            </div>
-
-            <div className="mb-4">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: '#EEF2FF', color: 'var(--primary)' }}>⚡ {auto.trigger}</span>
-                {auto.actions.map((action, i) => (
-                  <span key={i} className="flex items-center gap-1">
-                    <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} />
-                    <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: '#ECFDF5', color: '#065F46' }}>{action}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button onClick={() => setEditing(auto)} className="btn btn-outline flex-1 text-xs py-1.5">Editar</button>
-              <button onClick={() => setAutomations((p) => p.filter((a) => a.id !== auto.id))} className="btn text-xs py-1.5 px-2.5" style={{ color: '#EF4444', border: '1px solid #FEE2E2', background: 'transparent' }}>
-                <Trash2 size={13} />
-              </button>
-            </div>
-          </div>
-        ))}
-
-        <button onClick={() => setEditing({})} className="card p-5 flex flex-col items-center justify-center gap-3 border-dashed cursor-pointer hover:border-indigo-300 transition-colors" style={{ minHeight: 180 }}>
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'var(--surface-3)' }}>
-            <Plus size={24} style={{ color: 'var(--text-muted)' }} />
-          </div>
-          <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Nova automatização</p>
+        <button onClick={handleCreate} disabled={creating} className="btn btn-primary gap-2">
+          {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Nova automatização
         </button>
       </div>
 
-      {editing !== null && <AutomationEditor automation={editing} onClose={() => setEditing(null)} />}
+      {loading ? (
+        <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin" size={24} /></div>
+      ) : automations.length === 0 ? (
+        <div className="card p-10 flex flex-col items-center text-center gap-3">
+          <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ background: 'var(--surface-3)' }}>
+            <Zap size={28} style={{ color: 'var(--text-muted)' }} />
+          </div>
+          <h3 className="font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Sem automatizações ainda</h3>
+          <p className="text-sm max-w-md" style={{ color: 'var(--text-secondary)' }}>
+            Cria regras automáticas que reagem a eventos no CRM. Exemplo: "quando lead é criado com origem 'WhatsApp', criar tarefa de seguimento".
+          </p>
+          <button onClick={handleCreate} className="btn btn-primary gap-2 mt-2">
+            <Plus size={16} /> Criar primeira automatização
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {automations.map((a) => (
+            <div key={a.id} className="card p-5">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg" style={{ background: a.isActive ? '#EEF2FF' : 'var(--surface-3)' }}>
+                  {triggerIcon(a.trigger.type)}
+                </div>
+                <button
+                  onClick={() => toggle(a)}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
+                  style={{ background: a.isActive ? '#ECFDF5' : 'var(--surface-3)', color: a.isActive ? '#10B981' : 'var(--text-muted)' }}
+                >
+                  {a.isActive ? <Play size={11} /> : <ZapOff size={11} />}
+                  {a.isActive ? 'Activa' : 'Inactiva'}
+                </button>
+              </div>
+              <h3 className="font-bold text-sm mb-1" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>{a.name}</h3>
+              <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>{triggerLabel(a.trigger)}</p>
+              {a.description && (
+                <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--text-muted)' }}>{a.description}</p>
+              )}
+              <div className="flex items-center gap-2 text-xs mb-4 flex-wrap" style={{ color: 'var(--text-muted)' }}>
+                <span>{a.actions?.length || 0} acções</span>
+                <span>·</span>
+                <span>{a.conditions?.length || 0} condições</span>
+                <span>·</span>
+                <span>{a.runCount || 0} execuções</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setEditing(a)} className="btn btn-outline flex-1 text-xs py-1.5">Editar</button>
+                <button onClick={() => setHistoryFor(a)} className="btn text-xs py-1.5 px-2.5" title="Histórico" style={{ border: '1px solid var(--border)', background: 'transparent' }}>
+                  <History size={13} />
+                </button>
+                <button onClick={() => duplicate(a)} className="btn text-xs py-1.5 px-2.5" title="Duplicar" style={{ border: '1px solid var(--border)', background: 'transparent' }}>
+                  <Copy size={13} />
+                </button>
+                <button onClick={() => remove(a)} className="btn text-xs py-1.5 px-2.5" title="Eliminar" style={{ color: '#EF4444', border: '1px solid #FEE2E2', background: 'transparent' }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+              {(!a.actions || a.actions.length === 0) && (
+                <div className="mt-3 flex items-center gap-1.5 text-[11px] p-2 rounded" style={{ background: '#FEF3C7', color: '#92400E' }}>
+                  <AlertTriangle size={11} /> Sem acções definidas
+                </div>
+              )}
+            </div>
+          ))}
+          <button onClick={handleCreate} disabled={creating} className="card p-5 flex flex-col items-center justify-center gap-3 border-dashed hover:border-indigo-300 transition-colors" style={{ minHeight: 200 }}>
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'var(--surface-3)' }}>
+              <Plus size={24} style={{ color: 'var(--text-muted)' }} />
+            </div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Criar automatização</p>
+          </button>
+        </div>
+      )}
+
+      {historyFor && <HistoryModal automation={historyFor} onClose={() => setHistoryFor(null)} />}
     </div>
   );
 }

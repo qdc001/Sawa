@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
+import { triggerAutomations } from '../lib/automationEngine';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -100,6 +101,13 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     const io = req.app.get('io');
     io.to(`workspace:${req.user!.workspaceId}`).emit('lead:created', lead);
 
+    triggerAutomations({ type: 'lead_created', workspaceId: req.user!.workspaceId, entityType: 'lead', entityId: lead.id })
+      .catch((e) => console.error('Automation lead_created error:', e));
+    if (lead.assignedToId) {
+      triggerAutomations({ type: 'lead_assigned', workspaceId: req.user!.workspaceId, entityType: 'lead', entityId: lead.id })
+        .catch((e) => console.error('Automation lead_assigned error:', e));
+    }
+
     res.status(201).json(lead);
   } catch (error) { next(error); }
 });
@@ -157,6 +165,23 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       await prisma.activity.create({
         data: { type: 'STAGE_CHANGED', description: `Movido para "${stage?.name}"`, leadId: lead.id, userId: req.user!.id },
       });
+
+      const wsId = req.user!.workspaceId;
+      triggerAutomations({
+        type: 'lead_stage_changed', workspaceId: wsId, entityType: 'lead', entityId: lead.id,
+        payload: { newStageId: stageId, oldStageId: existing.stageId },
+      }).catch(() => {});
+
+      if (stage?.type === 'WON') {
+        triggerAutomations({ type: 'lead_won', workspaceId: wsId, entityType: 'lead', entityId: lead.id }).catch(() => {});
+      } else if (stage?.type === 'LOST') {
+        triggerAutomations({ type: 'lead_lost', workspaceId: wsId, entityType: 'lead', entityId: lead.id }).catch(() => {});
+      }
+    }
+
+    if (assignedToId && assignedToId !== existing.assignedToId) {
+      triggerAutomations({ type: 'lead_assigned', workspaceId: req.user!.workspaceId, entityType: 'lead', entityId: lead.id })
+        .catch(() => {});
     }
 
     const io = req.app.get('io');
@@ -211,6 +236,14 @@ router.patch('/:id/move', async (req: AuthRequest, res: Response, next) => {
 
     const io = req.app.get('io');
     io.to(`workspace:${req.user!.workspaceId}`).emit('lead:moved', lead);
+
+    const wsId = req.user!.workspaceId;
+    triggerAutomations({
+      type: 'lead_stage_changed', workspaceId: wsId, entityType: 'lead', entityId: lead.id,
+      payload: { newStageId: stageId },
+    }).catch(() => {});
+    if (stage?.type === 'WON') triggerAutomations({ type: 'lead_won', workspaceId: wsId, entityType: 'lead', entityId: lead.id }).catch(() => {});
+    if (stage?.type === 'LOST') triggerAutomations({ type: 'lead_lost', workspaceId: wsId, entityType: 'lead', entityId: lead.id }).catch(() => {});
 
     res.json(lead);
   } catch (error) { next(error); }

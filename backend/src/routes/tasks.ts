@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
+import { triggerAutomations } from '../lib/automationEngine';
 const prisma = new PrismaClient();
 const router = Router();
 
@@ -64,6 +65,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
         data: { type: 'TASK_CREATED', description: `Tarefa "${task.title}" criada`, leadId: task.leadId, userId: req.user!.id },
       });
     }
+    triggerAutomations({ type: 'task_created', workspaceId: req.user!.workspaceId, entityType: 'task', entityId: task.id }).catch(() => {});
     res.status(201).json(task);
   } catch (e) { next(e); }
 });
@@ -128,6 +130,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       await prisma.activity.create({
         data: { type: 'TASK_COMPLETED', description: `Tarefa "${task.title}" concluída`, leadId: task.leadId, userId: req.user!.id },
       });
+    }
+    if (before && before.status !== 'COMPLETED' && task.status === 'COMPLETED') {
+      triggerAutomations({ type: 'task_completed', workspaceId: req.user!.workspaceId, entityType: 'task', entityId: task.id }).catch(() => {});
     }
     res.json(task);
   } catch (e) { next(e); }

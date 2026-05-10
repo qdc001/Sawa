@@ -45,6 +45,7 @@ import { rateLimiter } from './middleware/rateLimiter';
 
 // Lib
 import { processExpiredDelays } from './lib/chatbotEngine';
+import { checkOverdueTasks } from './lib/automationEngine';
 
 const app = express();
 const httpServer = createServer(app);
@@ -138,6 +139,11 @@ httpServer.listen(PORT, () => {
 setInterval(() => {
   processExpiredDelays().catch((e) => console.error('processExpiredDelays error:', e));
 }, 30_000);
+
+// Verifica tarefas atrasadas a cada minuto e dispara automações de task_overdue
+setInterval(() => {
+  checkOverdueTasks().catch((e) => console.error('checkOverdueTasks error:', e));
+}, 60_000);
 
 (global as any).io = io;
 export { io };

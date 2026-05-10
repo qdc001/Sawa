@@ -410,9 +410,11 @@ model Automation {
   name        String
   description String?
   isActive    Boolean  @default(true)
-  trigger     Json
-  conditions  Json?
-  actions     Json
+  trigger     Json     // { type: "lead_created"|"lead_stage_changed"|"task_overdue"|...; params: {} }
+  conditions  Json?    // [{ field, op, value }]
+  actions     Json     // [{ type, params }]
+  runCount    Int      @default(0)
+  lastRunAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -421,7 +423,27 @@ model Automation {
   createdBy   User      @relation(fields: [createdById], references: [id])
   createdById String
 
+  runs        AutomationRun[]
+
   @@map("automations")
+}
+
+// Historico de execucoes (uma entrada por disparo de regra)
+model AutomationRun {
+  id           String   @id @default(cuid())
+  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  automationId String
+  workspaceId  String
+  triggeredBy  String   // tipo de evento que disparou
+  entityType   String?  // "lead" | "task" | "message" | etc
+  entityId     String?
+  status       String   @default("OK") // OK | SKIPPED | FAILED
+  log          Json     @default("[]") // [{at, action, detail}]
+  createdAt    DateTime @default(now())
+
+  @@index([automationId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("automation_runs")
 }
 
 // ==================== CHATBOT ====================

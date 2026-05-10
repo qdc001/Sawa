@@ -508,3 +508,60 @@ export interface ChatbotSession {
   updatedAt: string;
   contact?: { id: string; firstName: string; lastName?: string; phone?: string; whatsapp?: string } | null;
 }
+
+// ==================== AUTOMATIONS ====================
+
+export type AutomationTriggerType =
+  | 'lead_created' | 'lead_stage_changed' | 'lead_won' | 'lead_lost' | 'lead_assigned'
+  | 'task_created' | 'task_completed' | 'task_overdue'
+  | 'message_received' | 'contact_created';
+
+export interface AutomationTrigger {
+  type: AutomationTriggerType;
+  params?: Record<string, any>; // ex: { stageId: "..." } para lead_stage_changed
+}
+
+export type AutomationConditionOp =
+  | 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than'
+  | 'has_tag' | 'is_empty' | 'is_not_empty';
+
+export interface AutomationCondition {
+  field: string;
+  op: AutomationConditionOp;
+  value?: any;
+}
+
+export type AutomationActionType =
+  | 'send_message' | 'send_email' | 'create_task' | 'assign_user'
+  | 'change_stage' | 'add_tag' | 'set_priority' | 'webhook' | 'send_notification';
+
+export interface AutomationAction {
+  type: AutomationActionType;
+  params: Record<string, any>;
+}
+
+export interface Automation {
+  id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  trigger: AutomationTrigger;
+  conditions: AutomationCondition[];
+  actions: AutomationAction[];
+  runCount: number;
+  lastRunAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: { id: string; name: string; avatar?: string };
+}
+
+export interface AutomationRun {
+  id: string;
+  automationId: string;
+  triggeredBy: string;
+  entityType?: string;
+  entityId?: string;
+  status: 'OK' | 'SKIPPED' | 'FAILED';
+  log: { at: string; action: string; detail?: string }[];
+  createdAt: string;
+}
