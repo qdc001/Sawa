@@ -123,6 +123,18 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       }
     }
 
+    // Sincronizar status com tipo da etapa quando a etapa muda (excepto se o utilizador
+    // tambem enviou status explicitamente — nesse caso respeita a escolha)
+    let stageStatusSync: any = {};
+    if (stageId && !status) {
+      const stage = await prisma.stage.findUnique({ where: { id: stageId } });
+      if (stage) {
+        if (stage.type === 'WON') stageStatusSync = { status: 'WON', closedAt: new Date() };
+        else if (stage.type === 'LOST') stageStatusSync = { status: 'LOST', closedAt: new Date() };
+        else stageStatusSync = { status: 'OPEN', closedAt: null };
+      }
+    }
+
     const lead = await prisma.lead.update({
       where: { id: req.params.id },
       data: {
@@ -132,6 +144,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
         ...(assignedToId !== undefined && { assignedToId }),
         ...(priority && { priority }),
         ...(status && { status, closedAt: status !== 'OPEN' ? new Date() : null }),
+        ...stageStatusSync,
         ...(lostReason && { lostReason }),
         ...(expectedCloseAt && { expectedCloseAt: new Date(expectedCloseAt) }),
       },
@@ -172,13 +185,25 @@ router.patch('/:id/move', async (req: AuthRequest, res: Response, next) => {
   try {
     const { stageId, pipelineId } = req.body;
 
+    // Determinar novo status com base no tipo da nova etapa
+    const stage = await prisma.stage.findUnique({ where: { id: stageId } });
+    let statusUpdate: any = {};
+    if (stage) {
+      if (stage.type === 'WON') {
+        statusUpdate = { status: 'WON', closedAt: new Date() };
+      } else if (stage.type === 'LOST') {
+        statusUpdate = { status: 'LOST', closedAt: new Date() };
+      } else {
+        statusUpdate = { status: 'OPEN', closedAt: null };
+      }
+    }
+
     const lead = await prisma.lead.update({
       where: { id: req.params.id },
-      data: { stageId, ...(pipelineId && { pipelineId }) },
+      data: { stageId, ...(pipelineId && { pipelineId }), ...statusUpdate },
       include: leadInclude,
     });
 
-    const stage = await prisma.stage.findUnique({ where: { id: stageId } });
     await prisma.activity.create({
       data: { type: 'LEAD_MOVED', description: `Movido para "${stage?.name}"`, leadId: lead.id, userId: req.user!.id },
     });
@@ -188,6 +213,31 @@ router.patch('/:id/move', async (req: AuthRequest, res: Response, next) => {
 
     res.json(lead);
   } catch (error) { next(error); }
+});
+
+// POST /api/leads/sync-statuses
+// Sincroniza o status de todos os leads do workspace com o tipo da sua etapa
+router.post('/sync-statuses', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const leads = await prisma.lead.findMany({
+      where: { workspaceId: req.user!.workspaceId },
+      include: { stage: true },
+    });
+    let updated = 0;
+    for (const lead of leads) {
+      let target: 'OPEN' | 'WON' | 'LOST' = 'OPEN';
+      if (lead.stage.type === 'WON') target = 'WON';
+      else if (lead.stage.type === 'LOST') target = 'LOST';
+      if (lead.status !== target) {
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data: { status: target, closedAt: target !== 'OPEN' ? (lead.closedAt || new Date()) : null },
+        });
+        updated++;
+      }
+    }
+    res.json({ message: `${updated} leads sincronizados de ${leads.length} totais`, updated, total: leads.length });
+  } catch (e) { next(e); }
 });
 
 export default router;
