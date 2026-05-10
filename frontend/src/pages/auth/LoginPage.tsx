@@ -45,7 +45,7 @@ export default function LoginPage() {
           <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary)' }}>
             <GitBranch size={20} className="text-white" />
           </div>
-          <span className="text-white text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>KommoCRM</span>
+          <span className="text-white text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>M.E.T.A</span>
         </div>
 
         <div>
@@ -69,7 +69,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-gray-600 text-sm">© 2025 KommoCRM. Todos os direitos reservados.</p>
+        <p className="text-gray-600 text-sm">© 2025 M.E.T.A. Todos os direitos reservados.</p>
       </div>
 
       {/* Right - Form */}
@@ -79,7 +79,7 @@ export default function LoginPage() {
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--primary)' }}>
               <GitBranch size={16} className="text-white" />
             </div>
-            <span className="font-bold text-lg" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>KommoCRM</span>
+            <span className="font-bold text-lg" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>M.E.T.A</span>
           </div>
 
           <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: 'var(--text-primary)' }}>Iniciar sessão</h1>

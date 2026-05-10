@@ -138,7 +138,7 @@ export default function AppLayout() {
           {sidebarOpen && (
             <div className="overflow-hidden">
               <p className="font-semibold text-sm text-white truncate" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
-                {workspace?.name || 'KommoCRM'}
+                {workspace?.name || 'M.E.T.A'}
               </p>
               <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>CRM Platform</p>
             </div>

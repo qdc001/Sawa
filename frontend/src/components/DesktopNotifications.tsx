@@ -77,7 +77,7 @@ export default function DesktopNotifications() {
         setEnabled(true);
         toast.success('Notificacoes activadas');
         // notificacao de teste
-        new Notification('KommoCRM', { body: 'Notificacoes activadas. Vais receber alertas de mensagens novas.' });
+        new Notification('M.E.T.A', { body: 'Notificacoes activadas. Vais receber alertas de mensagens novas.' });
       } else {
         toast.error('Permissao negada. Activa nas definicoes do browser.');
       }
