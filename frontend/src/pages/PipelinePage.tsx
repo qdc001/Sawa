@@ -441,6 +441,70 @@ function ManageStagesModal({
   );
 }
 
+// ============== Config dos campos predefinidos ==============
+type BuiltinFieldKey = 'title' | 'value' | 'priority';
+interface BuiltinFieldConfig {
+  label?: string;
+  hidden?: boolean;
+}
+type BuiltinFieldsConfig = Record<BuiltinFieldKey, BuiltinFieldConfig>;
+
+const BUILTIN_DEFAULT_LABELS: Record<BuiltinFieldKey, string> = {
+  title: 'Título',
+  value: 'Valor (MZN)',
+  priority: 'Prioridade',
+};
+
+const BUILTIN_KEY = 'kommo:builtin-fields-config';
+
+function loadBuiltinConfig(): BuiltinFieldsConfig {
+  try {
+    const raw = localStorage.getItem(BUILTIN_KEY);
+    if (!raw) return { title: {}, value: {}, priority: {} };
+    const parsed = JSON.parse(raw);
+    return {
+      title: parsed.title || {},
+      value: parsed.value || {},
+      priority: parsed.priority || {},
+    };
+  } catch {
+    return { title: {}, value: {}, priority: {} };
+  }
+}
+
+function saveBuiltinConfig(config: BuiltinFieldsConfig) {
+  localStorage.setItem(BUILTIN_KEY, JSON.stringify(config));
+  // notificar outras instancias na mesma aba
+  window.dispatchEvent(new CustomEvent('builtin-fields-changed'));
+}
+
+function useBuiltinConfig(): [BuiltinFieldsConfig, (c: BuiltinFieldsConfig) => void] {
+  const [config, setConfig] = useState<BuiltinFieldsConfig>(loadBuiltinConfig);
+  useEffect(() => {
+    const reload = () => setConfig(loadBuiltinConfig());
+    window.addEventListener('builtin-fields-changed', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener('builtin-fields-changed', reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
+  const update = (c: BuiltinFieldsConfig) => {
+    saveBuiltinConfig(c);
+    setConfig(c);
+  };
+  return [config, update];
+}
+
+function builtinLabel(key: BuiltinFieldKey, config: BuiltinFieldsConfig): string {
+  return config[key]?.label?.trim() || BUILTIN_DEFAULT_LABELS[key];
+}
+
+function isBuiltinHidden(key: BuiltinFieldKey, config: BuiltinFieldsConfig): boolean {
+  if (key === 'title') return false; // titulo nunca esconde
+  return !!config[key]?.hidden;
+}
+
 // ============== Renderiza um input para um custom field ==============
 function CustomFieldInput({
   field,
@@ -537,6 +601,17 @@ function ManageLeadFieldsModal({
   const [newType, setNewType] = useState<CustomFieldType>('TEXT');
   const [newOptions, setNewOptions] = useState('');
   const [newRequired, setNewRequired] = useState(false);
+  const [builtinConfig, setBuiltinConfig] = useBuiltinConfig();
+
+  const updateBuiltin = (key: BuiltinFieldKey, patch: BuiltinFieldConfig) => {
+    setBuiltinConfig({ ...builtinConfig, [key]: { ...builtinConfig[key], ...patch } });
+    onChanged();
+  };
+
+  const resetBuiltin = (key: BuiltinFieldKey) => {
+    setBuiltinConfig({ ...builtinConfig, [key]: {} });
+    onChanged();
+  };
 
   useEffect(() => {
     api.get('/custom-fields?entity=lead')
@@ -622,8 +697,69 @@ function ManageLeadFieldsModal({
         </div>
 
         <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-          Os campos predefinidos (Titulo, Valor, Prioridade) aparecem sempre. Aqui podes adicionar campos personalizados.
+          Os campos predefinidos (Titulo, Valor, Prioridade) podem ser renomeados e Valor/Prioridade tambem podem ser escondidos.
         </p>
+
+        {/* Campos predefinidos */}
+        <div className="mb-4">
+          <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+            Campos predefinidos
+          </p>
+          <div className="space-y-2">
+            {(['title', 'value', 'priority'] as BuiltinFieldKey[]).map((key) => {
+              const cfg = builtinConfig[key] || {};
+              const isTitle = key === 'title';
+              return (
+                <div
+                  key={key}
+                  className="flex items-center gap-2 p-2 rounded"
+                  style={{ background: 'var(--surface-2)' }}
+                >
+                  <span
+                    className="text-xs px-2 py-1 rounded font-medium flex-shrink-0"
+                    style={{ background: 'var(--primary-light)', color: 'var(--primary)', minWidth: 80, textAlign: 'center' }}
+                  >
+                    {BUILTIN_DEFAULT_LABELS[key]}
+                  </span>
+                  <input
+                    value={cfg.label ?? ''}
+                    onChange={(e) => updateBuiltin(key, { label: e.target.value })}
+                    placeholder={`Padrao: ${BUILTIN_DEFAULT_LABELS[key]}`}
+                    className="input-base flex-1"
+                  />
+                  {!isTitle && (
+                    <label
+                      className="flex items-center gap-1 text-xs cursor-pointer flex-shrink-0"
+                      style={{ color: 'var(--text-secondary)' }}
+                      title={cfg.hidden ? 'Mostrar' : 'Esconder'}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!cfg.hidden}
+                        onChange={(e) => updateBuiltin(key, { hidden: !e.target.checked })}
+                      />
+                      Visivel
+                    </label>
+                  )}
+                  <button
+                    onClick={() => resetBuiltin(key)}
+                    className="text-xs px-2 py-1 rounded hover:bg-slate-100"
+                    style={{ color: 'var(--text-muted)' }}
+                    title="Repor padrao"
+                  >
+                    Repor
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="border-t pt-3 mb-3" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+            Campos personalizados
+          </p>
+        </div>
 
         {loading ? (
           <div className="flex justify-center py-6">
@@ -732,6 +868,7 @@ function AddLeadModal({
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const [showFieldsManager, setShowFieldsManager] = useState(false);
+  const [builtinConfig] = useBuiltinConfig();
 
   const loadFields = () => {
     api.get('/custom-fields?entity=lead')
@@ -805,7 +942,7 @@ function AddLeadModal({
           <form onSubmit={handleSubmit} className="space-y-3">
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                Título *
+                {builtinLabel('title', builtinConfig)} *
               </label>
               <input
                 autoFocus
@@ -817,34 +954,38 @@ function AddLeadModal({
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                Valor (MZN)
-              </label>
-              <input
-                type="number"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder="0"
-                className="input-base"
-              />
-            </div>
+            {!isBuiltinHidden('value', builtinConfig) && (
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                  {builtinLabel('value', builtinConfig)}
+                </label>
+                <input
+                  type="number"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  placeholder="0"
+                  className="input-base"
+                />
+              </div>
+            )}
 
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                Prioridade
-              </label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="input-base"
-              >
-                <option value="LOW">Baixa</option>
-                <option value="MEDIUM">Média</option>
-                <option value="HIGH">Alta</option>
-                <option value="URGENT">Urgente</option>
-              </select>
-            </div>
+            {!isBuiltinHidden('priority', builtinConfig) && (
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                  {builtinLabel('priority', builtinConfig)}
+                </label>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  className="input-base"
+                >
+                  <option value="LOW">Baixa</option>
+                  <option value="MEDIUM">Média</option>
+                  <option value="HIGH">Alta</option>
+                  <option value="URGENT">Urgente</option>
+                </select>
+              </div>
+            )}
 
             {customFields.length > 0 && (
               <div className="border-t pt-3 space-y-3" style={{ borderColor: 'var(--border)' }}>
@@ -906,6 +1047,7 @@ function LeadDetailModal({
   const [value, setValue] = useState(lead.value?.toString() || '');
   const [priority, setPriority] = useState(lead.priority);
   const [loading, setLoading] = useState(false);
+  const [builtinConfig] = useBuiltinConfig();
 
   const handleUpdate = async () => {
     setLoading(true);
@@ -962,38 +1104,42 @@ function LeadDetailModal({
         <div className="space-y-3">
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-              Título
+              {builtinLabel('title', builtinConfig)}
             </label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-base" />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-              Valor (MZN)
-            </label>
-            <input
-              type="number"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              className="input-base"
-            />
-          </div>
+          {!isBuiltinHidden('value', builtinConfig) && (
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                {builtinLabel('value', builtinConfig)}
+              </label>
+              <input
+                type="number"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                className="input-base"
+              />
+            </div>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-              Prioridade
-            </label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as any)}
-              className="input-base"
-            >
-              <option value="LOW">Baixa</option>
-              <option value="MEDIUM">Média</option>
-              <option value="HIGH">Alta</option>
-              <option value="URGENT">Urgente</option>
-            </select>
-          </div>
+          {!isBuiltinHidden('priority', builtinConfig) && (
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                {builtinLabel('priority', builtinConfig)}
+              </label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as any)}
+                className="input-base"
+              >
+                <option value="LOW">Baixa</option>
+                <option value="MEDIUM">Média</option>
+                <option value="HIGH">Alta</option>
+                <option value="URGENT">Urgente</option>
+              </select>
+            </div>
+          )}
 
           <div className="flex gap-2 pt-2">
             <button
