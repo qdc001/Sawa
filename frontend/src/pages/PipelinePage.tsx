@@ -1208,6 +1208,8 @@ export function LeadDetailModal({
             </select>
           </div>
 
+          <LeadActivityLog leadId={lead.id} />
+
           <div className="flex gap-2 pt-2">
             <button
               onClick={handleDelete}
@@ -1230,6 +1232,74 @@ export function LeadDetailModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============== Activity Log do Lead (mostra automation runs) ==============
+function LeadActivityLog({ leadId }: { leadId: string }) {
+  const [runs, setRuns] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/automations/runs/recent?leadId=${leadId}&limit=20`);
+      setRuns(res.data);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { if (open && runs.length === 0) load(); }, [open]);
+
+  return (
+    <div style={{ borderTop: '1px dashed var(--border)', paddingTop: 8, marginTop: 8 }}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 text-xs font-medium py-1"
+        style={{ color: 'var(--text-secondary)' }}
+      >
+        <span>{open ? '▼' : '▶'}</span>
+        Histórico de automatizações
+      </button>
+      {open && (
+        <div className="mt-2 max-h-48 overflow-y-auto space-y-1.5">
+          {loading ? (
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>A carregar...</p>
+          ) : runs.length === 0 ? (
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Sem automatizações executadas neste lead.</p>
+          ) : (
+            runs.map((r) => (
+              <div key={r.id} className="text-[11px] p-2 rounded" style={{ background: 'var(--surface-2)' }}>
+                <div className="flex items-center gap-2">
+                  <span style={{
+                    color: r.status === 'OK' ? '#10B981' : r.status === 'FAILED' ? '#EF4444' : '#94A3B8',
+                    fontWeight: 600,
+                  }}>
+                    {r.status === 'OK' ? '✓' : r.status === 'FAILED' ? '✗' : '○'}
+                  </span>
+                  <span className="font-medium">{r.automation?.name || '?'}</span>
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                    {new Date(r.createdAt).toLocaleString('pt-PT')}
+                  </span>
+                </div>
+                <p style={{ color: 'var(--text-muted)' }}>Trigger: {r.triggeredBy}</p>
+                {Array.isArray(r.log) && r.log.length > 0 && (
+                  <ul className="mt-1 space-y-0.5">
+                    {r.log.slice(0, 3).map((e: any, i: number) => (
+                      <li key={i} style={{ color: 'var(--text-muted)' }}>
+                        • {e.action}{e.detail ? ` — ${e.detail}` : ''}
+                      </li>
+                    ))}
+                    {r.log.length > 3 && <li style={{ color: 'var(--text-muted)' }}>+ {r.log.length - 3} passos</li>}
+                  </ul>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }

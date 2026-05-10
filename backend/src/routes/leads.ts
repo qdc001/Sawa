@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
+import { notifyNewLead } from '../lib/notify';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -30,6 +31,10 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
     if (assignedToId) where.assignedToId = assignedToId;
     if (status) where.status = status;
     if (search) where.title = { contains: search as string, mode: 'insensitive' };
+    // Visibilidade restrita: AGENT com viewOnlyOwn só vê os seus
+    if (req.user!.viewOnlyOwn && req.user!.role === 'AGENT') {
+      where.assignedToId = req.user!.id;
+    }
 
     const [leads, total] = await Promise.all([
       prisma.lead.findMany({ where, include: leadInclude, skip, take: Number(limit), orderBy: { createdAt: 'desc' } }),
@@ -43,8 +48,10 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 // GET /api/leads/:id
 router.get('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
+    const restrictWhere: any = { id: req.params.id, workspaceId: req.user!.workspaceId };
+    if (req.user!.viewOnlyOwn && req.user!.role === 'AGENT') restrictWhere.assignedToId = req.user!.id;
     const lead = await prisma.lead.findFirst({
-      where: { id: req.params.id, workspaceId: req.user!.workspaceId },
+      where: restrictWhere,
       include: {
         ...leadInclude,
         notes: { include: { createdBy: { select: { id: true, name: true, avatar: true } } }, orderBy: { createdAt: 'desc' } },
@@ -106,6 +113,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     if (lead.assignedToId) {
       triggerAutomations({ type: 'lead_assigned', workspaceId: req.user!.workspaceId, entityType: 'lead', entityId: lead.id })
         .catch((e) => console.error('Automation lead_assigned error:', e));
+      notifyNewLead(lead.id, lead.assignedToId).catch((e) => console.error('notifyNewLead error:', e));
     }
 
     res.status(201).json(lead);
@@ -182,6 +190,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     if (assignedToId && assignedToId !== existing.assignedToId) {
       triggerAutomations({ type: 'lead_assigned', workspaceId: req.user!.workspaceId, entityType: 'lead', entityId: lead.id })
         .catch(() => {});
+      notifyNewLead(lead.id, assignedToId).catch(() => {});
     }
 
     const io = req.app.get('io');

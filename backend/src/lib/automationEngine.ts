@@ -714,6 +714,11 @@ export async function checkOverdueTasks(): Promise<number> {
       entityType: 'task',
       entityId: task.id,
     });
+    // Notificação por email opt-in
+    try {
+      const { notifyTaskOverdue } = await import('./notify');
+      await notifyTaskOverdue(task.id);
+    } catch (e) { console.error('notifyTaskOverdue error:', e); }
   }
   return overdue.length;
 }

@@ -25,6 +25,8 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
     if (search) where.title = { contains: search as string, mode: 'insensitive' };
     if (tagId) where.tags = { some: { tagId: tagId as string } };
     if (parentOnly === 'true') where.parentTaskId = null;
+    // Visibilidade restrita
+    if (req.user!.viewOnlyOwn && req.user!.role === 'AGENT') where.assignedToId = req.user!.id;
     if (dueFrom || dueTo) {
       where.dueAt = {};
       if (dueFrom) where.dueAt.gte = new Date(dueFrom as string);

@@ -10,21 +10,22 @@ import CopilotPanel from '../ai/CopilotPanel';
 import DesktopNotifications from '../DesktopNotifications';
 import toast from 'react-hot-toast';
 import api, { Lead, Contact } from '../../lib/api';
+import { useT } from '../../lib/i18n';
 
-const navItems = [
-  { path: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-  { path: '/pipeline', icon: GitBranch, label: 'Pipeline' },
-  { path: '/leads', icon: Users, label: 'Leads' },
-  { path: '/contacts', icon: UserPlus, label: 'Contactos' },
-  { path: '/inbox', icon: MessageSquare, label: 'Caixa de Entrada' },
-  { path: '/tasks', icon: CheckSquare, label: 'Tarefas' },
-  { path: '/automations', icon: Zap, label: 'Automatizações' },
-  { path: '/broadcasts', icon: Radio, label: 'Broadcasts' },
-  { path: '/chatbots', icon: Bot, label: 'Chatbots' },
-  { path: '/analytics', icon: BarChart3, label: 'Análises' },
-  { path: '/templates', icon: FileText, label: 'Templates' },
-  { path: '/integrations', icon: Plug, label: 'Integrações' },
-  { path: '/team', icon: Users, label: 'Equipa' },
+const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
+  { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
+  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline' },
+  { path: '/leads', icon: Users, key: 'nav.leads' },
+  { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
+  { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
+  { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
+  { path: '/automations', icon: Zap, key: 'nav.automations' },
+  { path: '/broadcasts', icon: Radio, key: 'nav.broadcasts' },
+  { path: '/chatbots', icon: Bot, key: 'nav.chatbots' },
+  { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
+  { path: '/templates', icon: FileText, key: 'nav.templates' },
+  { path: '/integrations', icon: Plug, key: 'nav.integrations' },
+  { path: '/team', icon: Users, key: 'nav.team' },
 ];
 
 export default function AppLayout() {
@@ -32,6 +33,8 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [t] = useT();
+  const navItems = navConfig.map((n) => ({ ...n, label: t(n.key) }));
 
   // Pesquisa global (partilhada via store para destacar tambem no kanban)
   const { globalSearchQuery: query, setGlobalSearchQuery: setQuery } = useUIStore();
@@ -182,10 +185,10 @@ export default function AppLayout() {
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive ? 'text-white' : 'text-gray-400 hover:text-white'}`
             }
-            title={!sidebarOpen ? 'Definições' : undefined}
+            title={!sidebarOpen ? t('nav.settings') : undefined}
           >
             <Settings size={18} className="flex-shrink-0" />
-            {sidebarOpen && <span>Definições</span>}
+            {sidebarOpen && <span>{t('nav.settings')}</span>}
           </NavLink>
 
           {/* User */}

@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
+import { notifyNewMessage } from '../lib/notify';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -224,6 +225,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
             type: 'message_received', workspaceId,
             entityType: 'message', entityId: savedMessage.id,
           }).catch((e) => console.error('Automation message_received error:', e));
+
+          // Notificação opt-in por email
+          notifyNewMessage(savedMessage.id).catch((e) => console.error('notifyNewMessage error:', e));
         }
 
         // Process status updates

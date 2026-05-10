@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
+import { notifyMentions } from '../lib/notify';
 const prisma = new PrismaClient();
 const router = Router();
 
@@ -16,6 +17,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const note = await prisma.note.create({ data: { ...req.body, createdById: req.user!.id }, include: { createdBy: { select: { id: true, name: true, avatar: true } } } });
     if (note.leadId) await prisma.activity.create({ data: { type: 'NOTE_ADDED', description: 'Nota adicionada', leadId: note.leadId, userId: req.user!.id } });
+    notifyMentions(note.content || '', req.user!.workspaceId, { type: 'note', entityId: note.id }).catch(() => {});
     res.status(201).json(note);
   } catch (e) { next(e); }
 });

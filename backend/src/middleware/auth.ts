@@ -10,6 +10,7 @@ export interface AuthRequest extends Request {
     workspaceId: string;
     role: string;
     email: string;
+    viewOnlyOwn?: boolean;
   };
 }
 
@@ -32,14 +33,14 @@ export const authMiddleware = async (
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, workspaceId: true, role: true, email: true, isActive: true },
+      select: { id: true, workspaceId: true, role: true, email: true, isActive: true, viewOnlyOwn: true },
     });
 
     if (!user || !user.isActive) {
       return res.status(401).json({ message: 'Utilizador não autorizado' });
     }
 
-    req.user = { id: user.id, workspaceId: user.workspaceId, role: user.role, email: user.email };
+    req.user = { id: user.id, workspaceId: user.workspaceId, role: user.role, email: user.email, viewOnlyOwn: user.viewOnlyOwn };
 
     // Actualizar session.lastUsedAt em background (sem bloquear)
     prisma.session.updateMany({

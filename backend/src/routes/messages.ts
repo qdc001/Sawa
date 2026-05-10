@@ -24,6 +24,19 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
     };
     if (channel) messageWhere.channel = channel;
 
+    // Visibilidade restrita: só vê conversas do próprio (lead atribuído ou conversa atribuída)
+    if (req.user!.viewOnlyOwn && req.user!.role === 'AGENT') {
+      const myMetas = await prisma.conversationMeta.findMany({
+        where: { workspaceId: req.user!.workspaceId, assignedToId: req.user!.id },
+        select: { contactId: true, channel: true },
+      });
+      const myContactIds = myMetas.map((m) => m.contactId).filter((x) => x) as string[];
+      messageWhere.OR = [
+        { lead: { workspaceId: req.user!.workspaceId, assignedToId: req.user!.id } },
+        ...(myContactIds.length ? [{ contactId: { in: myContactIds } }] : []),
+      ];
+    }
+
     const messages = await prisma.message.findMany({
       where: messageWhere,
       include: {
