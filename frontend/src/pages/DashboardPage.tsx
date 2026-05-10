@@ -516,7 +516,7 @@ export default function DashboardPage() {
   if (wonStage) funnelData.push({ name: wonStage.name, value: wonStage.count, fill: wonStage.color });
 
   return (
-    <div className="p-6 animate-fade-in print:p-2" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="p-6 print:p-2" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Header */}
       <div style={{ order: -100 }} className="flex items-start justify-between flex-wrap gap-3 print:gap-1">
         <div>
