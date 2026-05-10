@@ -5,50 +5,217 @@ import { AppError } from '../middleware/errorHandler';
 const prisma = new PrismaClient();
 const router = Router();
 
+const contactInclude = {
+  tags: { include: { tag: true } },
+  customValues: { include: { field: true } },
+  _count: { select: { leads: true } },
+};
+
+// GET /api/contacts
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { search, page = 1, limit = 20 } = req.query;
+    const { search, type, tagId, page = 1, limit = 20 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
     const where: any = { workspaceId: req.user!.workspaceId };
+    if (type) where.type = type;
     if (search) where.OR = [
       { firstName: { contains: search as string, mode: 'insensitive' } },
+      { lastName: { contains: search as string, mode: 'insensitive' } },
       { email: { contains: search as string, mode: 'insensitive' } },
       { phone: { contains: search as string, mode: 'insensitive' } },
+      { whatsapp: { contains: search as string, mode: 'insensitive' } },
+      { company: { contains: search as string, mode: 'insensitive' } },
     ];
+    if (tagId) where.tags = { some: { tagId: tagId as string } };
+
     const [contacts, total] = await Promise.all([
-      prisma.contact.findMany({ where, skip, take: Number(limit), orderBy: { firstName: 'asc' }, include: { tags: { include: { tag: true } }, _count: { select: { leads: true } } } }),
+      prisma.contact.findMany({
+        where, skip, take: Number(limit),
+        orderBy: { firstName: 'asc' },
+        include: contactInclude,
+      }),
       prisma.contact.count({ where }),
     ]);
     res.json({ contacts, total });
   } catch (e) { next(e); }
 });
 
+// GET /api/contacts/:id
 router.get('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
-    const contact = await prisma.contact.findFirst({ where: { id: req.params.id, workspaceId: req.user!.workspaceId }, include: { tags: { include: { tag: true } }, leads: { include: { stage: true, pipeline: true } } } });
+    const contact = await prisma.contact.findFirst({
+      where: { id: req.params.id, workspaceId: req.user!.workspaceId },
+      include: {
+        tags: { include: { tag: true } },
+        customValues: { include: { field: true } },
+        leads: { include: { stage: true, pipeline: true }, orderBy: { createdAt: 'desc' } },
+      },
+    });
     if (!contact) throw new AppError('Contacto não encontrado', 404);
     res.json(contact);
   } catch (e) { next(e); }
 });
 
+// POST /api/contacts
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const contact = await prisma.contact.create({ data: { ...req.body, workspaceId: req.user!.workspaceId } });
+    const { tags, customValues, ...rest } = req.body;
+    const cleanCV = Array.isArray(customValues)
+      ? customValues
+          .filter((cv: any) => cv && cv.fieldId && cv.value !== undefined && cv.value !== null && cv.value !== '')
+          .map((cv: any) => ({ fieldId: cv.fieldId, value: String(cv.value) }))
+      : [];
+    const contact = await prisma.contact.create({
+      data: {
+        ...rest,
+        workspaceId: req.user!.workspaceId,
+        tags: Array.isArray(tags) && tags.length
+          ? { create: tags.map((tagId: string) => ({ tagId })) }
+          : undefined,
+        customValues: cleanCV.length ? { create: cleanCV } : undefined,
+      },
+      include: contactInclude,
+    });
     res.status(201).json(contact);
   } catch (e) { next(e); }
 });
 
+// POST /api/contacts/bulk - importar lista
+router.post('/bulk', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contacts } = req.body;
+    if (!Array.isArray(contacts) || contacts.length === 0) {
+      throw new AppError('Lista de contactos vazia', 400);
+    }
+    let created = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+    for (const c of contacts) {
+      const firstName = (c.firstName || '').toString().trim();
+      if (!firstName) { skipped++; continue; }
+      try {
+        await prisma.contact.create({
+          data: {
+            type: c.type === 'COMPANY' ? 'COMPANY' : 'PERSON',
+            firstName,
+            lastName: (c.lastName || '').toString().trim() || null,
+            email: (c.email || '').toString().trim() || null,
+            phone: (c.phone || '').toString().trim() || null,
+            whatsapp: (c.whatsapp || '').toString().trim() || null,
+            company: (c.company || '').toString().trim() || null,
+            position: (c.position || '').toString().trim() || null,
+            website: (c.website || '').toString().trim() || null,
+            address: (c.address || '').toString().trim() || null,
+            city: (c.city || '').toString().trim() || null,
+            country: (c.country || '').toString().trim() || null,
+            notes: (c.notes || '').toString().trim() || null,
+            workspaceId: req.user!.workspaceId,
+          },
+        });
+        created++;
+      } catch (e: any) {
+        skipped++;
+        if (errors.length < 5) errors.push(`Linha ${created + skipped}: ${e.message}`);
+      }
+    }
+    res.status(201).json({ created, skipped, total: contacts.length, errors });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/contacts/:id
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
-    const contact = await prisma.contact.update({ where: { id: req.params.id }, data: req.body });
+    const { tags, customValues, ...rest } = req.body;
+
+    // Substituir tags se enviadas
+    if (Array.isArray(tags)) {
+      await prisma.tagOnContact.deleteMany({ where: { contactId: req.params.id } });
+      if (tags.length) {
+        await prisma.tagOnContact.createMany({
+          data: tags.map((tagId: string) => ({ contactId: req.params.id, tagId })),
+        });
+      }
+    }
+
+    // Substituir custom values se enviados
+    if (Array.isArray(customValues)) {
+      await prisma.customFieldValue.deleteMany({ where: { contactId: req.params.id } });
+      const clean = customValues
+        .filter((cv: any) => cv && cv.fieldId && cv.value !== undefined && cv.value !== null && cv.value !== '')
+        .map((cv: any) => ({ fieldId: cv.fieldId, value: String(cv.value), contactId: req.params.id }));
+      if (clean.length) {
+        await prisma.customFieldValue.createMany({ data: clean });
+      }
+    }
+
+    const contact = await prisma.contact.update({
+      where: { id: req.params.id },
+      data: rest,
+      include: contactInclude,
+    });
     res.json(contact);
   } catch (e) { next(e); }
 });
 
+// DELETE /api/contacts/:id
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     await prisma.contact.delete({ where: { id: req.params.id } });
     res.json({ message: 'Contacto eliminado' });
+  } catch (e) { next(e); }
+});
+
+// POST /api/contacts/bulk-delete
+router.post('/bulk-delete', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) throw new AppError('Lista vazia', 400);
+    const result = await prisma.contact.deleteMany({
+      where: { id: { in: ids }, workspaceId: req.user!.workspaceId },
+    });
+    res.json({ deleted: result.count });
+  } catch (e) { next(e); }
+});
+
+// POST /api/contacts/:id/tags - adicionar tag
+router.post('/:id/tags', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { tagId } = req.body;
+    if (!tagId) throw new AppError('tagId obrigatorio', 400);
+    await prisma.tagOnContact.create({ data: { contactId: req.params.id, tagId } }).catch(() => {});
+    const contact = await prisma.contact.findUnique({
+      where: { id: req.params.id },
+      include: contactInclude,
+    });
+    res.json(contact);
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/contacts/:id/tags/:tagId - remover tag
+router.delete('/:id/tags/:tagId', async (req: AuthRequest, res: Response, next) => {
+  try {
+    await prisma.tagOnContact.deleteMany({
+      where: { contactId: req.params.id, tagId: req.params.tagId },
+    });
+    res.json({ message: 'Tag removida' });
+  } catch (e) { next(e); }
+});
+
+// POST /api/contacts/bulk-tag - atribuir tag a varios
+router.post('/bulk-tag', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { ids, tagId } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0 || !tagId) throw new AppError('ids e tagId obrigatorios', 400);
+    let added = 0;
+    for (const id of ids) {
+      try {
+        await prisma.tagOnContact.create({ data: { contactId: id, tagId } });
+        added++;
+      } catch {
+        // ja existe ou contacto nao existe
+      }
+    }
+    res.json({ added });
   } catch (e) { next(e); }
 });
 

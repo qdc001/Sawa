@@ -506,7 +506,7 @@ function isBuiltinHidden(key: BuiltinFieldKey, config: BuiltinFieldsConfig): boo
 }
 
 // ============== Renderiza um input para um custom field ==============
-function CustomFieldInput({
+export function CustomFieldInput({
   field,
   value,
   onChange,

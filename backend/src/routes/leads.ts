@@ -107,7 +107,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 // PATCH /api/leads/:id
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { title, value, stageId, assignedToId, priority, status, lostReason, expectedCloseAt, customValues } = req.body;
+    const { title, value, stageId, assignedToId, contactId, priority, status, lostReason, expectedCloseAt, customValues } = req.body;
 
     const existing = await prisma.lead.findFirst({ where: { id: req.params.id, workspaceId: req.user!.workspaceId } });
     if (!existing) throw new AppError('Lead não encontrado', 404);
@@ -142,6 +142,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
         ...(value !== undefined && { value: Number(value) }),
         ...(stageId && { stageId }),
         ...(assignedToId !== undefined && { assignedToId }),
+        ...(contactId !== undefined && { contactId }),
         ...(priority && { priority }),
         ...(status && { status, closedAt: status !== 'OPEN' ? new Date() : null }),
         ...stageStatusSync,
