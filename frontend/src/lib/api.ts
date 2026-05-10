@@ -35,9 +35,34 @@ export interface User {
   role: 'OWNER' | 'ADMIN' | 'MANAGER' | 'AGENT';
   workspaceId: string;
   isActive?: boolean;
+  status?: 'ONLINE' | 'AWAY' | 'BUSY' | 'DND' | 'OFFLINE';
+  internalNotes?: string | null;
+  viewOnlyOwn?: boolean;
+  teamId?: string | null;
   lastLoginAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description?: string;
+  color: string;
+  members?: Array<{ id: string; name: string; avatar?: string; role: string }>;
+  _count?: { members: number };
+}
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  entity: string;
+  entityId?: string;
+  description: string;
+  metadata?: any;
+  createdAt: string;
+  userId?: string | null;
+  userName?: string | null;
 }
 
 export interface Workspace {

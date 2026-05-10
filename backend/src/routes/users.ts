@@ -10,7 +10,9 @@ const router = Router();
 
 const userSelect = {
   id: true, name: true, email: true, avatar: true, phone: true,
-  role: true, isActive: true, workspaceId: true, lastLoginAt: true,
+  role: true, isActive: true, status: true, internalNotes: true,
+  viewOnlyOwn: true, teamId: true,
+  workspaceId: true, lastLoginAt: true,
   createdAt: true, updatedAt: true,
 };
 
@@ -29,10 +31,18 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 // PATCH /api/users/me - actualizar perfil pessoal
 router.patch('/me', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { name, phone, avatar } = req.body;
+    const { name, phone, avatar, status } = req.body;
+    if (status && !['ONLINE', 'AWAY', 'BUSY', 'DND', 'OFFLINE'].includes(status)) {
+      throw new AppError('Status invalido', 400);
+    }
     const user = await prisma.user.update({
       where: { id: req.user!.id },
-      data: { ...(name && { name }), ...(phone !== undefined && { phone }), ...(avatar !== undefined && { avatar }) },
+      data: {
+        ...(name && { name }),
+        ...(phone !== undefined && { phone }),
+        ...(avatar !== undefined && { avatar }),
+        ...(status && { status }),
+      },
       select: userSelect,
     });
     res.json(user);
@@ -91,12 +101,10 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN podem editar membros', 403);
     }
-    const { role, isActive, name } = req.body;
-    // Apenas OWNER pode promover a OWNER
+    const { role, isActive, name, internalNotes, viewOnlyOwn, teamId } = req.body;
     if (role === 'OWNER' && req.user!.role !== 'OWNER') {
       throw new AppError('Apenas OWNER pode promover outro a OWNER', 403);
     }
-    // Nao deixar despromover o ultimo OWNER
     if (target.role === 'OWNER' && role && role !== 'OWNER') {
       const owners = await prisma.user.count({ where: { workspaceId: req.user!.workspaceId, role: 'OWNER' } });
       if (owners <= 1) throw new AppError('Tem de existir pelo menos um OWNER', 400);
@@ -107,6 +115,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
         ...(role && { role }),
         ...(isActive !== undefined && { isActive }),
         ...(name && { name }),
+        ...(internalNotes !== undefined && { internalNotes }),
+        ...(viewOnlyOwn !== undefined && { viewOnlyOwn }),
+        ...(teamId !== undefined && { teamId: teamId || null }),
       },
       select: userSelect,
     });

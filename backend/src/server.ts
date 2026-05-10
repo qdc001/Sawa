@@ -34,6 +34,7 @@ import broadcastRoutes from './routes/broadcasts';
 import aiRoutes from './routes/ai';
 import goalsRoutes from './routes/goals';
 import csatRoutes, { publicRouter as csatPublicRoutes } from './routes/csat';
+import teamsRoutes from './routes/teams';
 
 
 // Middleware
@@ -115,6 +116,7 @@ app.use('/api/broadcasts', authMiddleware, broadcastRoutes);
 app.use('/api/ai', authMiddleware, aiRoutes);
 app.use('/api/goals', authMiddleware, goalsRoutes);
 app.use('/api/csat', authMiddleware, csatRoutes);
+app.use('/api/teams', authMiddleware, teamsRoutes);
 
 
 // Error handler (must be last)

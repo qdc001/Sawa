@@ -18,12 +18,17 @@ model User {
   phone        String?
   role         UserRole @default(AGENT)
   isActive     Boolean  @default(true)
+  status       String   @default("OFFLINE") // ONLINE | AWAY | BUSY | DND | OFFLINE
+  internalNotes String?  // notas HR sobre o membro
+  viewOnlyOwn  Boolean  @default(false) // restricao de visibilidade
   lastLoginAt  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   workspace    Workspace   @relation(fields: [workspaceId], references: [id])
   workspaceId  String
+  team         Team?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  teamId       String?
 
   assignedLeads    Lead[]       @relation("AssignedLeads")
   createdLeads     Lead[]       @relation("CreatedLeads")
@@ -57,6 +62,9 @@ model Workspace {
   logo        String?
   timezone    String   @default("Africa/Maputo")
   currency    String   @default("MZN")
+  primaryColor String  @default("#6366F1")
+  dateFormat   String  @default("DD/MM/YYYY")
+  fiscalYearStartMonth Int @default(1) // 1 = Janeiro
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -74,6 +82,8 @@ model Workspace {
   webhooks     Webhook[]
   goals        Goal[]
   conversationMetas ConversationMeta[]
+  teams        Team[]
+  auditLogs    AuditLog[]
 
   @@map("workspaces")
 }
@@ -720,6 +730,44 @@ model TagOnConversation {
 
   @@id([conversationId, tagId])
   @@map("tags_on_conversations")
+}
+
+// ==================== TEAM / DEPARTAMENTOS ====================
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  color       String   @default("#6366F1")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  members     User[]
+
+  @@unique([workspaceId, name])
+  @@map("teams")
+}
+
+// ==================== AUDIT LOGS ====================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String   // "CREATE" | "UPDATE" | "DELETE" | "LOGIN"
+  entity      String   // "lead" | "contact" | "task" | "user" | etc
+  entityId    String?
+  description String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  userId      String?
+
+  @@index([workspaceId, createdAt])
+  @@map("audit_logs")
 }
 
 // ==================== CSAT ====================

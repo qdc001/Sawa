@@ -25,6 +25,20 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
 }
+
+html.dark {
+  --surface: #0F172A;
+  --surface-2: #1E293B;
+  --surface-3: #334155;
+  --border: #334155;
+  --text-primary: #F1F5F9;
+  --text-secondary: #CBD5E1;
+  --text-muted: #94A3B8;
+  --sidebar-bg: #020617;
+  --primary-light: rgba(99, 102, 241, 0.15);
+}
+html.dark body { background: var(--surface-2); color: var(--text-primary); }
+html.dark .card { border-color: var(--border) !important; }
 * { box-sizing: border-box; }
 body { font-family: 'Inter', sans-serif; background: var(--surface-2); color: var(--text-primary); -webkit-font-smoothing: antialiased; }
 h1,h2,h3,h4,h5 { font-family: 'Plus Jakarta Sans', sans-serif; }
