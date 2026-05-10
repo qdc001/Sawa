@@ -721,6 +721,13 @@ function ManagePipelinesModal({
         list.map((p) => {
           const original = pipelines.find((o) => o.id === p.id);
           if (!original) return null;
+          // Pipeline Principal: so a cor pode mudar
+          if (p.isDefault) {
+            if (original.color !== p.color) {
+              return api.patch(`/pipelines/${p.id}`, { color: p.color });
+            }
+            return null;
+          }
           if (original.name !== p.name || original.color !== p.color) {
             return api.patch(`/pipelines/${p.id}`, { name: p.name, color: p.color });
           }
@@ -738,6 +745,10 @@ function ManagePipelinesModal({
   };
 
   const handleDelete = async (pipeline: Pipeline) => {
+    if (pipeline.isDefault) {
+      toast.error('O Pipeline Principal nao pode ser eliminado');
+      return;
+    }
     if (list.length <= 1) {
       toast.error('Tem de existir pelo menos um pipeline');
       return;
@@ -797,50 +808,58 @@ function ManagePipelinesModal({
         </div>
 
         <div className="space-y-2 mb-4">
-          {list.map((pipeline) => (
-            <div
-              key={pipeline.id}
-              className="flex items-center gap-2 p-2 rounded"
-              style={{ background: 'var(--surface-2)' }}
-            >
-              <input
-                type="color"
-                value={pipeline.color}
-                onChange={(e) => updateField(pipeline.id, 'color', e.target.value)}
-                className="w-8 h-8 rounded cursor-pointer border-0"
-                title="Cor"
-              />
-              <input
-                value={pipeline.name}
-                onChange={(e) => updateField(pipeline.id, 'name', e.target.value)}
-                className="input-base flex-1"
-              />
-              {pipeline.isDefault && (
+          {list.map((pipeline) => {
+            const isProtected = pipeline.isDefault;
+            return (
+              <div
+                key={pipeline.id}
+                className="flex items-center gap-2 p-2 rounded"
+                style={{ background: 'var(--surface-2)' }}
+              >
+                <input
+                  type="color"
+                  value={pipeline.color}
+                  onChange={(e) => updateField(pipeline.id, 'color', e.target.value)}
+                  className="w-8 h-8 rounded cursor-pointer border-0"
+                  title="Cor"
+                />
+                <input
+                  value={pipeline.name}
+                  onChange={(e) => updateField(pipeline.id, 'name', e.target.value)}
+                  className="input-base flex-1"
+                  disabled={isProtected}
+                  readOnly={isProtected}
+                  title={isProtected ? 'O nome do Pipeline Principal nao pode ser alterado' : undefined}
+                  style={isProtected ? { background: 'var(--surface-3)', cursor: 'not-allowed', color: 'var(--text-muted)' } : undefined}
+                />
+                {isProtected && (
+                  <span
+                    className="text-xs px-2 py-1 rounded"
+                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                    title="Vista agregada de todos os pipelines"
+                  >
+                    Padrao
+                  </span>
+                )}
                 <span
                   className="text-xs px-2 py-1 rounded"
-                  style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                  style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}
+                  title="Numero de etapas"
                 >
-                  Padrao
+                  {pipeline.stages?.length || 0} etapas
                 </span>
-              )}
-              <span
-                className="text-xs px-2 py-1 rounded"
-                style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}
-                title="Numero de etapas"
-              >
-                {pipeline.stages?.length || 0} etapas
-              </span>
-              <button
-                onClick={() => handleDelete(pipeline)}
-                className="p-2 rounded hover:bg-red-50"
-                title="Eliminar"
-                disabled={list.length <= 1}
-                style={{ opacity: list.length <= 1 ? 0.4 : 1 }}
-              >
-                <Trash2 size={16} style={{ color: '#EF4444' }} />
-              </button>
-            </div>
-          ))}
+                <button
+                  onClick={() => handleDelete(pipeline)}
+                  className="p-2 rounded hover:bg-red-50"
+                  title={isProtected ? 'O Pipeline Principal nao pode ser eliminado' : 'Eliminar'}
+                  disabled={isProtected || list.length <= 1}
+                  style={{ opacity: isProtected || list.length <= 1 ? 0.4 : 1, cursor: isProtected ? 'not-allowed' : 'pointer' }}
+                >
+                  <Trash2 size={16} style={{ color: '#EF4444' }} />
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         <div className="border-t pt-4 mb-4" style={{ borderColor: 'var(--border)' }}>
