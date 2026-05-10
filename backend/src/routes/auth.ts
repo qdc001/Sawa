@@ -23,6 +23,7 @@ router.post('/register', async (req: Request, res: Response, next) => {
     const slug = workspaceName.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
     const hashedPassword = await bcrypt.hash(password, 12);
 
+    // 1. Cria workspace + user primeiro
     const workspace = await prisma.workspace.create({
       data: {
         name: workspaceName,
@@ -35,33 +36,32 @@ router.post('/register', async (req: Request, res: Response, next) => {
             role: 'OWNER',
           },
         },
-        pipelines: {
-          create: {
-            name: 'Pipeline Principal',
-            isDefault: true,
-            createdById: '',
-            stages: {
-              create: [
-                { name: 'Novo Lead', color: '#6B7280', position: 0 },
-                { name: 'Em Contacto', color: '#3B82F6', position: 1 },
-                { name: 'Proposta Enviada', color: '#8B5CF6', position: 2 },
-                { name: 'Negociação', color: '#F59E0B', position: 3 },
-                { name: 'Ganho', color: '#10B981', position: 4, type: 'WON' },
-                { name: 'Perdido', color: '#EF4444', position: 5, type: 'LOST' },
-              ],
-            },
-          },
-        },
       },
       include: { users: true },
     });
 
     const user = workspace.users[0];
 
-    // Update pipeline createdById
-    await prisma.pipeline.updateMany({
-      where: { workspaceId: workspace.id },
-      data: { createdById: user.id },
+    // 2. Cria pipeline padrao com createdById valido
+    await prisma.pipeline.create({
+      data: {
+        name: 'Pipeline Principal',
+        isDefault: true,
+        color: '#6366F1',
+        position: 0,
+        workspaceId: workspace.id,
+        createdById: user.id,
+        stages: {
+          create: [
+            { name: 'Novo Lead', color: '#6B7280', position: 0 },
+            { name: 'Em Contacto', color: '#3B82F6', position: 1 },
+            { name: 'Proposta Enviada', color: '#8B5CF6', position: 2 },
+            { name: 'Negociacao', color: '#F59E0B', position: 3 },
+            { name: 'Ganho', color: '#10B981', position: 4, type: 'WON' },
+            { name: 'Perdido', color: '#EF4444', position: 5, type: 'LOST' },
+          ],
+        },
+      },
     });
 
     const token = jwt.sign(
