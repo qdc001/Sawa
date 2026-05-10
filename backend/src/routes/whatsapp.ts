@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
+import { runChatbotForMessage } from '../lib/chatbotEngine';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -189,6 +190,18 @@ router.post('/webhook', async (req: Request, res: Response) => {
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.token}` },
             body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: msgId }),
           });
+
+          // Disparar motor de chatbots (não bloqueia o webhook)
+          if (msgType === 'TEXT' && content) {
+            runChatbotForMessage({
+              workspaceId,
+              contactId: contact.id,
+              leadId: lead?.id,
+              message: content,
+              channel: 'WHATSAPP',
+              io,
+            }).catch((e) => console.error('Chatbot engine error:', e));
+          }
         }
 
         // Process status updates

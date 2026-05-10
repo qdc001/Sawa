@@ -43,6 +43,9 @@ import { errorHandler } from './middleware/errorHandler';
 import { authMiddleware } from './middleware/auth';
 import { rateLimiter } from './middleware/rateLimiter';
 
+// Lib
+import { processExpiredDelays } from './lib/chatbotEngine';
+
 const app = express();
 const httpServer = createServer(app);
 const io = new SocketServer(httpServer, {
@@ -129,6 +132,12 @@ httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV}`);
 });
+
+// Processa delays de chatbots expirados a cada 30 segundos
+// (cobre casos em que o setTimeout in-memory se perdeu por reinício)
+setInterval(() => {
+  processExpiredDelays().catch((e) => console.error('processExpiredDelays error:', e));
+}, 30_000);
 
 (global as any).io = io;
 export { io };

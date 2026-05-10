@@ -406,3 +406,78 @@ export interface RevenueData {
   revenue: number;
   deals: number;
 }
+
+// ==================== CHATBOTS ====================
+
+export type ChatbotTrigger = 'first_message' | 'keyword' | 'always';
+
+export type ChatbotNodeType = 'trigger' | 'message' | 'condition' | 'action' | 'delay' | 'ai' | 'end';
+
+export interface ChatbotNodeData {
+  label?: string;
+  // message / ai
+  text?: string;
+  waitForReply?: boolean;
+  saveAs?: string;
+  aiPrompt?: string;
+  // condition
+  conditionType?: 'contains' | 'equals' | 'starts_with' | 'is_number' | 'has_email' | 'has_phone';
+  conditionValue?: string;
+  conditionTarget?: string;
+  // action
+  actionType?: 'create_task' | 'assign_user' | 'change_stage' | 'add_tag' | 'webhook' | 'set_priority' | 'create_lead';
+  actionParams?: Record<string, any>;
+  // delay
+  delaySeconds?: number;
+  // generic raw value
+  value?: string;
+}
+
+export interface ChatbotNode {
+  id: string;
+  type: ChatbotNodeType;
+  position: { x: number; y: number };
+  data: ChatbotNodeData;
+}
+
+export interface ChatbotEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  animated?: boolean;
+  label?: string;
+  style?: any;
+}
+
+export interface ChatbotFlow {
+  id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  trigger: ChatbotTrigger;
+  triggerValue?: string | null;
+  channel: string;
+  nodes: ChatbotNode[];
+  edges: ChatbotEdge[];
+  runCount: number;
+  leadCount: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: { id: string; name: string; avatar?: string };
+  _count?: { sessions: number };
+}
+
+export interface ChatbotSession {
+  id: string;
+  flowId: string;
+  contactId: string;
+  leadId?: string | null;
+  currentNodeId: string;
+  variables: Record<string, any>;
+  isFinished: boolean;
+  resumeAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  contact?: { id: string; firstName: string; lastName?: string; phone?: string; whatsapp?: string } | null;
+}

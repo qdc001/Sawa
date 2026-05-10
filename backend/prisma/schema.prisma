@@ -427,22 +427,48 @@ model Automation {
 // ==================== CHATBOT ====================
 
 model ChatbotFlow {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  isActive    Boolean  @default(true)
-  trigger     String
-  nodes       Json
-  edges       Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  isActive     Boolean  @default(true)
+  trigger      String   // "first_message" | "keyword" | "always"
+  triggerValue String?  // palavra-chave (quando trigger = "keyword")
+  channel      String   @default("WHATSAPP") // WHATSAPP | EMAIL | etc
+  nodes        Json
+  edges        Json
+  runCount     Int      @default(0)
+  leadCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
   createdBy   User      @relation(fields: [createdById], references: [id])
   createdById String
 
+  sessions    ChatbotSession[]
+
   @@map("chatbot_flows")
+}
+
+// Sessao de execucao por contacto: guarda em que no o fluxo esta parado a espera de resposta
+model ChatbotSession {
+  id          String   @id @default(cuid())
+  flow        ChatbotFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  flowId      String
+  workspaceId String
+  contactId   String
+  leadId      String?
+  currentNodeId String   // no onde a execucao esta parada (geralmente um no que espera resposta)
+  variables   Json     @default("{}") // valores capturados pelas perguntas durante o fluxo
+  isFinished  Boolean  @default(false)
+  resumeAt    DateTime? // para nos de "esperar tempo"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId, contactId])
+  @@index([resumeAt])
+  @@map("chatbot_sessions")
 }
 
 // ==================== TEMPLATES ====================
