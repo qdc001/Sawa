@@ -88,6 +88,43 @@ router.get('/dashboard', async (req: AuthRequest, res: Response, next) => {
   } catch (error) { next(error); }
 });
 
+// GET /api/analytics/upcoming-tasks - proximas tarefas pendentes
+router.get('/upcoming-tasks', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const tasks = await prisma.task.findMany({
+      where: {
+        assignedTo: { workspaceId: req.user!.workspaceId },
+        status: { in: ['PENDING', 'IN_PROGRESS'] },
+      },
+      include: {
+        assignedTo: { select: { id: true, name: true, avatar: true } },
+        lead: { select: { id: true, title: true } },
+      },
+      orderBy: { dueAt: 'asc' },
+      take: 6,
+    });
+    res.json(tasks);
+  } catch (e) { next(e); }
+});
+
+// GET /api/analytics/top-leads - leads abertos com maior valor
+router.get('/top-leads', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const leads = await prisma.lead.findMany({
+      where: { workspaceId: req.user!.workspaceId, status: 'OPEN', value: { not: null } },
+      include: {
+        stage: true,
+        pipeline: { select: { name: true } },
+        contact: { select: { firstName: true, lastName: true } },
+        assignedTo: { select: { id: true, name: true } },
+      },
+      orderBy: { value: 'desc' },
+      take: 5,
+    });
+    res.json(leads);
+  } catch (e) { next(e); }
+});
+
 // GET /api/analytics/revenue
 router.get('/revenue', async (req: AuthRequest, res: Response, next) => {
   try {
