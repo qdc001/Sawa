@@ -13,6 +13,7 @@ const leadInclude = {
   contact: true,
   tags: { include: { tag: true } },
   tasks: { where: { status: { not: 'COMPLETED' } }, orderBy: { dueAt: 'asc' as const } },
+  customValues: { include: { field: true } },
   _count: { select: { messages: true, notes: true, files: true } },
 };
 
@@ -61,11 +62,17 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
 // POST /api/leads
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { title, value, pipelineId, stageId, contactId, assignedToId, priority, source, expectedCloseAt, tags } = req.body;
+    const { title, value, pipelineId, stageId, contactId, assignedToId, priority, source, expectedCloseAt, tags, customValues } = req.body;
 
     if (!title || !pipelineId || !stageId) {
       throw new AppError('Título, pipeline e etapa são obrigatórios', 400);
     }
+
+    const cleanCustomValues = Array.isArray(customValues)
+      ? customValues
+          .filter((cv: any) => cv && cv.fieldId && cv.value !== undefined && cv.value !== null && cv.value !== '')
+          .map((cv: any) => ({ fieldId: cv.fieldId, value: String(cv.value) }))
+      : [];
 
     const lead = await prisma.lead.create({
       data: {
@@ -81,6 +88,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
         workspaceId: req.user!.workspaceId,
         createdById: req.user!.id,
         tags: tags ? { create: tags.map((tagId: string) => ({ tagId })) } : undefined,
+        customValues: cleanCustomValues.length ? { create: cleanCustomValues } : undefined,
       },
       include: leadInclude,
     });
@@ -99,10 +107,21 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 // PATCH /api/leads/:id
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { title, value, stageId, assignedToId, priority, status, lostReason, expectedCloseAt } = req.body;
+    const { title, value, stageId, assignedToId, priority, status, lostReason, expectedCloseAt, customValues } = req.body;
 
     const existing = await prisma.lead.findFirst({ where: { id: req.params.id, workspaceId: req.user!.workspaceId } });
     if (!existing) throw new AppError('Lead não encontrado', 404);
+
+    // Substituir custom values se enviados
+    if (Array.isArray(customValues)) {
+      await prisma.customFieldValue.deleteMany({ where: { leadId: req.params.id } });
+      const clean = customValues
+        .filter((cv: any) => cv && cv.fieldId && cv.value !== undefined && cv.value !== null && cv.value !== '')
+        .map((cv: any) => ({ fieldId: cv.fieldId, value: String(cv.value), leadId: req.params.id }));
+      if (clean.length) {
+        await prisma.customFieldValue.createMany({ data: clean });
+      }
+    }
 
     const lead = await prisma.lead.update({
       where: { id: req.params.id },

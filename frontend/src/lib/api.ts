@@ -162,6 +162,28 @@ export interface Activity {
   lead?: { id: string; title: string };
 }
 
+export type CustomFieldType = 'TEXT' | 'NUMBER' | 'DATE' | 'BOOLEAN' | 'SELECT' | 'MULTISELECT' | 'URL' | 'EMAIL' | 'PHONE';
+
+export interface CustomField {
+  id: string;
+  name: string;
+  key: string;
+  type: CustomFieldType;
+  entity: string;
+  options: string[];
+  isRequired: boolean;
+  position: number;
+}
+
+export interface CustomFieldValue {
+  id: string;
+  value: string;
+  fieldId: string;
+  field?: CustomField;
+  leadId?: string;
+  contactId?: string;
+}
+
 export interface DashboardData {
   overview: {
     totalLeads: number;

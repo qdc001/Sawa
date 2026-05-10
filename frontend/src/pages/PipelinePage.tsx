@@ -19,9 +19,9 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, MoreVertical, Phone, Mail, Calendar, DollarSign,
-  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse, Layers,
+  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse, Layers, SlidersHorizontal,
 } from 'lucide-react';
-import api, { Lead, Pipeline, Stage } from '../lib/api';
+import api, { Lead, Pipeline, Stage, CustomField, CustomFieldType } from '../lib/api';
 import toast from 'react-hot-toast';
 
 // ============== Hook: pan-scroll com botao do rato ==============
@@ -436,6 +436,275 @@ function ManageStagesModal({
   );
 }
 
+// ============== Renderiza um input para um custom field ==============
+function CustomFieldInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: CustomField;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const common = { className: 'input-base', value: value ?? '', onChange: (e: any) => onChange(e.target.value) };
+
+  switch (field.type) {
+    case 'NUMBER':
+      return <input type="number" {...common} placeholder={`Ex: ${field.name}`} />;
+    case 'DATE':
+      return <input type="date" {...common} />;
+    case 'BOOLEAN':
+      return (
+        <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-primary)' }}>
+          <input type="checkbox" checked={value === 'true'} onChange={(e) => onChange(e.target.checked ? 'true' : '')} />
+          {field.name}
+        </label>
+      );
+    case 'SELECT':
+      return (
+        <select {...common}>
+          <option value="">— Escolher —</option>
+          {field.options.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      );
+    case 'MULTISELECT': {
+      const selected = value ? value.split(',') : [];
+      const toggle = (opt: string) => {
+        const next = selected.includes(opt) ? selected.filter((s) => s !== opt) : [...selected, opt];
+        onChange(next.join(','));
+      };
+      return (
+        <div className="flex flex-wrap gap-1">
+          {field.options.map((opt) => (
+            <button
+              type="button"
+              key={opt}
+              onClick={() => toggle(opt)}
+              className="text-xs px-2 py-1 rounded border"
+              style={{
+                background: selected.includes(opt) ? 'var(--primary)' : 'var(--surface)',
+                color: selected.includes(opt) ? '#fff' : 'var(--text-primary)',
+                borderColor: 'var(--border)',
+              }}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      );
+    }
+    case 'URL':
+      return <input type="url" {...common} placeholder="https://..." />;
+    case 'EMAIL':
+      return <input type="email" {...common} placeholder="email@dominio" />;
+    case 'PHONE':
+      return <input type="tel" {...common} placeholder="+258 84..." />;
+    default:
+      return <input type="text" {...common} placeholder={`Ex: ${field.name}`} />;
+  }
+}
+
+// ============== Manage Lead Fields Modal ==============
+const FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
+  TEXT: 'Texto',
+  NUMBER: 'Numero',
+  DATE: 'Data',
+  BOOLEAN: 'Sim/Nao',
+  SELECT: 'Lista (uma opcao)',
+  MULTISELECT: 'Lista (multipla)',
+  URL: 'URL',
+  EMAIL: 'Email',
+  PHONE: 'Telefone',
+};
+
+function ManageLeadFieldsModal({
+  onClose,
+  onChanged,
+}: {
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [fields, setFields] = useState<CustomField[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState<CustomFieldType>('TEXT');
+  const [newOptions, setNewOptions] = useState('');
+  const [newRequired, setNewRequired] = useState(false);
+
+  useEffect(() => {
+    api.get('/custom-fields?entity=lead')
+      .then(({ data }) => setFields(data))
+      .catch(() => toast.error('Erro ao carregar campos'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleAdd = async () => {
+    if (!newName.trim()) {
+      toast.error('Indica o nome do campo');
+      return;
+    }
+    const optsArr = (newType === 'SELECT' || newType === 'MULTISELECT')
+      ? newOptions.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+    if ((newType === 'SELECT' || newType === 'MULTISELECT') && optsArr.length === 0) {
+      toast.error('Indica pelo menos uma opcao (separadas por virgula)');
+      return;
+    }
+    try {
+      const { data } = await api.post('/custom-fields', {
+        name: newName.trim(),
+        type: newType,
+        entity: 'lead',
+        options: optsArr,
+        isRequired: newRequired,
+      });
+      setFields((prev) => [...prev, data]);
+      setNewName('');
+      setNewType('TEXT');
+      setNewOptions('');
+      setNewRequired(false);
+      toast.success('Campo adicionado');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao criar');
+    }
+  };
+
+  const handleDelete = async (field: CustomField) => {
+    if (!confirm(`Eliminar o campo "${field.name}"? Os valores existentes serao perdidos.`)) return;
+    try {
+      await api.delete(`/custom-fields/${field.id}`);
+      setFields((prev) => prev.filter((f) => f.id !== field.id));
+      toast.success('Campo eliminado');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao eliminar');
+    }
+  };
+
+  const handleToggleRequired = async (field: CustomField) => {
+    try {
+      const { data } = await api.patch(`/custom-fields/${field.id}`, { isRequired: !field.isRequired });
+      setFields((prev) => prev.map((f) => (f.id === field.id ? data : f)));
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao actualizar');
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center z-[60] p-4"
+      style={{ background: 'rgba(0,0,0,0.4)' }}
+      onClick={onClose}
+    >
+      <div
+        className="card p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+            Campos do formulario de Lead
+          </h3>
+          <button onClick={onClose}>
+            <X size={20} style={{ color: 'var(--text-muted)' }} />
+          </button>
+        </div>
+
+        <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+          Os campos predefinidos (Titulo, Valor, Prioridade) aparecem sempre. Aqui podes adicionar campos personalizados.
+        </p>
+
+        {loading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="animate-spin" />
+          </div>
+        ) : (
+          <div className="space-y-2 mb-4">
+            {fields.length === 0 && (
+              <p className="text-sm text-center py-3" style={{ color: 'var(--text-muted)' }}>
+                Sem campos personalizados ainda
+              </p>
+            )}
+            {fields.map((field) => (
+              <div
+                key={field.id}
+                className="flex items-center gap-2 p-2 rounded"
+                style={{ background: 'var(--surface-2)' }}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                    {field.name}
+                  </p>
+                  <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                    {FIELD_TYPE_LABELS[field.type]}
+                    {field.options.length > 0 && ` · ${field.options.join(', ')}`}
+                  </p>
+                </div>
+                <label className="flex items-center gap-1 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={field.isRequired}
+                    onChange={() => handleToggleRequired(field)}
+                  />
+                  Obrigatorio
+                </label>
+                <button
+                  onClick={() => handleDelete(field)}
+                  className="p-2 rounded hover:bg-red-50"
+                  title="Eliminar"
+                >
+                  <Trash2 size={16} style={{ color: '#EF4444' }} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="border-t pt-4 mb-4 space-y-2" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Novo campo</p>
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Nome do campo (ex: Origem da venda)"
+            className="input-base"
+          />
+          <select value={newType} onChange={(e) => setNewType(e.target.value as CustomFieldType)} className="input-base">
+            {Object.entries(FIELD_TYPE_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+          {(newType === 'SELECT' || newType === 'MULTISELECT') && (
+            <input
+              value={newOptions}
+              onChange={(e) => setNewOptions(e.target.value)}
+              placeholder="Opcoes separadas por virgula (ex: WhatsApp, Email, Site)"
+              className="input-base"
+            />
+          )}
+          <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-primary)' }}>
+            <input type="checkbox" checked={newRequired} onChange={(e) => setNewRequired(e.target.checked)} />
+            Obrigatorio
+          </label>
+          <button onClick={handleAdd} className="btn btn-primary w-full py-2">
+            <Plus size={16} /> Adicionar campo
+          </button>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="btn w-full py-2"
+          style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+        >
+          Fechar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ============== Add Lead Modal ==============
 function AddLeadModal({
   stageId,
@@ -452,10 +721,29 @@ function AddLeadModal({
   const [value, setValue] = useState('');
   const [priority, setPriority] = useState('MEDIUM');
   const [loading, setLoading] = useState(false);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [customValues, setCustomValues] = useState<Record<string, string>>({});
+  const [showFieldsManager, setShowFieldsManager] = useState(false);
+
+  const loadFields = () => {
+    api.get('/custom-fields?entity=lead')
+      .then(({ data }) => setCustomFields(data))
+      .catch(() => {});
+  };
+  useEffect(loadFields, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+
+    // validar obrigatorios
+    for (const f of customFields) {
+      if (f.isRequired && !customValues[f.id]) {
+        toast.error(`Campo obrigatorio: ${f.name}`);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const { data } = await api.post('/leads', {
@@ -464,6 +752,7 @@ function AddLeadModal({
         priority,
         stageId,
         pipelineId,
+        customValues: customFields.map((f) => ({ fieldId: f.id, value: customValues[f.id] || '' })),
       });
       toast.success('Lead criado com sucesso');
       onCreated(data);
@@ -476,84 +765,120 @@ function AddLeadModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ background: 'rgba(0,0,0,0.4)' }}
-      onClick={onClose}
-    >
+    <>
       <div
-        className="card p-6 w-full max-w-md"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 flex items-center justify-center z-50 p-4"
+        style={{ background: 'rgba(0,0,0,0.4)' }}
+        onClick={onClose}
       >
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-            Novo Lead
-          </h3>
-          <button onClick={onClose}>
-            <X size={20} style={{ color: 'var(--text-muted)' }} />
-          </button>
+        <div
+          className="card p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+              Novo Lead
+            </h3>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setShowFieldsManager(true)}
+                className="p-1.5 rounded hover:bg-slate-100"
+                title="Editar campos do formulario"
+              >
+                <SlidersHorizontal size={16} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+              <button onClick={onClose}>
+                <X size={20} style={{ color: 'var(--text-muted)' }} />
+              </button>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Título *
+              </label>
+              <input
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Ex: Venda de software para Empresa X"
+                className="input-base"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Valor (MZN)
+              </label>
+              <input
+                type="number"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder="0"
+                className="input-base"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Prioridade
+              </label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="input-base"
+              >
+                <option value="LOW">Baixa</option>
+                <option value="MEDIUM">Média</option>
+                <option value="HIGH">Alta</option>
+                <option value="URGENT">Urgente</option>
+              </select>
+            </div>
+
+            {customFields.length > 0 && (
+              <div className="border-t pt-3 space-y-3" style={{ borderColor: 'var(--border)' }}>
+                {customFields.map((field) => (
+                  <div key={field.id}>
+                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                      {field.name}{field.isRequired && ' *'}
+                    </label>
+                    <CustomFieldInput
+                      field={field}
+                      value={customValues[field.id] || ''}
+                      onChange={(v) => setCustomValues((prev) => ({ ...prev, [field.id]: v }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="btn flex-1 py-2"
+                style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+              >
+                Cancelar
+              </button>
+              <button type="submit" disabled={loading} className="btn btn-primary flex-1 py-2">
+                {loading ? <Loader2 size={16} className="animate-spin" /> : 'Criar Lead'}
+              </button>
+            </div>
+          </form>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-              Título *
-            </label>
-            <input
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ex: Venda de software para Empresa X"
-              className="input-base"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-              Valor (MZN)
-            </label>
-            <input
-              type="number"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder="0"
-              className="input-base"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-              Prioridade
-            </label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              className="input-base"
-            >
-              <option value="LOW">Baixa</option>
-              <option value="MEDIUM">Média</option>
-              <option value="HIGH">Alta</option>
-              <option value="URGENT">Urgente</option>
-            </select>
-          </div>
-
-          <div className="flex gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn flex-1 py-2"
-              style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
-            >
-              Cancelar
-            </button>
-            <button type="submit" disabled={loading} className="btn btn-primary flex-1 py-2">
-              {loading ? <Loader2 size={16} className="animate-spin" /> : 'Criar Lead'}
-            </button>
-          </div>
-        </form>
       </div>
-    </div>
+
+      {showFieldsManager && (
+        <ManageLeadFieldsModal
+          onClose={() => setShowFieldsManager(false)}
+          onChanged={loadFields}
+        />
+      )}
+    </>
   );
 }
 
