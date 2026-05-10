@@ -622,7 +622,7 @@ export default function DashboardPage() {
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-1">
               <AlertTriangle size={16} style={{ color: '#EF4444' }} />
-              <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Leads parados (>14d)</span>
+              <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{'Leads parados (>14d)'}</span>
             </div>
             <p className="text-xl font-bold" style={{ color: convStats.stagnantLeads.length > 0 ? '#EF4444' : 'var(--text-primary)' }}>
               {convStats.stagnantLeads.length}
