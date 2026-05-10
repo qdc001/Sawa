@@ -3,9 +3,42 @@ import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { runChatbotById } from '../lib/chatbotEngine';
+import { CHATBOT_TEMPLATES } from '../lib/chatbotTemplates';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+// ── GET /api/chatbots/templates ───────────────────────
+router.get('/templates', async (req: AuthRequest, res: Response, next) => {
+  try {
+    res.json(CHATBOT_TEMPLATES.map((t) => ({ id: t.id, name: t.name, description: t.description, icon: t.icon })));
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/chatbots/from-template ──────────────────
+router.post('/from-template', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { templateId } = req.body;
+    const tpl = CHATBOT_TEMPLATES.find((t) => t.id === templateId);
+    if (!tpl) throw new AppError('Template não encontrado', 404);
+
+    const flow = await prisma.chatbotFlow.create({
+      data: {
+        name: tpl.name,
+        description: tpl.description,
+        trigger: tpl.trigger,
+        triggerValue: tpl.triggerValue || null,
+        channel: 'WHATSAPP',
+        nodes: tpl.nodes as any,
+        edges: tpl.edges as any,
+        isActive: false,
+        workspaceId: req.user!.workspaceId,
+        createdById: req.user!.id,
+      },
+    });
+    res.status(201).json(flow);
+  } catch (e) { next(e); }
+});
 
 const flowInclude = {
   createdBy: { select: { id: true, name: true, avatar: true } },

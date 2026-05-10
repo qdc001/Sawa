@@ -45,7 +45,7 @@ import { rateLimiter } from './middleware/rateLimiter';
 
 // Lib
 import { processExpiredDelays } from './lib/chatbotEngine';
-import { checkOverdueTasks } from './lib/automationEngine';
+import { checkOverdueTasks, processScheduledAutomations, checkNoResponseConversations, checkStagnantLeads } from './lib/automationEngine';
 
 const app = express();
 const httpServer = createServer(app);
@@ -144,6 +144,21 @@ setInterval(() => {
 setInterval(() => {
   checkOverdueTasks().catch((e) => console.error('checkOverdueTasks error:', e));
 }, 60_000);
+
+// Dispara automações com trigger schedule (every_X_minutes, daily_at, weekly_at, monthly_at)
+setInterval(() => {
+  processScheduledAutomations().catch((e) => console.error('processScheduledAutomations error:', e));
+}, 60_000);
+
+// Verifica conversas sem resposta (trigger no_response) — corre a cada 5 minutos
+setInterval(() => {
+  checkNoResponseConversations().catch((e) => console.error('checkNoResponseConversations error:', e));
+}, 5 * 60_000);
+
+// Verifica leads parados (trigger lead_stagnant) — corre a cada hora
+setInterval(() => {
+  checkStagnantLeads().catch((e) => console.error('checkStagnantLeads error:', e));
+}, 60 * 60_000);
 
 (global as any).io = io;
 export { io };

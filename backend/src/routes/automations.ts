@@ -152,6 +152,25 @@ router.get('/:id/runs', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/automations/runs - todas as runs filtráveis (para activity log)
+// Query: leadId, contactId, limit
+router.get('/runs/recent', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { leadId, contactId, limit = 50 } = req.query;
+    const where: any = { workspaceId: req.user!.workspaceId };
+    if (leadId) where.leadId = leadId;
+    if (contactId) where.contactId = contactId;
+
+    const runs = await prisma.automationRun.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Number(limit),
+      include: { automation: { select: { id: true, name: true, trigger: true } } },
+    });
+    res.json(runs);
+  } catch (e) { next(e); }
+});
+
 // DELETE /api/automations/:id/runs (limpar histórico)
 router.delete('/:id/runs', async (req: AuthRequest, res: Response, next) => {
   try {

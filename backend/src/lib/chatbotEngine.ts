@@ -20,7 +20,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // ── Types ─────────────────────────────────────────────
-type NodeType = 'trigger' | 'message' | 'template' | 'media' | 'buttons' | 'condition' | 'action' | 'handoff' | 'delay' | 'ai' | 'end';
+type NodeType = 'trigger' | 'message' | 'template' | 'media' | 'buttons' | 'list' | 'condition' | 'switch' | 'action' | 'handoff' | 'delay' | 'ai' | 'set_var' | 'fetch_data' | 'subflow' | 'end';
 
 interface FlowNode {
   id: string;
@@ -221,6 +221,75 @@ async function sendWhatsAppButtons(workspaceId: string, to: string, text: string
       action: { buttons: items },
     },
   });
+}
+
+async function sendWhatsAppList(
+  workspaceId: string,
+  to: string,
+  text: string,
+  buttonLabel: string,
+  sections: { title: string; rows: { id: string; title: string; description?: string }[] }[]
+): Promise<string | null> {
+  const creds = await getWhatsAppCreds(workspaceId);
+  if (!creds) return null;
+  return whatsappPost(creds, {
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: { text: text.substring(0, 1024) },
+      action: {
+        button: buttonLabel.substring(0, 20),
+        sections: sections.map((s) => ({
+          title: s.title.substring(0, 24),
+          rows: s.rows.slice(0, 10).map((r) => ({
+            id: r.id,
+            title: r.title.substring(0, 24),
+            description: r.description ? r.description.substring(0, 72) : undefined,
+          })),
+        })),
+      },
+    },
+  });
+}
+
+// ── Validação de input ────────────────────────────────
+function validateInput(value: string, type: string, regex?: string): boolean {
+  const v = (value || '').trim();
+  if (!v) return false;
+  switch (type) {
+    case 'email': return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+    case 'phone': return /\d{7,}/.test(v.replace(/\D/g, ''));
+    case 'number': return /^\d+([.,]\d+)?$/.test(v);
+    case 'url': return /^https?:\/\/\S+/.test(v);
+    case 'regex':
+      if (!regex) return true;
+      try { return new RegExp(regex).test(v); } catch { return true; }
+    default: return true;
+  }
+}
+
+// ── Verificar horário comercial do flow ───────────────
+function isWithinBusinessHours(flow: any, now: Date = new Date()): boolean {
+  const start = flow.businessHoursStart;
+  const end = flow.businessHoursEnd;
+  const wd = flow.businessHoursWeekdays;
+  if (start == null && end == null && !wd) return true;
+
+  if (wd) {
+    const jsDay = now.getDay();
+    const isoDay = jsDay === 0 ? 7 : jsDay;
+    if (!String(wd).includes(String(isoDay))) return false;
+  }
+  if (start != null && end != null) {
+    const hour = now.getHours();
+    if (start <= end) {
+      if (hour < start || hour >= end) return false;
+    } else {
+      if (hour < start && hour >= end) return false;
+    }
+  }
+  return true;
 }
 
 // ── Chamada à Anthropic API ───────────────────────────
@@ -557,6 +626,131 @@ async function executeHandoff(node: FlowNode, ctx: RunContext) {
   }
 }
 
+async function sendListNode(node: FlowNode, ctx: RunContext) {
+  const text = interpolate(node.data?.text || 'Escolhe uma opção:', ctx);
+  const buttonLabel = node.data?.buttonLabel || 'Ver opções';
+  const sections = Array.isArray(node.data?.sections) ? node.data.sections : [];
+
+  const cleanSections = sections
+    .filter((s: any) => s && Array.isArray(s.rows) && s.rows.length > 0)
+    .map((s: any) => ({
+      title: s.title || 'Opções',
+      rows: s.rows.filter((r: any) => r && r.title).map((r: any, i: number) => ({
+        id: String(r.id || `row_${i}`),
+        title: String(r.title),
+        description: r.description ? String(r.description) : undefined,
+      })),
+    }));
+
+  if (cleanSections.length === 0) {
+    recordStep(ctx, node, 'list skip', 'sem rows');
+    return;
+  }
+
+  if (ctx.dryRun) {
+    const total = cleanSections.reduce((acc: number, s: any) => acc + s.rows.length, 0);
+    recordStep(ctx, node, 'list', `${total} opções`);
+    return;
+  }
+
+  const phone = ctx.contact?.whatsapp || ctx.contact?.phone;
+  let externalId: string | null = null;
+  if (ctx.channel === 'WHATSAPP' && phone) {
+    externalId = await sendWhatsAppList(ctx.workspaceId, phone, text, buttonLabel, cleanSections);
+  }
+
+  const summary = `${text}\n\n${cleanSections.map((s: any) => `[${s.title}: ${s.rows.map((r: any) => r.title).join(', ')}]`).join('\n')}`;
+  await persistOutboundMessage(summary, 'INTERACTIVE', undefined, externalId, ctx);
+  recordStep(ctx, node, 'list', text.substring(0, 60));
+}
+
+function evaluateSwitch(node: FlowNode, ctx: RunContext): string | null {
+  // data.target: nome da variável a comparar (ou vazio = última mensagem)
+  // data.cases: [{ value, handle }] - sourceHandle do edge
+  // data.default: handle de fallback
+  const targetVar = node.data?.target;
+  const value = (targetVar ? String(ctx.vars[targetVar] || '') : ctx.lastMessage || '').toLowerCase().trim();
+  const cases: any[] = Array.isArray(node.data?.cases) ? node.data.cases : [];
+  for (const c of cases) {
+    const expected = String(c.value || '').toLowerCase().trim();
+    if (expected && value === expected) return c.handle || c.value;
+  }
+  return node.data?.default || null;
+}
+
+async function executeSetVar(node: FlowNode, ctx: RunContext) {
+  const name = node.data?.varName;
+  if (!name) { recordStep(ctx, node, 'set_var skip', 'sem nome'); return; }
+  const value = interpolate(node.data?.varValue || '', ctx);
+  ctx.vars[name] = value;
+  recordStep(ctx, node, 'set_var', `${name}=${value.substring(0, 40)}`);
+}
+
+async function executeFetchData(node: FlowNode, ctx: RunContext) {
+  const url = interpolate(node.data?.url || '', ctx);
+  const method = node.data?.method || 'GET';
+  const saveAs = node.data?.saveAs || 'response';
+  if (!url) { recordStep(ctx, node, 'fetch_data skip', 'sem url'); return; }
+
+  if (ctx.dryRun) {
+    recordStep(ctx, node, 'fetch_data', `(simulado) ${method} ${url}`);
+    return;
+  }
+
+  try {
+    const headers: any = { 'Content-Type': 'application/json' };
+    if (node.data?.headers) {
+      try { Object.assign(headers, JSON.parse(interpolate(node.data.headers, ctx))); } catch {}
+    }
+    const init: any = { method, headers };
+    if (method !== 'GET' && node.data?.body) {
+      init.body = interpolate(node.data.body, ctx);
+    }
+    const res = await fetch(url, init);
+    const text = await res.text();
+    let parsed: any = text;
+    try { parsed = JSON.parse(text); } catch {}
+
+    // Se utilizador especificou um path, extrair
+    if (node.data?.path && typeof parsed === 'object') {
+      ctx.vars[saveAs] = (node.data.path as string).split('.').reduce((acc: any, k: string) => acc?.[k], parsed) ?? parsed;
+    } else {
+      ctx.vars[saveAs] = parsed;
+    }
+    recordStep(ctx, node, 'fetch_data', `${method} ${url} → ${saveAs}`);
+  } catch (e: any) {
+    recordStep(ctx, node, 'fetch_data fail', e.message);
+  }
+}
+
+async function executeSubflow(node: FlowNode, ctx: RunContext) {
+  const flowId = node.data?.flowId;
+  if (!flowId) { recordStep(ctx, node, 'subflow skip', 'sem flowId'); return; }
+  if (ctx.dryRun) {
+    recordStep(ctx, node, 'subflow', `(simulado) ${flowId}`);
+    return;
+  }
+  try {
+    const subCtx = await buildContext(flowId, {
+      workspaceId: ctx.workspaceId,
+      contactId: ctx.contactId,
+      leadId: ctx.leadId,
+      message: ctx.lastMessage,
+      channel: ctx.channel,
+      dryRun: false,
+      io: ctx.io,
+    });
+    if (!subCtx) { recordStep(ctx, node, 'subflow skip', 'flow não encontrado'); return; }
+    subCtx.vars = { ...ctx.vars };
+    await executeFromNode(null, subCtx, null);
+    // Importar variáveis criadas no subflow
+    Object.assign(ctx.vars, subCtx.vars);
+    recordStep(ctx, node, 'subflow', flowId);
+  } catch (e: any) {
+    recordStep(ctx, node, 'subflow fail', e.message);
+  }
+}
+
 // ── Loop principal de execução ────────────────────────
 // startNodeId pode ser null (começa do trigger) ou um nó específico (retomar de sessão)
 async function executeFromNode(
@@ -615,10 +809,41 @@ async function executeFromNode(
         return;
       }
 
+      case 'list': {
+        await sendListNode(node, ctx);
+        sessionId = await persistSession(ctx, node.id, sessionId);
+        return;
+      }
+
       case 'condition': {
         const branch = evaluateCondition(node, ctx);
         recordStep(ctx, node, `condition: ${branch}`, conditionDescribe(node));
         currentId = nextNodeId(node.id, ctx.edges, branch);
+        break;
+      }
+
+      case 'switch': {
+        const handle = evaluateSwitch(node, ctx);
+        recordStep(ctx, node, `switch`, handle || 'default');
+        currentId = nextNodeId(node.id, ctx.edges, handle || 'default');
+        break;
+      }
+
+      case 'set_var': {
+        await executeSetVar(node, ctx);
+        currentId = nextNodeId(node.id, ctx.edges);
+        break;
+      }
+
+      case 'fetch_data': {
+        await executeFetchData(node, ctx);
+        currentId = nextNodeId(node.id, ctx.edges);
+        break;
+      }
+
+      case 'subflow': {
+        await executeSubflow(node, ctx);
+        currentId = nextNodeId(node.id, ctx.edges);
         break;
       }
 
@@ -820,8 +1045,27 @@ export async function runChatbotForMessage(opts: {
     ctx.vars = (session.variables as any) || {};
     ctx.steps = (session.log as any) || [];
 
-    // Capturar resposta na variável definida pelo nó actual (se tiver saveAs)
     const currentNode = ctx.nodes.find((n) => n.id === session.currentNodeId);
+
+    // Validação opcional do input
+    if (currentNode?.data?.validate) {
+      const valid = validateInput(message, currentNode.data.validate, currentNode.data.validateRegex);
+      if (!valid) {
+        const errMsg = currentNode.data?.validateError || 'Resposta inválida. Por favor tenta de novo.';
+        await sendMessage(errMsg, ctx);
+        ctx.steps.push({
+          at: new Date().toISOString(), nodeId: currentNode.id, nodeType: currentNode.type,
+          action: 'validation failed', detail: message.substring(0, 60),
+        });
+        await prisma.chatbotSession.update({
+          where: { id: session.id },
+          data: { log: ctx.steps as any, variables: ctx.vars },
+        });
+        return; // fica no mesmo nó à espera de outra resposta
+      }
+    }
+
+    // Capturar resposta na variável definida pelo nó actual (se tiver saveAs)
     if (currentNode?.data?.saveAs) {
       ctx.vars[currentNode.data.saveAs] = message;
     }
@@ -871,6 +1115,16 @@ export async function runChatbotForMessage(opts: {
     }
 
     if (!triggers) continue;
+
+    // Verificar horário comercial; fora de horas envia mensagem opcional e não corre o fluxo
+    if (!isWithinBusinessHours(flow)) {
+      if (flow.outOfHoursMessage) {
+        const phone = (await prisma.contact.findUnique({ where: { id: contactId } }))?.whatsapp
+          || (await prisma.contact.findUnique({ where: { id: contactId } }))?.phone;
+        if (phone) await sendWhatsApp(workspaceId, phone, flow.outOfHoursMessage);
+      }
+      continue;
+    }
 
     const ctx = await buildContext(flow.id, {
       workspaceId,

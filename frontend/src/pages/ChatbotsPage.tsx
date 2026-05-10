@@ -233,18 +233,114 @@ function HandoffNode({ data, selected }: NodeProps) {
   );
 }
 
+function ListNode({ data, selected }: NodeProps) {
+  const sections = Array.isArray(data.sections) ? data.sections : [];
+  const total = sections.reduce((acc: number, s: any) => acc + (Array.isArray(s.rows) ? s.rows.length : 0), 0);
+  return (
+    <div style={nodeStyle('#0891B2', selected)}>
+      <Handle type="target" position={Position.Top} />
+      <Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 18 }}>📑</span>
+        <span style={{ fontWeight: 600, color: '#0891B2', fontSize: 11, textTransform: 'uppercase' }}>Lista</span>
+      </div>
+      <p style={{ color: '#0F172A', fontSize: 12 }}>{data.text || data.label || '(sem texto)'}</p>
+      <p style={{ color: '#94A3B8', fontSize: 10, marginTop: 2 }}>{total} opções em {sections.length} secções</p>
+    </div>
+  );
+}
+
+function SwitchNode({ data, selected }: NodeProps) {
+  const cases = Array.isArray(data.cases) ? data.cases : [];
+  return (
+    <div style={nodeStyle('#D946EF', selected)}>
+      <Handle type="target" position={Position.Top} />
+      {cases.slice(0, 4).map((c: any, i: number) => (
+        <Handle
+          key={i}
+          type="source"
+          position={Position.Bottom}
+          id={c.handle || c.value}
+          style={{ left: `${(100 / (cases.length + 1)) * (i + 1)}%` }}
+        />
+      ))}
+      <Handle type="source" position={Position.Bottom} id="default" style={{ left: '90%' }} />
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 18 }}>↗️</span>
+        <span style={{ fontWeight: 600, color: '#D946EF', fontSize: 11, textTransform: 'uppercase' }}>Switch</span>
+      </div>
+      <p style={{ color: '#0F172A', fontSize: 12 }}>
+        {data.target ? `var: ${data.target}` : 'última mensagem'}
+      </p>
+      <p style={{ color: '#94A3B8', fontSize: 10, marginTop: 2 }}>{cases.length} ramos + default</p>
+    </div>
+  );
+}
+
+function SetVarNode({ data, selected }: NodeProps) {
+  return (
+    <div style={nodeStyle('#84CC16', selected)}>
+      <Handle type="target" position={Position.Top} />
+      <Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 18 }}>📝</span>
+        <span style={{ fontWeight: 600, color: '#65A30D', fontSize: 11, textTransform: 'uppercase' }}>Definir variável</span>
+      </div>
+      <p style={{ color: '#0F172A', fontSize: 12 }}>
+        {data.varName ? `${data.varName} = ${(data.varValue || '').substring(0, 30)}` : '(sem nome)'}
+      </p>
+    </div>
+  );
+}
+
+function FetchDataNode({ data, selected }: NodeProps) {
+  return (
+    <div style={nodeStyle('#14B8A6', selected)}>
+      <Handle type="target" position={Position.Top} />
+      <Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 18 }}>🌐</span>
+        <span style={{ fontWeight: 600, color: '#0D9488', fontSize: 11, textTransform: 'uppercase' }}>Buscar dados</span>
+      </div>
+      <p style={{ color: '#0F172A', fontSize: 12, wordBreak: 'break-all' }}>
+        {data.method || 'GET'} {(data.url || '').substring(0, 40)}
+      </p>
+      {data.saveAs && <p style={{ color: '#94A3B8', fontSize: 10, marginTop: 2 }}>→ {data.saveAs}</p>}
+    </div>
+  );
+}
+
+function SubflowNode({ data, selected }: NodeProps) {
+  return (
+    <div style={nodeStyle('#7C3AED', selected)}>
+      <Handle type="target" position={Position.Top} />
+      <Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 18 }}>🔗</span>
+        <span style={{ fontWeight: 600, color: '#7C3AED', fontSize: 11, textTransform: 'uppercase' }}>Sub-fluxo</span>
+      </div>
+      <p style={{ color: '#0F172A', fontSize: 12 }}>{data.flowId || '(sem flow)'}</p>
+    </div>
+  );
+}
+
 const nodeTypes = {
   trigger: TriggerNode,
   message: MessageNode,
   template: TemplateNode,
   media: MediaNode,
   buttons: ButtonsNode,
+  list: ListNode,
   condition: ConditionNode,
+  switch: SwitchNode,
   action: ActionNode,
   handoff: HandoffNode,
   delay: DelayNode,
   end: EndNode,
   ai: AINode,
+  set_var: SetVarNode,
+  fetch_data: FetchDataNode,
+  subflow: SubflowNode,
 };
 
 // ── Default fluxo para fluxos novos ───────────────────
@@ -263,8 +359,13 @@ const NODE_PALETTE: { type: ChatbotNodeType; label: string; icon: string; color:
   { type: 'template', label: 'Template', icon: '📋', color: '#EC4899' },
   { type: 'media', label: 'Mídia', icon: '🖼️', color: '#06B6D4' },
   { type: 'buttons', label: 'Botões', icon: '🔘', color: '#F97316' },
+  { type: 'list', label: 'Lista', icon: '📑', color: '#0891B2' },
   { type: 'condition', label: 'Condição', icon: '🔀', color: '#F59E0B' },
+  { type: 'switch', label: 'Switch', icon: '↗️', color: '#D946EF' },
   { type: 'action', label: 'Acção', icon: '⚙️', color: '#10B981' },
+  { type: 'set_var', label: 'Variável', icon: '📝', color: '#84CC16' },
+  { type: 'fetch_data', label: 'Buscar API', icon: '🌐', color: '#14B8A6' },
+  { type: 'subflow', label: 'Sub-fluxo', icon: '🔗', color: '#7C3AED' },
   { type: 'handoff', label: 'Handoff', icon: '🤝', color: '#FACC15' },
   { type: 'delay', label: 'Esperar', icon: '⏱️', color: '#8B5CF6' },
   { type: 'ai', label: 'Agente IA', icon: '🤖', color: '#6366F1' },
@@ -326,16 +427,49 @@ function NodePropertiesPanel({
             Esperar resposta antes de continuar
           </label>
           {data.waitForReply && (
-            <div>
-              <label className="block text-xs font-medium mb-1">Guardar resposta como (opcional)</label>
-              <input
-                value={data.saveAs || ''}
-                onChange={(e) => updateField('saveAs', e.target.value)}
-                className="input-base w-full text-xs"
-                placeholder="pedido"
-              />
-              <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>Acede depois com <code>{'{{vars.pedido}}'}</code></p>
-            </div>
+            <>
+              <div>
+                <label className="block text-xs font-medium mb-1">Guardar resposta como (opcional)</label>
+                <input
+                  value={data.saveAs || ''}
+                  onChange={(e) => updateField('saveAs', e.target.value)}
+                  className="input-base w-full text-xs"
+                  placeholder="pedido"
+                />
+                <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>Acede depois com <code>{'{{vars.pedido}}'}</code></p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Validar resposta (opcional)</label>
+                <select
+                  value={data.validate || ''}
+                  onChange={(e) => updateField('validate', e.target.value || undefined)}
+                  className="input-base w-full text-xs"
+                >
+                  <option value="">Sem validação</option>
+                  <option value="email">Email</option>
+                  <option value="phone">Telefone</option>
+                  <option value="number">Número</option>
+                  <option value="url">URL</option>
+                  <option value="regex">Regex personalizado</option>
+                </select>
+              </div>
+              {data.validate === 'regex' && (
+                <input
+                  value={data.validateRegex || ''}
+                  onChange={(e) => updateField('validateRegex', e.target.value)}
+                  className="input-base w-full text-xs"
+                  placeholder="^[A-Z]{3}\\d+$"
+                />
+              )}
+              {data.validate && (
+                <input
+                  value={data.validateError || ''}
+                  onChange={(e) => updateField('validateError', e.target.value)}
+                  className="input-base w-full text-xs"
+                  placeholder="Mensagem se inválido (ex: Email inválido)"
+                />
+              )}
+            </>
           )}
         </div>
       )}
@@ -636,6 +770,164 @@ function NodePropertiesPanel({
         </div>
       )}
 
+      {/* LIST (interactive list WhatsApp) */}
+      {node.type === 'list' && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Texto da pergunta</label>
+            <textarea
+              value={data.text || ''}
+              onChange={(e) => updateField('text', e.target.value)}
+              rows={2}
+              className="input-base w-full text-xs"
+              placeholder="Escolhe uma opção:"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Texto do botão (abre lista)</label>
+            <input
+              value={data.buttonLabel || ''}
+              onChange={(e) => updateField('buttonLabel', e.target.value)}
+              className="input-base w-full text-xs"
+              placeholder="Ver opções"
+            />
+          </div>
+          <ListSectionsEditor
+            sections={Array.isArray(data.sections) ? data.sections : []}
+            onChange={(s) => updateField('sections', s)}
+          />
+          <div>
+            <label className="block text-xs font-medium mb-1">Guardar id escolhido como</label>
+            <input
+              value={data.saveAs || ''}
+              onChange={(e) => updateField('saveAs', e.target.value)}
+              className="input-base w-full text-xs"
+              placeholder="escolha"
+            />
+          </div>
+          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+            Listas WhatsApp suportam até 10 opções por secção.
+          </p>
+        </div>
+      )}
+
+      {/* SWITCH */}
+      {node.type === 'switch' && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Variável a comparar (vazio = última mensagem)</label>
+            <input
+              value={data.target || ''}
+              onChange={(e) => updateField('target', e.target.value)}
+              className="input-base w-full text-xs"
+              placeholder="escolha"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Casos (cada um liga a um nó)</label>
+            <SwitchCasesEditor
+              cases={Array.isArray(data.cases) ? data.cases : []}
+              onChange={(c) => updateField('cases', c)}
+            />
+          </div>
+          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+            Cada caso tem um identificador (handle). Liga a saída visual ao nó correspondente.
+            O handle "default" é seguido se nenhum caso corresponder.
+          </p>
+        </div>
+      )}
+
+      {/* SET_VAR */}
+      {node.type === 'set_var' && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Nome da variável</label>
+            <input
+              value={data.varName || ''}
+              onChange={(e) => updateField('varName', e.target.value)}
+              className="input-base w-full text-xs"
+              placeholder="estado"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Valor (suporta {`{{...}}`})</label>
+            <textarea
+              value={data.varValue || ''}
+              onChange={(e) => updateField('varValue', e.target.value)}
+              rows={2}
+              className="input-base w-full text-xs"
+              placeholder="qualificado"
+            />
+          </div>
+          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+            Acede com <code>{'{{vars.estado}}'}</code> nos nós seguintes.
+          </p>
+        </div>
+      )}
+
+      {/* FETCH_DATA */}
+      {node.type === 'fetch_data' && (
+        <div className="space-y-3">
+          <input
+            value={data.url || ''}
+            onChange={(e) => updateField('url', e.target.value)}
+            className="input-base w-full text-xs"
+            placeholder="https://api.exemplo.com/{{contact.id}}"
+          />
+          <select
+            value={data.method || 'GET'}
+            onChange={(e) => updateField('method', e.target.value)}
+            className="input-base w-full text-xs"
+          >
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <textarea
+            value={data.headers || ''}
+            onChange={(e) => updateField('headers', e.target.value)}
+            rows={2}
+            className="input-base w-full text-xs"
+            placeholder='Headers JSON (opcional): {"Authorization":"Bearer ..."}'
+          />
+          {(data.method === 'POST' || data.method === 'PUT') && (
+            <textarea
+              value={data.body || ''}
+              onChange={(e) => updateField('body', e.target.value)}
+              rows={3}
+              className="input-base w-full text-xs"
+              placeholder='Body JSON (opcional)'
+            />
+          )}
+          <input
+            value={data.path || ''}
+            onChange={(e) => updateField('path', e.target.value)}
+            className="input-base w-full text-xs"
+            placeholder="Path do JSON (ex: data.user.name) - opcional"
+          />
+          <input
+            value={data.saveAs || 'response'}
+            onChange={(e) => updateField('saveAs', e.target.value)}
+            className="input-base w-full text-xs"
+            placeholder="Guardar como (variável)"
+          />
+        </div>
+      )}
+
+      {/* SUBFLOW */}
+      {node.type === 'subflow' && (
+        <div className="space-y-3">
+          <ChatbotPickerInline
+            value={data.flowId || ''}
+            onChange={(v) => updateField('flowId', v)}
+          />
+          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+            Executa outro chatbot deste workspace e volta aqui no fim. As variáveis são partilhadas.
+          </p>
+        </div>
+      )}
+
       {/* HANDOFF */}
       {node.type === 'handoff' && (
         <div className="space-y-3">
@@ -765,6 +1057,127 @@ function TeamPicker({ value, onChange }: { value: string; onChange: (v: string) 
   );
 }
 
+function ListSectionsEditor({ sections, onChange }: {
+  sections: { title: string; rows: { id: string; title: string; description?: string }[] }[];
+  onChange: (s: any[]) => void;
+}) {
+  const updateSection = (i: number, patch: any) => onChange(sections.map((s, idx) => idx === i ? { ...s, ...patch } : s));
+  const addSection = () => onChange([...sections, { title: 'Nova secção', rows: [{ id: `r${Date.now()}`, title: 'Opção' }] }]);
+  const removeSection = (i: number) => onChange(sections.filter((_, idx) => idx !== i));
+
+  const updateRow = (si: number, ri: number, patch: any) => {
+    const s = sections[si];
+    const newRows = s.rows.map((r, idx) => idx === ri ? { ...r, ...patch } : r);
+    updateSection(si, { rows: newRows });
+  };
+  const addRow = (si: number) => {
+    const s = sections[si];
+    if (s.rows.length >= 10) return;
+    updateSection(si, { rows: [...s.rows, { id: `r${Date.now()}`, title: 'Nova opção' }] });
+  };
+  const removeRow = (si: number, ri: number) => {
+    const s = sections[si];
+    updateSection(si, { rows: s.rows.filter((_, idx) => idx !== ri) });
+  };
+
+  return (
+    <div className="space-y-3">
+      {sections.map((section, si) => (
+        <div key={si} className="card p-2" style={{ background: 'var(--surface-3)' }}>
+          <div className="flex gap-1 items-center mb-2">
+            <input
+              value={section.title}
+              onChange={(e) => updateSection(si, { title: e.target.value })}
+              placeholder="Título da secção"
+              className="input-base text-xs flex-1 font-semibold"
+            />
+            <button onClick={() => removeSection(si)} className="text-red-500 p-1 hover:bg-red-50 rounded">
+              <Trash2 size={11} />
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {section.rows.map((row, ri) => (
+              <div key={ri} className="flex gap-1 items-center">
+                <input
+                  value={row.title}
+                  onChange={(e) => updateRow(si, ri, { title: e.target.value })}
+                  placeholder="Título"
+                  className="input-base text-xs flex-1"
+                />
+                <input
+                  value={row.id}
+                  onChange={(e) => updateRow(si, ri, { id: e.target.value })}
+                  placeholder="id"
+                  className="input-base text-xs"
+                  style={{ width: 70 }}
+                />
+                <button onClick={() => removeRow(si, ri)} className="text-red-500 p-1 hover:bg-red-50 rounded">
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            ))}
+            {section.rows.length < 10 && (
+              <button onClick={() => addRow(si)} className="btn btn-outline text-[11px] py-1 w-full gap-1">
+                <Plus size={10} /> Adicionar linha
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+      <button onClick={addSection} className="btn btn-outline text-xs py-1.5 w-full gap-1">
+        <Plus size={11} /> Adicionar secção
+      </button>
+    </div>
+  );
+}
+
+function SwitchCasesEditor({ cases, onChange }: {
+  cases: { value: string; handle: string }[];
+  onChange: (c: { value: string; handle: string }[]) => void;
+}) {
+  const update = (i: number, patch: any) => onChange(cases.map((c, idx) => idx === i ? { ...c, ...patch } : c));
+  const add = () => onChange([...cases, { value: '', handle: `case_${cases.length + 1}` }]);
+  const remove = (i: number) => onChange(cases.filter((_, idx) => idx !== i));
+  return (
+    <div className="space-y-1.5">
+      {cases.map((c, i) => (
+        <div key={i} className="flex gap-1 items-center">
+          <input
+            value={c.value}
+            onChange={(e) => update(i, { value: e.target.value })}
+            placeholder="Valor (ex: sim)"
+            className="input-base text-xs flex-1"
+          />
+          <input
+            value={c.handle}
+            onChange={(e) => update(i, { handle: e.target.value })}
+            placeholder="Handle"
+            className="input-base text-xs"
+            style={{ width: 100 }}
+          />
+          <button onClick={() => remove(i)} className="text-red-500 p-1 hover:bg-red-50 rounded">
+            <Trash2 size={11} />
+          </button>
+        </div>
+      ))}
+      <button onClick={add} className="btn btn-outline text-xs py-1 w-full gap-1">
+        <Plus size={11} /> Adicionar caso
+      </button>
+    </div>
+  );
+}
+
+function ChatbotPickerInline({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [flows, setFlows] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => { api.get('/chatbots').then((r) => setFlows(r.data)).catch(() => {}); }, []);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="input-base w-full text-xs">
+      <option value="">-- Escolher chatbot --</option>
+      {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+    </select>
+  );
+}
+
 function ButtonsEditor({ buttons, onChange }: { buttons: { id: string; label: string }[]; onChange: (b: { id: string; label: string }[]) => void }) {
   const update = (i: number, patch: Partial<{ id: string; label: string }>) => {
     const next = buttons.map((b, idx) => (idx === i ? { ...b, ...patch } : b));
@@ -848,6 +1261,11 @@ function FlowSettingsModal({
   const [triggerValue, setTriggerValue] = useState(flow.triggerValue || '');
   const [channel, setChannel] = useState(flow.channel || 'WHATSAPP');
   const [description, setDescription] = useState(flow.description || '');
+  const [bhStart, setBhStart] = useState<number | ''>(flow.businessHoursStart ?? '');
+  const [bhEnd, setBhEnd] = useState<number | ''>(flow.businessHoursEnd ?? '');
+  const [bhWd, setBhWd] = useState(flow.businessHoursWeekdays || '');
+  const [outOfHours, setOutOfHours] = useState(flow.outOfHoursMessage || '');
+  const [language, setLanguage] = useState(flow.language || 'pt');
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -888,12 +1306,72 @@ function FlowSettingsModal({
               <input value={triggerValue} onChange={(e) => setTriggerValue(e.target.value)} className="input-base w-full text-sm" placeholder="ex: preço" />
             </div>
           )}
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+            <p className="font-semibold text-xs mb-2">HORÁRIO COMERCIAL (opcional)</p>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number" min={0} max={23}
+                value={bhStart}
+                onChange={(e) => setBhStart(e.target.value === '' ? '' : Number(e.target.value))}
+                className="input-base w-full text-sm"
+                placeholder="Hora início (0-23)"
+              />
+              <input
+                type="number" min={0} max={23}
+                value={bhEnd}
+                onChange={(e) => setBhEnd(e.target.value === '' ? '' : Number(e.target.value))}
+                className="input-base w-full text-sm"
+                placeholder="Hora fim (0-23)"
+              />
+            </div>
+            <div className="flex gap-1 mt-2">
+              {[1, 2, 3, 4, 5, 6, 7].map((d) => {
+                const labels = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+                const active = bhWd.includes(String(d));
+                return (
+                  <button
+                    key={d}
+                    onClick={() => setBhWd(active ? bhWd.replace(String(d), '') : bhWd + String(d))}
+                    className="text-xs px-2 py-1 rounded"
+                    style={{ background: active ? '#EEF2FF' : 'var(--surface-3)', color: active ? 'var(--primary)' : 'var(--text-muted)', fontWeight: active ? 600 : 400 }}
+                  >
+                    {labels[d]}
+                  </button>
+                );
+              })}
+            </div>
+            <textarea
+              value={outOfHours}
+              onChange={(e) => setOutOfHours(e.target.value)}
+              rows={2}
+              className="input-base w-full text-sm mt-2"
+              placeholder="Mensagem fora de horas (opcional)"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">Idioma</label>
+            <select value={language} onChange={(e) => setLanguage(e.target.value)} className="input-base w-full text-sm">
+              <option value="pt">Português</option>
+              <option value="en">Inglês</option>
+              <option value="es">Espanhol</option>
+              <option value="fr">Francês</option>
+            </select>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onClose} className="btn btn-outline text-sm py-1.5">Cancelar</button>
           <button
-            onClick={() => onSave({ name, description, trigger, triggerValue: trigger === 'keyword' ? triggerValue : null, channel })}
+            onClick={() => onSave({
+              name, description, trigger, triggerValue: trigger === 'keyword' ? triggerValue : null, channel,
+              businessHoursStart: bhStart === '' ? null : (bhStart as number),
+              businessHoursEnd: bhEnd === '' ? null : (bhEnd as number),
+              businessHoursWeekdays: bhWd || null,
+              outOfHoursMessage: outOfHours || null,
+              language,
+            })}
             className="btn btn-primary text-sm py-1.5"
           >
             Guardar
@@ -951,8 +1429,13 @@ function ChatbotEditorInner({ flow, onClose, onSaved }: { flow: ChatbotFlow; onC
       template: 'Template',
       media: 'Enviar mídia',
       buttons: 'Escolhe uma opção:',
+      list: 'Lista de opções',
       condition: 'Nova condição',
+      switch: 'Switch',
       action: 'Configurar acção',
+      set_var: 'Definir variável',
+      fetch_data: 'Buscar API',
+      subflow: 'Chamar sub-fluxo',
       handoff: 'Transferir para humano',
       delay: '1 hora',
       ai: 'Responder com IA',
@@ -963,6 +1446,11 @@ function ChatbotEditorInner({ flow, onClose, onSaved }: { flow: ChatbotFlow; onC
       template: { templateName: '', langCode: 'pt_BR', variables: [], label: labels.template },
       media: { mediaType: 'image', mediaUrl: '', caption: '', label: labels.media },
       buttons: { text: 'Escolhe uma opção:', buttons: [{ id: 'opt1', label: 'Opção 1' }, { id: 'opt2', label: 'Opção 2' }], saveAs: 'escolha', label: labels.buttons },
+      list: { text: 'Escolhe uma opção:', buttonLabel: 'Ver opções', sections: [{ title: 'Opções', rows: [{ id: 'r1', title: 'Opção 1' }] }], saveAs: 'escolha' },
+      switch: { target: '', cases: [{ value: 'sim', handle: 'sim' }, { value: 'nao', handle: 'nao' }], default: 'default' },
+      set_var: { varName: 'minhaVar', varValue: '' },
+      fetch_data: { url: '', method: 'GET', saveAs: 'response' },
+      subflow: { flowId: '' },
       handoff: { userId: '', teamId: '', message: 'Vou transferir-te para um colega humano. Aguarda um momento.', label: labels.handoff },
     };
     const newNode: Node = {
@@ -1118,9 +1606,11 @@ function ChatbotEditorInner({ flow, onClose, onSaved }: { flow: ChatbotFlow; onC
               nodeColor={(n) => {
                 const colors: Record<string, string> = {
                   trigger: '#6366F1', message: '#0EA5E9', template: '#EC4899',
-                  media: '#06B6D4', buttons: '#F97316', condition: '#F59E0B',
+                  media: '#06B6D4', buttons: '#F97316', list: '#0891B2',
+                  condition: '#F59E0B', switch: '#D946EF',
                   action: '#10B981', handoff: '#FACC15', delay: '#8B5CF6',
                   end: '#EF4444', ai: '#6366F1',
+                  set_var: '#84CC16', fetch_data: '#14B8A6', subflow: '#7C3AED',
                 };
                 return colors[n.type || ''] || '#94A3B8';
               }}
@@ -1323,12 +1813,75 @@ function HistoryModal({ flow, onClose }: { flow: ChatbotFlow; onClose: () => voi
 function nodeColor(t: string): string {
   const c: Record<string, string> = {
     trigger: '#6366F1', message: '#0EA5E9', template: '#EC4899',
-    media: '#06B6D4', buttons: '#F97316', condition: '#F59E0B',
+    media: '#06B6D4', buttons: '#F97316', list: '#0891B2',
+    condition: '#F59E0B', switch: '#D946EF',
     action: '#10B981', handoff: '#A16207', delay: '#8B5CF6',
     end: '#EF4444', ai: '#6366F1',
+    set_var: '#84CC16', fetch_data: '#14B8A6', subflow: '#7C3AED',
   };
   return c[t] || '#64748B';
 }
+
+// ── Modal de templates pré-feitos ─────────────────────
+function TemplatesModal({ onClose, onChosen }: { onClose: () => void; onChosen: (flow: ChatbotFlow) => void }) {
+  const [templates, setTemplates] = useState<ChatbotTemplateInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get('/chatbots/templates').then((r) => setTemplates(r.data)).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const choose = async (id: string) => {
+    setCreating(id);
+    try {
+      const res = await api.post('/chatbots/from-template', { templateId: id });
+      toast.success('Chatbot criado a partir do template');
+      onChosen(res.data);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro a criar');
+    } finally { setCreating(null); }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div className="card" style={{ width: 600, maxHeight: '85vh', display: 'flex', flexDirection: 'column', background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid var(--border)' }}>
+          <h3 className="font-bold text-base" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Escolher template</h3>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-100"><X size={16} /></button>
+        </div>
+        <div className="p-4" style={{ flex: 1, overflowY: 'auto' }}>
+          {loading ? (
+            <div className="flex justify-center py-10"><Loader2 className="animate-spin" size={20} /></div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {templates.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => choose(t.id)}
+                  disabled={!!creating}
+                  className="card p-4 text-left transition-colors hover:border-indigo-300"
+                  style={{ background: 'var(--surface-2)' }}
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style={{ background: 'var(--surface-3)' }}>
+                      {t.icon}
+                    </div>
+                    <h4 className="font-bold text-sm">{t.name}</h4>
+                    {creating === t.id && <Loader2 size={14} className="animate-spin ml-auto" />}
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t.description}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface ChatbotTemplateInfo { id: string; name: string; description: string; icon: string; }
 
 // ── Página principal: lista + criar ───────────────────
 export default function ChatbotsPage() {
@@ -1337,6 +1890,7 @@ export default function ChatbotsPage() {
   const [editing, setEditing] = useState<ChatbotFlow | null>(null);
   const [creating, setCreating] = useState(false);
   const [historyFor, setHistoryFor] = useState<ChatbotFlow | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -1424,9 +1978,14 @@ export default function ChatbotsPage() {
             Cria fluxos de conversação automáticos sem código
           </p>
         </div>
-        <button onClick={handleCreate} disabled={creating} className="btn btn-primary gap-2">
-          {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Novo Chatbot
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowTemplates(true)} className="btn btn-outline gap-2">
+            <span>📋</span> Templates
+          </button>
+          <button onClick={handleCreate} disabled={creating} className="btn btn-primary gap-2">
+            {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Novo Chatbot
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -1510,6 +2069,14 @@ export default function ChatbotsPage() {
       )}
 
       {historyFor && <HistoryModal flow={historyFor} onClose={() => setHistoryFor(null)} />}
+      {showTemplates && <TemplatesModal
+        onClose={() => setShowTemplates(false)}
+        onChosen={(flow) => {
+          setShowTemplates(false);
+          setFlows((arr) => [flow, ...arr]);
+          setEditing(flow);
+        }}
+      />}
     </div>
   );
 }

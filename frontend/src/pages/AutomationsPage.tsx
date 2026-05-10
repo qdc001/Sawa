@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Plus, Zap, Play, ZapOff, Trash2, Copy, X, Save, Loader2, AlertCircle,
   History, Filter, ChevronRight, ChevronDown, CheckCircle2, XCircle, AlertTriangle,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api, {
@@ -17,11 +18,14 @@ const TRIGGERS: { type: AutomationTriggerType; label: string; icon: string; enti
   { type: 'lead_won', label: 'Lead ganho', icon: '🏆', entity: 'lead' },
   { type: 'lead_lost', label: 'Lead perdido', icon: '❌', entity: 'lead' },
   { type: 'lead_assigned', label: 'Lead atribuído', icon: '👤', entity: 'lead' },
+  { type: 'lead_stagnant', label: 'Lead parado há X dias', icon: '🐢', entity: 'lead' },
   { type: 'task_created', label: 'Tarefa criada', icon: '📋', entity: 'task' },
   { type: 'task_completed', label: 'Tarefa concluída', icon: '✅', entity: 'task' },
   { type: 'task_overdue', label: 'Tarefa atrasada', icon: '⏰', entity: 'task' },
   { type: 'message_received', label: 'Mensagem recebida', icon: '💬', entity: 'message' },
+  { type: 'no_response', label: 'Sem resposta há X minutos', icon: '🔕', entity: 'message' },
   { type: 'contact_created', label: 'Contacto criado', icon: '👥', entity: 'contact' },
+  { type: 'schedule', label: 'Horário agendado (cron)', icon: '⏱️', entity: 'lead' },
 ];
 
 const ACTIONS: { type: AutomationActionType; label: string; icon: string }[] = [
@@ -31,7 +35,11 @@ const ACTIONS: { type: AutomationActionType; label: string; icon: string }[] = [
   { type: 'assign_user', label: 'Atribuir lead a utilizador', icon: '👤' },
   { type: 'change_stage', label: 'Mudar etapa do lead', icon: '🔀' },
   { type: 'add_tag', label: 'Adicionar tag', icon: '🏷️' },
+  { type: 'remove_tag', label: 'Remover tag', icon: '🏷️' },
   { type: 'set_priority', label: 'Definir prioridade', icon: '⚡' },
+  { type: 'update_lead', label: 'Actualizar campos do lead', icon: '✏️' },
+  { type: 'update_contact', label: 'Actualizar campos do contacto', icon: '✏️' },
+  { type: 'run_chatbot', label: 'Disparar chatbot', icon: '🤖' },
   { type: 'send_notification', label: 'Notificar utilizador', icon: '🔔' },
   { type: 'webhook', label: 'Chamar webhook', icon: '🔌' },
 ];
@@ -91,6 +99,13 @@ function actionIcon(t: AutomationActionType): string {
 }
 function entityForTrigger(t: AutomationTriggerType): string {
   return TRIGGERS.find((x) => x.type === t)?.entity || 'lead';
+}
+
+// Normaliza conditions para sempre devolver { op, items } (compatibilidade com formato legado)
+function getCondGroup(c: any): { op: 'AND' | 'OR'; items: AutomationCondition[] } {
+  if (!c) return { op: 'AND', items: [] };
+  if (Array.isArray(c)) return { op: 'AND', items: c };
+  return { op: c.op || 'AND', items: c.items || [] };
 }
 
 // ── Pickers ────────────────────────────────────────────
@@ -196,6 +211,15 @@ function ActionEditor({ action, onChange, onRemove }: {
         >
           {ACTIONS.map((a) => <option key={a.type} value={a.type}>{a.label}</option>)}
         </select>
+        <input
+          type="number" min={0}
+          value={action.delaySeconds || 0}
+          onChange={(e) => onChange({ ...action, delaySeconds: Number(e.target.value) || 0 })}
+          className="input-base text-xs"
+          style={{ width: 90 }}
+          placeholder="delay s"
+          title="Esperar X segundos antes de executar (máx 60)"
+        />
         <button onClick={onRemove} className="text-red-500 p-1.5 hover:bg-red-50 rounded">
           <Trash2 size={13} />
         </button>
@@ -359,7 +383,68 @@ function ActionEditor({ action, onChange, onRemove }: {
           </select>
         </div>
       )}
+
+      {action.type === 'remove_tag' && (
+        <div className="space-y-2">
+          <select
+            value={params.entity || 'lead'}
+            onChange={(e) => updateParam('entity', e.target.value)}
+            className="input-base w-full text-xs"
+          >
+            <option value="lead">Do lead</option>
+            <option value="contact">Do contacto</option>
+          </select>
+          <TagPicker value={params.tagId || ''} onChange={(v) => updateParam('tagId', v)} />
+        </div>
+      )}
+
+      {action.type === 'update_lead' && (
+        <div className="space-y-2">
+          <input value={params.title || ''} onChange={(e) => updateParam('title', e.target.value)} className="input-base w-full text-xs" placeholder="Novo título (opcional)" />
+          <input type="number" value={params.value ?? ''} onChange={(e) => updateParam('value', e.target.value)} className="input-base w-full text-xs" placeholder="Novo valor (opcional)" />
+          <input value={params.source || ''} onChange={(e) => updateParam('source', e.target.value)} className="input-base w-full text-xs" placeholder="Origem" />
+          <select value={params.priority || ''} onChange={(e) => updateParam('priority', e.target.value)} className="input-base w-full text-xs">
+            <option value="">-- Prioridade (sem alterar) --</option>
+            <option value="LOW">Baixa</option>
+            <option value="MEDIUM">Média</option>
+            <option value="HIGH">Alta</option>
+            <option value="URGENT">Urgente</option>
+          </select>
+          <input type="number" value={params.expectedCloseInDays || ''} onChange={(e) => updateParam('expectedCloseInDays', e.target.value)} className="input-base w-full text-xs" placeholder="Fechar em X dias (opcional)" />
+        </div>
+      )}
+
+      {action.type === 'update_contact' && (
+        <div className="space-y-2">
+          <input value={params.firstName || ''} onChange={(e) => updateParam('firstName', e.target.value)} className="input-base w-full text-xs" placeholder="Primeiro nome" />
+          <input value={params.lastName || ''} onChange={(e) => updateParam('lastName', e.target.value)} className="input-base w-full text-xs" placeholder="Último nome" />
+          <input value={params.email || ''} onChange={(e) => updateParam('email', e.target.value)} className="input-base w-full text-xs" placeholder="Email" />
+          <input value={params.company || ''} onChange={(e) => updateParam('company', e.target.value)} className="input-base w-full text-xs" placeholder="Empresa" />
+          <input value={params.position || ''} onChange={(e) => updateParam('position', e.target.value)} className="input-base w-full text-xs" placeholder="Cargo" />
+          <input value={params.country || ''} onChange={(e) => updateParam('country', e.target.value)} className="input-base w-full text-xs" placeholder="País" />
+          <input value={params.city || ''} onChange={(e) => updateParam('city', e.target.value)} className="input-base w-full text-xs" placeholder="Cidade" />
+          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Deixa vazio o que não queres alterar.</p>
+        </div>
+      )}
+
+      {action.type === 'run_chatbot' && (
+        <div className="space-y-2">
+          <ChatbotFlowPicker value={params.flowId || ''} onChange={(v) => updateParam('flowId', v)} />
+          <input value={params.message || ''} onChange={(e) => updateParam('message', e.target.value)} className="input-base w-full text-xs" placeholder="Mensagem inicial (opcional)" />
+        </div>
+      )}
     </div>
+  );
+}
+
+function ChatbotFlowPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [flows, setFlows] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => { api.get('/chatbots').then((r) => setFlows(r.data)).catch(() => {}); }, []);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="input-base w-full text-xs">
+      <option value="">-- Escolher chatbot --</option>
+      {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+    </select>
   );
 }
 
@@ -476,6 +561,7 @@ function AutomationEditor({ automation, onClose, onSaved }: {
             >
               {TRIGGERS.map((t) => <option key={t.type} value={t.type}>{t.icon} {t.label}</option>)}
             </select>
+
             {draft.trigger.type === 'lead_stage_changed' && (
               <div className="mt-3">
                 <label className="block text-xs font-medium mb-1">Etapa específica (opcional)</label>
@@ -489,6 +575,145 @@ function AutomationEditor({ automation, onClose, onSaved }: {
                 </select>
               </div>
             )}
+
+            {draft.trigger.type === 'lead_stagnant' && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Dias parado</label>
+                  <input
+                    type="number" min={1}
+                    value={draft.trigger.params?.days || 7}
+                    onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, days: Number(e.target.value) } } })}
+                    className="input-base w-full text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Etapa (opcional)</label>
+                  <select
+                    value={draft.trigger.params?.stageId || ''}
+                    onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, stageId: e.target.value || undefined } } })}
+                    className="input-base w-full text-sm"
+                  >
+                    <option value="">Qualquer etapa</option>
+                    {stages.map((s) => <option key={s.id} value={s.id}>{s.pipelineName}: {s.name}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {draft.trigger.type === 'no_response' && (
+              <div className="mt-3">
+                <label className="block text-xs font-medium mb-1">Minutos sem resposta</label>
+                <input
+                  type="number" min={1}
+                  value={draft.trigger.params?.minutes || 60}
+                  onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, minutes: Number(e.target.value) } } })}
+                  className="input-base w-full text-sm"
+                />
+                <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                  Dispara quando o cliente envia mensagem e não recebe resposta neste tempo.
+                </p>
+              </div>
+            )}
+
+            {draft.trigger.type === 'schedule' && (
+              <div className="mt-3 space-y-2">
+                <label className="block text-xs font-medium">Frequência</label>
+                <select
+                  value={draft.trigger.params?.mode || 'every_X_minutes'}
+                  onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, mode: e.target.value } } })}
+                  className="input-base w-full text-sm"
+                >
+                  <option value="every_X_minutes">A cada X minutos</option>
+                  <option value="daily_at">Todos os dias a uma hora</option>
+                  <option value="weekly_at">Semanalmente a um dia/hora</option>
+                  <option value="monthly_at">Mensalmente a um dia/hora</option>
+                </select>
+
+                {(draft.trigger.params?.mode || 'every_X_minutes') === 'every_X_minutes' && (
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Minutos</label>
+                    <input
+                      type="number" min={1}
+                      value={draft.trigger.params?.minutes || 60}
+                      onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, minutes: Number(e.target.value) } } })}
+                      className="input-base w-full text-sm"
+                    />
+                  </div>
+                )}
+
+                {draft.trigger.params?.mode === 'daily_at' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Hora (0-23)</label>
+                      <input type="number" min={0} max={23} value={draft.trigger.params?.hour ?? 9}
+                        onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, hour: Number(e.target.value) } } })}
+                        className="input-base w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Minuto</label>
+                      <input type="number" min={0} max={59} value={draft.trigger.params?.minute ?? 0}
+                        onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, minute: Number(e.target.value) } } })}
+                        className="input-base w-full text-sm" />
+                    </div>
+                  </div>
+                )}
+
+                {draft.trigger.params?.mode === 'weekly_at' && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Dia</label>
+                      <select value={draft.trigger.params?.weekday ?? 1}
+                        onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, weekday: Number(e.target.value) } } })}
+                        className="input-base w-full text-sm">
+                        <option value={1}>Segunda</option>
+                        <option value={2}>Terça</option>
+                        <option value={3}>Quarta</option>
+                        <option value={4}>Quinta</option>
+                        <option value={5}>Sexta</option>
+                        <option value={6}>Sábado</option>
+                        <option value={7}>Domingo</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Hora</label>
+                      <input type="number" min={0} max={23} value={draft.trigger.params?.hour ?? 9}
+                        onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, hour: Number(e.target.value) } } })}
+                        className="input-base w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Minuto</label>
+                      <input type="number" min={0} max={59} value={draft.trigger.params?.minute ?? 0}
+                        onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, minute: Number(e.target.value) } } })}
+                        className="input-base w-full text-sm" />
+                    </div>
+                  </div>
+                )}
+
+                {draft.trigger.params?.mode === 'monthly_at' && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Dia do mês</label>
+                      <input type="number" min={1} max={28} value={draft.trigger.params?.day ?? 1}
+                        onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, day: Number(e.target.value) } } })}
+                        className="input-base w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Hora</label>
+                      <input type="number" min={0} max={23} value={draft.trigger.params?.hour ?? 9}
+                        onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, hour: Number(e.target.value) } } })}
+                        className="input-base w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Minuto</label>
+                      <input type="number" min={0} max={59} value={draft.trigger.params?.minute ?? 0}
+                        onChange={(e) => update({ trigger: { ...draft.trigger, params: { ...draft.trigger.params, minute: Number(e.target.value) } } })}
+                        className="input-base w-full text-sm" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* CONDITIONS */}
@@ -496,21 +721,45 @@ function AutomationEditor({ automation, onClose, onSaved }: {
             <div className="flex items-center gap-2 mb-3">
               <Filter size={16} style={{ color: '#F59E0B' }} />
               <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>SE</h3>
-              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Condições (E lógico). Vazio = executa sempre.</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Condições. Vazio = executa sempre.</span>
+              <div className="ml-auto flex items-center gap-1">
+                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Combinar:</span>
+                <select
+                  value={getCondGroup(draft.conditions).op}
+                  onChange={(e) => {
+                    const items = getCondGroup(draft.conditions).items;
+                    update({ conditions: { op: e.target.value as 'AND' | 'OR', items } });
+                  }}
+                  className="input-base text-xs"
+                  style={{ width: 80, padding: '2px 6px' }}
+                >
+                  <option value="AND">E (todas)</option>
+                  <option value="OR">OU (qualquer)</option>
+                </select>
+              </div>
             </div>
             <div className="space-y-2">
-              {(draft.conditions || []).map((c, i) => (
+              {getCondGroup(draft.conditions).items.map((c, i) => (
                 <ConditionRow
                   key={i}
                   condition={c}
                   fields={fields}
-                  onChange={(nc) => update({ conditions: draft.conditions.map((x, idx) => (idx === i ? nc : x)) })}
-                  onRemove={() => update({ conditions: draft.conditions.filter((_, idx) => idx !== i) })}
+                  onChange={(nc) => {
+                    const g = getCondGroup(draft.conditions);
+                    update({ conditions: { op: g.op, items: g.items.map((x, idx) => (idx === i ? nc : x)) } });
+                  }}
+                  onRemove={() => {
+                    const g = getCondGroup(draft.conditions);
+                    update({ conditions: { op: g.op, items: g.items.filter((_, idx) => idx !== i) } });
+                  }}
                 />
               ))}
             </div>
             <button
-              onClick={() => update({ conditions: [...(draft.conditions || []), { field: '', op: 'equals', value: '' }] })}
+              onClick={() => {
+                const g = getCondGroup(draft.conditions);
+                update({ conditions: { op: g.op, items: [...g.items, { field: '', op: 'equals', value: '' }] } });
+              }}
               className="btn btn-outline text-xs py-1.5 mt-3 gap-1"
             >
               <Plus size={11} /> Adicionar condição
@@ -542,9 +791,105 @@ function AutomationEditor({ automation, onClose, onSaved }: {
             </button>
           </section>
 
+          {/* AVANÇADO: horário activo + limites */}
+          <section className="card p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <SettingsIcon size={16} style={{ color: '#64748B' }} />
+              <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>AVANÇADO</h3>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Horário activo e limites</span>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">Horário activo (opcional, todos campos vazios = sempre)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number" min={0} max={23}
+                    value={draft.activeHoursStart ?? ''}
+                    onChange={(e) => update({ activeHoursStart: e.target.value === '' ? null : Number(e.target.value) })}
+                    className="input-base w-full text-xs"
+                    placeholder="Hora início (0-23)"
+                  />
+                  <input
+                    type="number" min={0} max={23}
+                    value={draft.activeHoursEnd ?? ''}
+                    onChange={(e) => update({ activeHoursEnd: e.target.value === '' ? null : Number(e.target.value) })}
+                    className="input-base w-full text-xs"
+                    placeholder="Hora fim (0-23)"
+                  />
+                </div>
+                <div className="flex gap-1 mt-2">
+                  {[1, 2, 3, 4, 5, 6, 7].map((d) => {
+                    const active = (draft.activeWeekdays || '').includes(String(d));
+                    const labels = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+                    return (
+                      <button
+                        key={d}
+                        onClick={() => {
+                          const cur = draft.activeWeekdays || '';
+                          const next = active ? cur.replace(String(d), '') : cur + String(d);
+                          update({ activeWeekdays: next || null });
+                        }}
+                        className="text-xs px-2 py-1 rounded"
+                        style={{
+                          background: active ? '#EEF2FF' : 'var(--surface-3)',
+                          color: active ? 'var(--primary)' : 'var(--text-muted)',
+                          fontWeight: active ? 600 : 400,
+                        }}
+                      >
+                        {labels[d]}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                  Sem dias seleccionados = todos os dias.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1">Limites de execução</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <input
+                      type="number" min={0}
+                      value={draft.runLimitPerContact ?? ''}
+                      onChange={(e) => update({ runLimitPerContact: e.target.value === '' ? null : Number(e.target.value) })}
+                      className="input-base w-full text-xs"
+                      placeholder="Por contacto"
+                    />
+                    <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>Por contacto</p>
+                  </div>
+                  <div>
+                    <input
+                      type="number" min={0}
+                      value={draft.runLimitTotal ?? ''}
+                      onChange={(e) => update({ runLimitTotal: e.target.value === '' ? null : Number(e.target.value) })}
+                      className="input-base w-full text-xs"
+                      placeholder="Total"
+                    />
+                    <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>Total</p>
+                  </div>
+                  <div>
+                    <input
+                      type="number" min={1}
+                      value={draft.runLimitWindow ?? 24}
+                      onChange={(e) => update({ runLimitWindow: e.target.value === '' ? null : Number(e.target.value) })}
+                      className="input-base w-full text-xs"
+                      placeholder="Janela (h)"
+                    />
+                    <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>Janela em horas</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <div className="card p-3 text-xs" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
             <strong>Variáveis:</strong> nas mensagens podes usar <code>{'{{contact.firstName}}'}</code>, <code>{'{{title}}'}</code>, <code>{'{{stage.name}}'}</code>, etc.
             O nome do campo é o do recurso disparador (lead/task/contact).
+            <br /><br />
+            <strong>Delay:</strong> põe um valor em segundos no campo "delay s" de cada acção para esperar antes de a executar (máx 60s para não bloquear webhooks).
           </div>
         </div>
       </div>
@@ -801,7 +1146,7 @@ export default function AutomationsPage() {
               <div className="flex items-center gap-2 text-xs mb-4 flex-wrap" style={{ color: 'var(--text-muted)' }}>
                 <span>{a.actions?.length || 0} acções</span>
                 <span>·</span>
-                <span>{a.conditions?.length || 0} condições</span>
+                <span>{getCondGroup(a.conditions).items.length} condições</span>
                 <span>·</span>
                 <span>{a.runCount || 0} execuções</span>
               </div>

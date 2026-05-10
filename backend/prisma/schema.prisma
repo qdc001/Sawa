@@ -410,11 +410,19 @@ model Automation {
   name        String
   description String?
   isActive    Boolean  @default(true)
-  trigger     Json     // { type: "lead_created"|"lead_stage_changed"|"task_overdue"|...; params: {} }
-  conditions  Json?    // [{ field, op, value }]
-  actions     Json     // [{ type, params }]
+  trigger     Json     // { type, params } incluindo schedule (every_X_minutes/daily_at/weekly_at), no_response, lead_stagnant
+  conditions  Json?    // { op: "AND"|"OR", items: [{field, op, value}] }   ou array legado [{...}]
+  actions     Json     // [{ type, params, delaySeconds? }]
   runCount    Int      @default(0)
   lastRunAt   DateTime?
+  // Horario activo (opcional)
+  activeHoursStart   Int?     // 0-23
+  activeHoursEnd     Int?     // 0-23
+  activeWeekdays     String?  // "1234567" (1=Segunda...7=Domingo)
+  // Limites
+  runLimitPerContact Int?     // max execucoes por contacto
+  runLimitTotal      Int?     // max execucoes total
+  runLimitWindow     Int?     // janela em horas
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -437,12 +445,16 @@ model AutomationRun {
   triggeredBy  String   // tipo de evento que disparou
   entityType   String?  // "lead" | "task" | "message" | etc
   entityId     String?
+  contactId    String?  // para verificar limite por contacto
+  leadId       String?  // para activity log integrado
   status       String   @default("OK") // OK | SKIPPED | FAILED
   log          Json     @default("[]") // [{at, action, detail}]
   createdAt    DateTime @default(now())
 
   @@index([automationId, createdAt])
   @@index([workspaceId, createdAt])
+  @@index([contactId, automationId])
+  @@index([leadId])
   @@map("automation_runs")
 }
 
@@ -460,6 +472,12 @@ model ChatbotFlow {
   edges        Json
   runCount     Int      @default(0)
   leadCount    Int      @default(0)
+  // Horario comercial (opcional)
+  businessHoursStart    Int?     // 0-23
+  businessHoursEnd      Int?     // 0-23
+  businessHoursWeekdays String?  // "1234567"
+  outOfHoursMessage     String?
+  language     String   @default("pt") // pt | en | etc
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

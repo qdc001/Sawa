@@ -70,44 +70,104 @@ function record(ctx: RuleContext, action: string, detail?: string) {
   ctx.steps.push({ at: new Date().toISOString(), action, detail });
 }
 
-// ── Avaliar condições ─────────────────────────────────
-function evaluateConditions(conditions: Condition[] | null | undefined, entity: any): { match: boolean; reason?: string } {
-  if (!conditions || conditions.length === 0) return { match: true };
-
-  for (const cond of conditions) {
-    const actual = getField(entity, cond.field);
-    let ok = false;
-    switch (cond.op) {
-      case 'equals':
-        ok = String(actual) === String(cond.value);
-        break;
-      case 'not_equals':
-        ok = String(actual) !== String(cond.value);
-        break;
-      case 'contains':
-        ok = String(actual ?? '').toLowerCase().includes(String(cond.value ?? '').toLowerCase());
-        break;
-      case 'greater_than':
-        ok = Number(actual) > Number(cond.value);
-        break;
-      case 'less_than':
-        ok = Number(actual) < Number(cond.value);
-        break;
-      case 'has_tag': {
-        const tags = Array.isArray(entity?.tags) ? entity.tags : [];
-        ok = tags.some((t: any) => t?.tag?.id === cond.value || t?.tagId === cond.value || t?.tag?.name === cond.value);
-        break;
-      }
-      case 'is_empty':
-        ok = actual == null || actual === '' || (Array.isArray(actual) && actual.length === 0);
-        break;
-      case 'is_not_empty':
-        ok = !(actual == null || actual === '' || (Array.isArray(actual) && actual.length === 0));
-        break;
+// ── Avaliar uma condição individual ───────────────────
+function evalSingle(cond: Condition, entity: any): boolean {
+  const actual = getField(entity, cond.field);
+  switch (cond.op) {
+    case 'equals': return String(actual) === String(cond.value);
+    case 'not_equals': return String(actual) !== String(cond.value);
+    case 'contains': return String(actual ?? '').toLowerCase().includes(String(cond.value ?? '').toLowerCase());
+    case 'greater_than': return Number(actual) > Number(cond.value);
+    case 'less_than': return Number(actual) < Number(cond.value);
+    case 'has_tag': {
+      const tags = Array.isArray(entity?.tags) ? entity.tags : [];
+      return tags.some((t: any) => t?.tag?.id === cond.value || t?.tagId === cond.value || t?.tag?.name === cond.value);
     }
-    if (!ok) return { match: false, reason: `falhou em ${cond.field} ${cond.op} ${cond.value}` };
+    case 'is_empty': return actual == null || actual === '' || (Array.isArray(actual) && actual.length === 0);
+    case 'is_not_empty': return !(actual == null || actual === '' || (Array.isArray(actual) && actual.length === 0));
   }
+  return false;
+}
+
+// ── Avaliar condições com suporte a OR/AND (estrutura nested ou array legado) ───
+function evaluateConditions(conditions: any, entity: any): { match: boolean; reason?: string } {
+  if (!conditions) return { match: true };
+
+  // Formato novo: { op: 'AND'|'OR', items: [...] }
+  if (!Array.isArray(conditions) && typeof conditions === 'object' && conditions.items) {
+    const items = conditions.items as Condition[];
+    if (items.length === 0) return { match: true };
+    if (conditions.op === 'OR') {
+      const ok = items.some((c) => evalSingle(c, entity));
+      return ok ? { match: true } : { match: false, reason: 'nenhuma condição OR satisfeita' };
+    }
+    // AND default
+    for (const c of items) {
+      if (!evalSingle(c, entity)) return { match: false, reason: `falhou em ${c.field} ${c.op} ${c.value}` };
+    }
+    return { match: true };
+  }
+
+  // Formato legado: array directo (AND)
+  if (Array.isArray(conditions)) {
+    if (conditions.length === 0) return { match: true };
+    for (const c of conditions) {
+      if (!evalSingle(c, entity)) return { match: false, reason: `falhou em ${c.field} ${c.op} ${c.value}` };
+    }
+    return { match: true };
+  }
+
   return { match: true };
+}
+
+// ── Verificar horário activo ──────────────────────────
+function isWithinActiveHours(auto: any, now: Date = new Date()): boolean {
+  const start = auto.activeHoursStart;
+  const end = auto.activeHoursEnd;
+  const wd = auto.activeWeekdays;
+
+  if (start == null && end == null && !wd) return true;
+
+  // Dia da semana (1=Segunda...7=Domingo, JS: 0=Domingo...6=Sábado)
+  if (wd) {
+    const jsDay = now.getDay();
+    const isoDay = jsDay === 0 ? 7 : jsDay;
+    if (!String(wd).includes(String(isoDay))) return false;
+  }
+
+  if (start != null && end != null) {
+    const hour = now.getHours();
+    if (start <= end) {
+      if (hour < start || hour >= end) return false;
+    } else {
+      // intervalo que cruza meia-noite
+      if (hour < start && hour >= end) return false;
+    }
+  }
+  return true;
+}
+
+// ── Verificar limites de execução ─────────────────────
+async function isWithinRunLimits(auto: any, contactId: string | null): Promise<{ ok: boolean; reason?: string }> {
+  const now = Date.now();
+  const window = (auto.runLimitWindow || 24) * 3600000;
+  const cutoff = new Date(now - window);
+
+  if (auto.runLimitPerContact && contactId) {
+    const count = await prisma.automationRun.count({
+      where: { automationId: auto.id, contactId, status: 'OK', createdAt: { gte: cutoff } },
+    });
+    if (count >= auto.runLimitPerContact) return { ok: false, reason: `limite por contacto (${auto.runLimitPerContact}) atingido` };
+  }
+
+  if (auto.runLimitTotal) {
+    const count = await prisma.automationRun.count({
+      where: { automationId: auto.id, status: 'OK', createdAt: { gte: cutoff } },
+    });
+    if (count >= auto.runLimitTotal) return { ok: false, reason: `limite total (${auto.runLimitTotal}) atingido` };
+  }
+
+  return { ok: true };
 }
 
 // ── WhatsApp helper (reuso simplificado do chatbotEngine) ───
@@ -287,6 +347,68 @@ async function executeAction(action: Action, ctx: RuleContext): Promise<void> {
       break;
     }
 
+    case 'remove_tag': {
+      if (!params.tagId) { record(ctx, 'remove_tag skip', 'sem tagId'); return; }
+      const target = params.entity || (leadId ? 'lead' : 'contact');
+      try {
+        if (target === 'lead' && leadId) {
+          await prisma.tagOnLead.delete({ where: { leadId_tagId: { leadId, tagId: params.tagId } } });
+        } else if (target === 'contact' && contactId) {
+          await prisma.tagOnContact.delete({ where: { contactId_tagId: { contactId, tagId: params.tagId } } });
+        }
+        record(ctx, 'remove_tag', `${target}/${params.tagId}`);
+      } catch { /* não existia */ }
+      break;
+    }
+
+    case 'update_lead': {
+      if (!leadId) { record(ctx, 'update_lead skip', 'sem lead'); return; }
+      const data: any = {};
+      if (params.title) data.title = interpolate(params.title, ctx);
+      if (params.value !== undefined && params.value !== '') data.value = Number(params.value);
+      if (params.source) data.source = interpolate(params.source, ctx);
+      if (params.priority) data.priority = params.priority;
+      if (params.expectedCloseInDays) data.expectedCloseAt = new Date(Date.now() + Number(params.expectedCloseInDays) * 86400000);
+      if (Object.keys(data).length === 0) { record(ctx, 'update_lead skip', 'sem campos'); return; }
+      await prisma.lead.update({ where: { id: leadId }, data });
+      record(ctx, 'update_lead', Object.keys(data).join(','));
+      break;
+    }
+
+    case 'update_contact': {
+      if (!contactId) { record(ctx, 'update_contact skip', 'sem contacto'); return; }
+      const data: any = {};
+      if (params.firstName) data.firstName = interpolate(params.firstName, ctx);
+      if (params.lastName) data.lastName = interpolate(params.lastName, ctx);
+      if (params.email) data.email = interpolate(params.email, ctx);
+      if (params.company) data.company = interpolate(params.company, ctx);
+      if (params.position) data.position = interpolate(params.position, ctx);
+      if (params.country) data.country = interpolate(params.country, ctx);
+      if (params.city) data.city = interpolate(params.city, ctx);
+      if (Object.keys(data).length === 0) { record(ctx, 'update_contact skip', 'sem campos'); return; }
+      await prisma.contact.update({ where: { id: contactId }, data });
+      record(ctx, 'update_contact', Object.keys(data).join(','));
+      break;
+    }
+
+    case 'run_chatbot': {
+      if (!params.flowId) { record(ctx, 'run_chatbot skip', 'sem flowId'); return; }
+      if (!contactId) { record(ctx, 'run_chatbot skip', 'sem contacto'); return; }
+      try {
+        const { runChatbotById } = await import('./chatbotEngine');
+        await runChatbotById(params.flowId, {
+          workspaceId: ctx.workspaceId,
+          contactId,
+          message: params.message || '',
+          dryRun: false,
+        });
+        record(ctx, 'run_chatbot', params.flowId);
+      } catch (e: any) {
+        record(ctx, 'run_chatbot fail', e.message);
+      }
+      break;
+    }
+
     default:
       record(ctx, `acção desconhecida: ${action.type}`);
   }
@@ -348,17 +470,41 @@ export async function triggerAutomations(event: TriggerEvent): Promise<void> {
     if (matching.length === 0) return;
 
     const entity = await loadEntity(event);
+    const contactId = entity?.contactId || entity?.contact?.id || (event.entityType === 'contact' ? entity?.id : null) || null;
+    const leadId = (event.entityType === 'lead' ? entity?.id : entity?.leadId) || null;
 
     for (const auto of matching) {
+      const baseRunData: any = {
+        automationId: auto.id, workspaceId: event.workspaceId,
+        triggeredBy: event.type, entityType: event.entityType, entityId: event.entityId,
+        contactId, leadId,
+      };
+
+      // Active hours
+      if (!isWithinActiveHours(auto)) {
+        await prisma.automationRun.create({
+          data: { ...baseRunData, status: 'SKIPPED',
+            log: [{ at: new Date().toISOString(), action: 'skipped', detail: 'fora do horário activo' }] as any },
+        });
+        continue;
+      }
+
+      // Limits
+      const limit = await isWithinRunLimits(auto, contactId);
+      if (!limit.ok) {
+        await prisma.automationRun.create({
+          data: { ...baseRunData, status: 'SKIPPED',
+            log: [{ at: new Date().toISOString(), action: 'skipped', detail: limit.reason || 'limite atingido' }] as any },
+        });
+        continue;
+      }
+
       const ctx: RuleContext = { workspaceId: event.workspaceId, event, entity, steps: [] };
       const condRes = evaluateConditions((auto.conditions as any) || [], entity);
       if (!condRes.match) {
         await prisma.automationRun.create({
-          data: {
-            automationId: auto.id, workspaceId: event.workspaceId,
-            triggeredBy: event.type, entityType: event.entityType, entityId: event.entityId,
-            status: 'SKIPPED', log: [{ at: new Date().toISOString(), action: 'skipped', detail: condRes.reason || '' }] as any,
-          },
+          data: { ...baseRunData, status: 'SKIPPED',
+            log: [{ at: new Date().toISOString(), action: 'skipped', detail: condRes.reason || '' }] as any },
         });
         continue;
       }
@@ -367,6 +513,11 @@ export async function triggerAutomations(event: TriggerEvent): Promise<void> {
       try {
         const actions = (auto.actions as any) || [];
         for (const action of actions) {
+          if (action.delaySeconds && Number(action.delaySeconds) > 0) {
+            const ms = Number(action.delaySeconds) * 1000;
+            record(ctx, 'delay', `${action.delaySeconds}s antes de ${action.type}`);
+            await new Promise((r) => setTimeout(r, Math.min(ms, 60_000))); // cap a 60s para não bloquear webhooks
+          }
           await executeAction(action, ctx);
         }
       } catch (e: any) {
@@ -380,16 +531,163 @@ export async function triggerAutomations(event: TriggerEvent): Promise<void> {
       });
 
       await prisma.automationRun.create({
-        data: {
-          automationId: auto.id, workspaceId: event.workspaceId,
-          triggeredBy: event.type, entityType: event.entityType, entityId: event.entityId,
-          status, log: ctx.steps as any,
-        },
+        data: { ...baseRunData, status, log: ctx.steps as any },
       });
     }
   } catch (e) {
     console.error('triggerAutomations error:', e);
   }
+}
+
+// ── Cron: triggers de schedule (every_X_minutes/daily_at/weekly_at/monthly_at) ───
+// Verifica todas as automações com trigger schedule e dispara as que devem correr neste minuto
+export async function processScheduledAutomations(): Promise<number> {
+  const now = new Date();
+  const automations = await prisma.automation.findMany({
+    where: { isActive: true },
+  });
+  let triggered = 0;
+
+  for (const auto of automations) {
+    const trig: any = auto.trigger;
+    if (trig?.type !== 'schedule') continue;
+    const params = trig.params || {};
+    const mode = params.mode || 'every_X_minutes';
+
+    let shouldFire = false;
+    const last = auto.lastRunAt ? new Date(auto.lastRunAt) : null;
+
+    if (mode === 'every_X_minutes') {
+      const interval = Math.max(1, Number(params.minutes || 60));
+      if (!last || (now.getTime() - last.getTime()) >= interval * 60_000 - 30_000) shouldFire = true;
+    } else if (mode === 'daily_at') {
+      const hour = Number(params.hour ?? 9);
+      const minute = Number(params.minute ?? 0);
+      if (now.getHours() === hour && now.getMinutes() === minute) {
+        if (!last || (now.getTime() - last.getTime()) > 90_000) shouldFire = true;
+      }
+    } else if (mode === 'weekly_at') {
+      const weekday = Number(params.weekday ?? 1); // 1=Seg...7=Dom
+      const hour = Number(params.hour ?? 9);
+      const minute = Number(params.minute ?? 0);
+      const isoDay = now.getDay() === 0 ? 7 : now.getDay();
+      if (isoDay === weekday && now.getHours() === hour && now.getMinutes() === minute) {
+        if (!last || (now.getTime() - last.getTime()) > 90_000) shouldFire = true;
+      }
+    } else if (mode === 'monthly_at') {
+      const day = Number(params.day ?? 1);
+      const hour = Number(params.hour ?? 9);
+      const minute = Number(params.minute ?? 0);
+      if (now.getDate() === day && now.getHours() === hour && now.getMinutes() === minute) {
+        if (!last || (now.getTime() - last.getTime()) > 90_000) shouldFire = true;
+      }
+    }
+
+    if (shouldFire) {
+      await triggerAutomations({
+        type: 'schedule', workspaceId: auto.workspaceId, entityType: undefined, entityId: undefined,
+      });
+      triggered++;
+    }
+  }
+  return triggered;
+}
+
+// ── Cron: leads sem resposta ──────────────────────────
+// Disparar trigger 'no_response' quando uma conversa fica sem resposta há X horas/minutos
+export async function checkNoResponseConversations(): Promise<number> {
+  const automations = await prisma.automation.findMany({
+    where: { isActive: true },
+  });
+  const noRespAutos = automations.filter((a: any) => a.trigger?.type === 'no_response');
+  if (noRespAutos.length === 0) return 0;
+
+  let processed = 0;
+
+  for (const auto of noRespAutos) {
+    const trig: any = auto.trigger;
+    const minutesThreshold = Math.max(1, Number(trig.params?.minutes || 60));
+    const cutoff = new Date(Date.now() - minutesThreshold * 60_000);
+    // janela: conversa onde a última mensagem é INBOUND e foi há mais que cutoff e há menos que 2x cutoff
+    const olderCutoff = new Date(Date.now() - minutesThreshold * 2 * 60_000);
+
+    // Procurar contactos com última mensagem INBOUND nessa janela
+    const recentMessages = await prisma.message.findMany({
+      where: {
+        direction: 'INBOUND',
+        contact: { workspaceId: auto.workspaceId },
+        createdAt: { lt: cutoff, gte: olderCutoff },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: { contact: true },
+    });
+
+    const seenContacts = new Set<string>();
+    for (const msg of recentMessages) {
+      if (!msg.contactId || seenContacts.has(msg.contactId)) continue;
+      seenContacts.add(msg.contactId);
+
+      // Verificar que não há mensagem outbound mais recente
+      const newer = await prisma.message.findFirst({
+        where: { contactId: msg.contactId, createdAt: { gt: msg.createdAt } },
+      });
+      if (newer && newer.direction === 'OUTBOUND') continue;
+
+      // Verificar se já disparou para este contacto recentemente (1h)
+      const alreadyRun = await prisma.automationRun.findFirst({
+        where: { automationId: auto.id, contactId: msg.contactId, createdAt: { gt: new Date(Date.now() - 3600_000) } },
+      });
+      if (alreadyRun) continue;
+
+      await triggerAutomations({
+        type: 'no_response', workspaceId: auto.workspaceId,
+        entityType: 'message', entityId: msg.id,
+      });
+      processed++;
+    }
+  }
+  return processed;
+}
+
+// ── Cron: leads parados em etapas ─────────────────────
+export async function checkStagnantLeads(): Promise<number> {
+  const automations = await prisma.automation.findMany({
+    where: { isActive: true },
+  });
+  const stagAutos = automations.filter((a: any) => a.trigger?.type === 'lead_stagnant');
+  if (stagAutos.length === 0) return 0;
+
+  let processed = 0;
+  for (const auto of stagAutos) {
+    const trig: any = auto.trigger;
+    const days = Math.max(1, Number(trig.params?.days || 7));
+    const cutoff = new Date(Date.now() - days * 86400000);
+    const stageId = trig.params?.stageId || null;
+
+    const where: any = {
+      workspaceId: auto.workspaceId,
+      status: 'OPEN',
+      updatedAt: { lt: cutoff },
+    };
+    if (stageId) where.stageId = stageId;
+
+    const leads = await prisma.lead.findMany({ where, take: 50 });
+    for (const lead of leads) {
+      // Verificar se já disparou nas últimas 24h
+      const alreadyRun = await prisma.automationRun.findFirst({
+        where: { automationId: auto.id, leadId: lead.id, createdAt: { gt: new Date(Date.now() - 86400000) } },
+      });
+      if (alreadyRun) continue;
+
+      await triggerAutomations({
+        type: 'lead_stagnant', workspaceId: auto.workspaceId,
+        entityType: 'lead', entityId: lead.id,
+      });
+      processed++;
+    }
+  }
+  return processed;
 }
 
 // ── Cron: tarefas atrasadas ───────────────────────────

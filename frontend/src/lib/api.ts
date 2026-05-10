@@ -412,18 +412,22 @@ export interface RevenueData {
 export type ChatbotTrigger = 'first_message' | 'keyword' | 'always';
 
 export type ChatbotNodeType =
-  | 'trigger' | 'message' | 'template' | 'media' | 'buttons'
-  | 'condition' | 'action' | 'handoff' | 'delay' | 'ai' | 'end';
+  | 'trigger' | 'message' | 'template' | 'media' | 'buttons' | 'list'
+  | 'condition' | 'switch' | 'action' | 'handoff' | 'delay' | 'ai'
+  | 'set_var' | 'fetch_data' | 'subflow' | 'end';
 
 export interface ChatbotButton { id: string; label: string; }
 
 export interface ChatbotNodeData {
   label?: string;
-  // message / ai
+  // message / ai (com validação opcional)
   text?: string;
   waitForReply?: boolean;
   saveAs?: string;
   aiPrompt?: string;
+  validate?: 'email' | 'phone' | 'number' | 'url' | 'regex';
+  validateRegex?: string;
+  validateError?: string;
   // template
   templateName?: string;
   langCode?: string;
@@ -434,6 +438,9 @@ export interface ChatbotNodeData {
   caption?: string;
   // buttons
   buttons?: ChatbotButton[];
+  // list (interactive list)
+  buttonLabel?: string;
+  sections?: { title: string; rows: { id: string; title: string; description?: string }[] }[];
   // handoff
   userId?: string;
   teamId?: string;
@@ -442,11 +449,26 @@ export interface ChatbotNodeData {
   conditionType?: 'contains' | 'equals' | 'starts_with' | 'is_number' | 'has_email' | 'has_phone';
   conditionValue?: string;
   conditionTarget?: string;
+  // switch
+  target?: string;
+  cases?: { value: string; handle: string }[];
+  default?: string;
   // action
   actionType?: 'create_task' | 'assign_user' | 'change_stage' | 'add_tag' | 'webhook' | 'set_priority' | 'create_lead';
   actionParams?: Record<string, any>;
   // delay
   delaySeconds?: number;
+  // set_var
+  varName?: string;
+  varValue?: string;
+  // fetch_data
+  url?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  headers?: string;
+  body?: string;
+  path?: string;
+  // subflow
+  flowId?: string;
   // generic raw value
   value?: string;
 }
@@ -488,10 +510,22 @@ export interface ChatbotFlow {
   edges: ChatbotEdge[];
   runCount: number;
   leadCount: number;
+  businessHoursStart?: number | null;
+  businessHoursEnd?: number | null;
+  businessHoursWeekdays?: string | null;
+  outOfHoursMessage?: string | null;
+  language?: string;
   createdAt: string;
   updatedAt: string;
   createdBy?: { id: string; name: string; avatar?: string };
   _count?: { sessions: number };
+}
+
+export interface ChatbotTemplate {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
 }
 
 export interface ChatbotSession {
@@ -512,9 +546,11 @@ export interface ChatbotSession {
 // ==================== AUTOMATIONS ====================
 
 export type AutomationTriggerType =
-  | 'lead_created' | 'lead_stage_changed' | 'lead_won' | 'lead_lost' | 'lead_assigned'
+  | 'lead_created' | 'lead_stage_changed' | 'lead_won' | 'lead_lost' | 'lead_assigned' | 'lead_stagnant'
   | 'task_created' | 'task_completed' | 'task_overdue'
-  | 'message_received' | 'contact_created';
+  | 'message_received' | 'no_response'
+  | 'contact_created'
+  | 'schedule';
 
 export interface AutomationTrigger {
   type: AutomationTriggerType;
@@ -533,11 +569,19 @@ export interface AutomationCondition {
 
 export type AutomationActionType =
   | 'send_message' | 'send_email' | 'create_task' | 'assign_user'
-  | 'change_stage' | 'add_tag' | 'set_priority' | 'webhook' | 'send_notification';
+  | 'change_stage' | 'add_tag' | 'remove_tag' | 'set_priority'
+  | 'update_lead' | 'update_contact' | 'run_chatbot'
+  | 'webhook' | 'send_notification';
 
 export interface AutomationAction {
   type: AutomationActionType;
   params: Record<string, any>;
+  delaySeconds?: number;
+}
+
+export interface AutomationConditionGroup {
+  op: 'AND' | 'OR';
+  items: AutomationCondition[];
 }
 
 export interface Automation {
@@ -546,10 +590,18 @@ export interface Automation {
   description?: string | null;
   isActive: boolean;
   trigger: AutomationTrigger;
-  conditions: AutomationCondition[];
+  conditions: AutomationCondition[] | AutomationConditionGroup;
   actions: AutomationAction[];
   runCount: number;
   lastRunAt?: string | null;
+  // Horario activo
+  activeHoursStart?: number | null;
+  activeHoursEnd?: number | null;
+  activeWeekdays?: string | null;
+  // Limites
+  runLimitPerContact?: number | null;
+  runLimitTotal?: number | null;
+  runLimitWindow?: number | null;
   createdAt: string;
   updatedAt: string;
   createdBy?: { id: string; name: string; avatar?: string };
@@ -561,7 +613,10 @@ export interface AutomationRun {
   triggeredBy: string;
   entityType?: string;
   entityId?: string;
+  contactId?: string | null;
+  leadId?: string | null;
   status: 'OK' | 'SKIPPED' | 'FAILED';
   log: { at: string; action: string; detail?: string }[];
   createdAt: string;
+  automation?: { id: string; name: string; trigger: AutomationTrigger };
 }
