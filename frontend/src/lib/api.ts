@@ -136,7 +136,7 @@ export interface Task {
   recurrence?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | null;
   createdAt: string;
   leadId?: string;
-  lead?: { id: string; title: string };
+  lead?: { id: string; title: string; pipelineId?: string };
   assignedTo: User;
   parentTaskId?: string | null;
   subtasks?: Task[];

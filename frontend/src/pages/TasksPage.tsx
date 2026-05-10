@@ -11,7 +11,7 @@ import {
   ChevronLeft, ChevronRight, CheckSquare, Square, MinusSquare,
   Tags as TagsIcon, Layout, Flag, Clock, User as UserIcon,
 } from 'lucide-react';
-import api, { Task, User, Lead, Tag as TagType } from '../lib/api';
+import api, { Task, User, Lead, Tag as TagType, Pipeline, Stage } from '../lib/api';
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 import { useAuthStore } from '../store';
@@ -449,6 +449,249 @@ function CalendarView({
   );
 }
 
+// =============== Vista Agenda (estilo Kommo) ===============
+const AGENDA_COLUMNS = [
+  { key: 'overdue', label: 'Atrasadas', color: '#EF4444' },
+  { key: 'today', label: 'Hoje', color: '#10B981' },
+  { key: 'tomorrow', label: 'Amanhã', color: '#3B82F6' },
+  { key: 'thisWeek', label: 'Esta semana', color: '#8B5CF6' },
+  { key: 'thisMonth', label: 'Este mês', color: '#F59E0B' },
+  { key: 'future', label: 'Futuro', color: '#94A3B8' },
+] as const;
+
+type AgendaCol = typeof AGENDA_COLUMNS[number]['key'];
+
+function classifyTask(t: Task): AgendaCol | null {
+  if (!t.dueAt) return 'future';
+  if (t.status === 'COMPLETED' || t.status === 'CANCELLED') return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const due = new Date(t.dueAt);
+  const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+
+  if (dueDay.getTime() < today.getTime()) return 'overdue';
+  if (dueDay.getTime() === today.getTime()) return 'today';
+
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  if (dueDay.getTime() === tomorrow.getTime()) return 'tomorrow';
+
+  const weekEnd = new Date(today); weekEnd.setDate(today.getDate() + (7 - ((today.getDay() + 6) % 7)));
+  if (dueDay <= weekEnd) return 'thisWeek';
+
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  if (dueDay <= monthEnd) return 'thisMonth';
+
+  return 'future';
+}
+
+function getDateForCol(col: AgendaCol): Date {
+  const now = new Date();
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0);
+  switch (col) {
+    case 'overdue': base.setDate(base.getDate() - 1); return base;
+    case 'today': return base;
+    case 'tomorrow': base.setDate(base.getDate() + 1); return base;
+    case 'thisWeek': base.setDate(base.getDate() + 3); return base;
+    case 'thisMonth': base.setDate(base.getDate() + 14); return base;
+    case 'future': base.setDate(base.getDate() + 30); return base;
+  }
+}
+
+function AgendaCard({
+  task, pipelines, onEdit, onChangeStage, onChangeStatus,
+}: {
+  task: Task;
+  pipelines: Pipeline[];
+  onEdit: () => void;
+  onChangeStage: (stageId: string) => void;
+  onChangeStatus: (status: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
+  const Icon = TYPE_ICONS[task.type] || Circle;
+  const overdue = isOverdue(task);
+
+  const leadPipeline = task.lead ? pipelines.find((p) => p.id === (task.lead as any).pipelineId) : null;
+  const stages = leadPipeline?.stages || [];
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className="card p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
+      style={{
+        opacity: isDragging ? 0.4 : 1,
+        borderLeft: `3px solid ${PRIORITY_COLORS[task.priority]}`,
+        marginBottom: 8,
+      }}
+    >
+      {task.lead && (
+        <div className="text-xs font-medium mb-1" style={{ color: 'var(--primary)' }}>
+          {task.lead.title}
+        </div>
+      )}
+
+      <button onClick={onEdit} className="text-left w-full block">
+        <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{task.title}</p>
+      </button>
+
+      {task.description && (
+        <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--text-secondary)' }}>{task.description}</p>
+      )}
+
+      <div className="flex items-center gap-2 mt-2 text-xs" style={{ color: overdue ? '#991B1B' : 'var(--text-secondary)' }}>
+        <Icon size={11} />
+        <span>{TYPE_LABELS[task.type]}</span>
+        {task.dueAt && (
+          <>
+            <span>·</span>
+            <span>{new Date(task.dueAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}</span>
+          </>
+        )}
+      </div>
+
+      {task.assignedTo && (
+        <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+          {task.assignedTo.name}
+        </div>
+      )}
+
+      {/* Acções rápidas - mudar etapa e marcar concluído */}
+      <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+        {task.lead && stages.length > 0 && (
+          <select
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => { e.stopPropagation(); onChangeStage(e.target.value); }}
+            value=""
+            className="text-xs flex-1 px-1 py-0.5 rounded"
+            style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+            title="Mudar etapa do lead"
+          >
+            <option value="">Mudar etapa…</option>
+            {stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onChangeStatus('COMPLETED'); }}
+          className="text-xs px-2 py-0.5 rounded font-medium"
+          style={{ background: '#D1FAE5', color: '#065F46' }}
+          title="Marcar concluida"
+        >
+          <Check size={11} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AgendaColumn({
+  col, label, color, tasks, pipelines, onEdit, onChangeStage, onChangeStatus,
+}: {
+  col: AgendaCol;
+  label: string;
+  color: string;
+  tasks: Task[];
+  pipelines: Pipeline[];
+  onEdit: (t: Task) => void;
+  onChangeStage: (taskId: string, stageId: string) => void;
+  onChangeStatus: (taskId: string, status: string) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `agenda:${col}` });
+  return (
+    <div className="flex flex-col flex-shrink-0 w-72 h-full">
+      <div className="p-3 rounded-t-lg flex flex-col items-center" style={{ background: color + '15', borderTop: `3px solid ${color}` }}>
+        <span className="text-xs font-medium uppercase tracking-wide" style={{ color }}>{label}</span>
+        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{tasks.length} eventos</span>
+      </div>
+      <div
+        ref={setNodeRef}
+        className="flex-1 overflow-y-auto p-2 rounded-b-lg"
+        style={{
+          background: isOver ? color + '22' : 'var(--surface-2)',
+          minHeight: 200,
+          outline: isOver ? `2px dashed ${color}` : 'none',
+          outlineOffset: -2,
+        }}
+      >
+        {tasks.length === 0 && (
+          <p className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>Sem tarefas</p>
+        )}
+        {tasks.map((t) => (
+          <AgendaCard
+            key={t.id}
+            task={t}
+            pipelines={pipelines}
+            onEdit={() => onEdit(t)}
+            onChangeStage={(stageId) => onChangeStage(t.id, stageId)}
+            onChangeStatus={(s) => onChangeStatus(t.id, s)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AgendaView({
+  tasks, pipelines, onEdit, onTaskMoved, onChangeStage, onChangeStatus,
+}: {
+  tasks: Task[];
+  pipelines: Pipeline[];
+  onEdit: (t: Task) => void;
+  onTaskMoved: (taskId: string, newDate: Date) => void;
+  onChangeStage: (taskId: string, stageId: string) => void;
+  onChangeStatus: (taskId: string, status: string) => void;
+}) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const tasksByCol: Record<AgendaCol, Task[]> = {
+    overdue: [], today: [], tomorrow: [], thisWeek: [], thisMonth: [], future: [],
+  };
+  tasks.forEach((t) => {
+    const col = classifyTask(t);
+    if (col) tasksByCol[col].push(t);
+  });
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    setActiveId(null);
+    if (!e.over) return;
+    const overId = e.over.id as string;
+    if (!overId.startsWith('agenda:')) return;
+    const col = overId.replace('agenda:', '') as AgendaCol;
+    const newDate = getDateForCol(col);
+    onTaskMoved(e.active.id as string, newDate);
+  };
+
+  const activeTask = tasks.find((t) => t.id === activeId);
+
+  return (
+    <DndContext sensors={sensors} onDragStart={(e) => setActiveId(e.active.id as string)} onDragEnd={handleDragEnd}>
+      <div className="flex gap-3 p-4 h-full overflow-x-auto">
+        {AGENDA_COLUMNS.map((c) => (
+          <AgendaColumn
+            key={c.key}
+            col={c.key}
+            label={c.label}
+            color={c.color}
+            tasks={tasksByCol[c.key]}
+            pipelines={pipelines}
+            onEdit={onEdit}
+            onChangeStage={onChangeStage}
+            onChangeStatus={onChangeStatus}
+          />
+        ))}
+      </div>
+      <DragOverlay>
+        {activeTask && (
+          <div className="card p-3 shadow-xl" style={{ borderLeft: `3px solid ${PRIORITY_COLORS[activeTask.priority]}` }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{activeTask.title}</p>
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
 // =============== Vista Kanban ===============
 function KanbanView({ tasks, onEdit }: { tasks: Task[]; onEdit: (t: Task) => void }) {
   const cols: Array<{ key: string; label: string }> = [
@@ -572,6 +815,7 @@ export default function TasksPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [tags, setTags] = useState<TagType[]>([]);
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState(globalSearchQuery || '');
@@ -583,7 +827,7 @@ export default function TasksPage() {
   const [tagFilter, setTagFilter] = useState<string>('');
   const [onlyMine, setOnlyMine] = useState(false);
 
-  const [view, setView] = useState<'list' | 'calendar' | 'kanban'>(() => (localStorage.getItem('kommo:tasks-view') as any) || 'list');
+  const [view, setView] = useState<'list' | 'calendar' | 'kanban' | 'agenda'>(() => (localStorage.getItem('kommo:tasks-view') as any) || 'list');
   const [monthDate, setMonthDate] = useState(new Date());
 
   const [adding, setAdding] = useState(false);
@@ -602,6 +846,7 @@ export default function TasksPage() {
     api.get('/users').then(({ data }) => setUsers(Array.isArray(data) ? data : [])).catch(() => {});
     api.get('/leads?limit=500').then(({ data }) => setLeads(data.leads || [])).catch(() => {});
     api.get('/tags').then(({ data }) => setTags(Array.isArray(data) ? data : [])).catch(() => {});
+    api.get('/pipelines').then(({ data }) => setPipelines(Array.isArray(data) ? data : [])).catch(() => {});
   };
   useEffect(loadAll, []);
 
@@ -747,6 +992,43 @@ export default function TasksPage() {
     }
   };
 
+  // Mover tarefa para coluna da agenda (atrasada/hoje/amanha/etc)
+  const handleAgendaMove = async (taskId: string, newDate: Date) => {
+    const t = tasks.find((x) => x.id === taskId);
+    if (!t) return;
+    const oldDate = t.dueAt ? new Date(t.dueAt) : null;
+    setTasks((p) => p.map((x) => (x.id === taskId ? { ...x, dueAt: newDate.toISOString() } : x)));
+    try {
+      await api.patch(`/tasks/${taskId}`, { dueAt: newDate.toISOString() });
+      toast.success('Data alterada');
+    } catch {
+      setTasks((p) => p.map((x) => (x.id === taskId ? { ...x, dueAt: oldDate?.toISOString() || null } : x)));
+      toast.error('Erro');
+    }
+  };
+
+  // Mudar etapa do lead associado a uma tarefa
+  const handleChangeLeadStage = async (taskId: string, stageId: string) => {
+    const t = tasks.find((x) => x.id === taskId);
+    if (!t || !t.lead) return;
+    try {
+      await api.patch(`/leads/${t.lead.id}/move`, { stageId });
+      toast.success('Etapa do lead alterada');
+      // Recarregar tarefas para reflectir lead actualizado
+      loadTasks();
+    } catch {
+      toast.error('Erro ao mudar etapa');
+    }
+  };
+
+  const handleChangeStatus = async (taskId: string, status: string) => {
+    try {
+      const { data } = await api.patch(`/tasks/${taskId}`, { status });
+      setTasks((p) => p.map((x) => (x.id === taskId ? data : x)));
+      toast.success('Estado alterado');
+    } catch { toast.error('Erro'); }
+  };
+
   const stats = useMemo(() => {
     const total = filteredTasks.length;
     const pending = filteredTasks.filter((t) => t.status === 'PENDING').length;
@@ -779,10 +1061,11 @@ export default function TasksPage() {
             <Download size={14} /> Exportar
           </button>
           <div className="flex rounded overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-            {(['list', 'calendar', 'kanban'] as const).map((v) => (
+            {(['list', 'agenda', 'calendar', 'kanban'] as const).map((v) => (
               <button key={v} onClick={() => setView(v)} className="px-3 py-1.5 text-xs flex items-center gap-1"
                 style={{ background: view === v ? 'var(--primary)' : 'var(--surface)', color: view === v ? '#fff' : 'var(--text-primary)' }}>
                 {v === 'list' && <><ListIcon size={12} /> Lista</>}
+                {v === 'agenda' && <><Clock size={12} /> Agenda</>}
                 {v === 'calendar' && <><CalIcon size={12} /> Calendario</>}
                 {v === 'kanban' && <><Layout size={12} /> Kanban</>}
               </button>
@@ -889,6 +1172,15 @@ export default function TasksPage() {
           />
         ) : view === 'kanban' ? (
           <KanbanView tasks={filteredTasks} onEdit={(t) => setEditing(t)} />
+        ) : view === 'agenda' ? (
+          <AgendaView
+            tasks={filteredTasks}
+            pipelines={pipelines}
+            onEdit={(t) => setEditing(t)}
+            onTaskMoved={handleAgendaMove}
+            onChangeStage={handleChangeLeadStage}
+            onChangeStatus={handleChangeStatus}
+          />
         ) : filteredTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center p-6">
             <CalIcon size={32} style={{ color: 'var(--text-muted)' }} />
