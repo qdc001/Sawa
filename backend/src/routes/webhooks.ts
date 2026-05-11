@@ -190,6 +190,87 @@ router.post('/evolution', async (req: Request, res: Response) => {
       return res.json({ ok: true });
     }
 
+    // Presence (a escrever / a gravar / online / offline)
+    if (event === 'presence.update' || event === 'PRESENCE_UPDATE') {
+      const presence = data?.presences || data;
+      // Pode ser objecto { jid: { lastKnownPresence: 'composing' } } ou directamente { id, presence }
+      try {
+        let entries: Array<{ jid: string; state: string }> = [];
+        if (Array.isArray(presence)) {
+          entries = presence.map((p: any) => ({ jid: p.id || p.jid, state: p.presence || p.lastKnownPresence }));
+        } else if (typeof presence === 'object') {
+          entries = Object.entries(presence).map(([jid, info]: any) => ({
+            jid,
+            state: info?.lastKnownPresence || info?.presence || info,
+          }));
+        }
+        for (const { jid, state } of entries) {
+          if (!jid || !state) continue;
+          if (jid.endsWith('@g.us')) continue;
+          const phone = jid.split('@')[0].replace(/\D/g, '');
+          const contact = await prisma.contact.findFirst({ where: { whatsapp: phone, workspaceId } });
+          if (!contact) continue;
+          if (io) {
+            io.to(`workspace:${workspaceId}`).emit('presence:update', {
+              contactId: contact.id,
+              state, // 'composing' | 'recording' | 'available' | 'unavailable' | 'paused'
+            });
+          }
+        }
+      } catch (e) { console.error('presence parse error:', e); }
+      return res.json({ ok: true });
+    }
+
+    // Chamada recebida
+    if (event === 'call' || event === 'call.set' || event === 'CALL' || event === 'CALL_SET') {
+      try {
+        const calls = Array.isArray(data?.calls) ? data.calls : (Array.isArray(data) ? data : [data]);
+        for (const c of calls) {
+          if (!c) continue;
+          const from = c.from || c.jid || c.peerJid;
+          if (!from || String(from).endsWith('@g.us')) continue;
+          const phone = String(from).split('@')[0].replace(/\D/g, '');
+          const contact = await prisma.contact.findFirst({ where: { whatsapp: phone, workspaceId } });
+          const callType = c.isVideo ? 'video' : 'voice';
+          const status = c.status || 'ringing';
+
+          // Persistir como mensagem SYSTEM para aparecer na timeline
+          if (contact) {
+            const lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
+            const text = status === 'ringing'
+              ? `📞 Chamada de ${callType === 'video' ? 'vídeo' : 'voz'} recebida (atende no telefone)`
+              : status === 'accept'
+              ? `📞 Chamada atendida`
+              : status === 'reject'
+              ? `📞 Chamada rejeitada`
+              : status === 'timeout'
+              ? `📞 Chamada perdida`
+              : `📞 Chamada (${status})`;
+
+            const saved = await prisma.message.create({
+              data: {
+                content: text,
+                type: 'SYSTEM',
+                direction: 'INBOUND',
+                channel: 'WHATSAPP',
+                status: 'DELIVERED',
+                contactId: contact.id,
+                leadId: lead?.id,
+              },
+            });
+
+            if (io) {
+              io.to(`workspace:${workspaceId}`).emit('message:new', saved);
+              io.to(`workspace:${workspaceId}`).emit('call:incoming', {
+                contactId: contact.id, contactName: contact.firstName, phone, callType, status,
+              });
+            }
+          }
+        }
+      } catch (e) { console.error('call parse error:', e); }
+      return res.json({ ok: true });
+    }
+
     res.json({ ok: true, ignored: event });
   } catch (e: any) {
     console.error('Evolution webhook error:', e);

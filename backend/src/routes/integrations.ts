@@ -232,6 +232,7 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
     }
 
     // 3) Configurar webhook (Evolution v2: /webhook/set/{instance} com body { webhook: {...} })
+    const webhookEvents = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'PRESENCE_UPDATE', 'CALL', 'QRCODE_UPDATED'];
     try {
       await evolutionFetch(creds, `/webhook/set/${instanceName}`, {
         method: 'POST',
@@ -241,7 +242,7 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
             url: webhookUrl,
             webhookByEvents: false,
             webhookBase64: false,
-            events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+            events: webhookEvents,
           },
         }),
       });
@@ -252,7 +253,7 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
           method: 'POST',
           body: JSON.stringify({
             url: webhookUrl, enabled: true,
-            events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+            events: webhookEvents,
           }),
         });
       } catch { /* silent */ }
@@ -325,6 +326,35 @@ router.get('/evolution/qr', async (req: AuthRequest, res: Response, next) => {
     const base64 = qr?.base64 || qr?.qrcode?.base64 || qr?.qr?.base64 || null;
     const code = qr?.code || qr?.qrcode?.code || qr?.pairingCode || null;
     res.json({ base64, code, raw: qr });
+  } catch (e) { next(e); }
+});
+
+// POST /api/integrations/evolution/presence - enviar presence ao destinatário (composing/recording/paused)
+router.post('/evolution/presence', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { phone, presence } = req.body; // presence: 'composing' | 'recording' | 'paused' | 'available'
+    if (!phone || !presence) throw new AppError('phone e presence obrigatórios', 400);
+    const integration = await prisma.integration.findFirst({
+      where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+    });
+    if (!integration) return res.json({ ok: false, reason: 'sem integração' });
+    const creds: any = integration.credentials || {};
+    if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return res.json({ ok: false, reason: 'incompleta' });
+
+    try {
+      await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/sendPresence/${creds.instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+        body: JSON.stringify({
+          number: String(phone).replace(/\D/g, ''),
+          presence,
+          delay: 1200,
+        }),
+      });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.json({ ok: false, error: e.message });
+    }
   } catch (e) { next(e); }
 });
 

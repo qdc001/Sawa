@@ -12,6 +12,7 @@ import api, {
 } from '../lib/api';
 import toast from 'react-hot-toast';
 import { useAuthStore, useUIStore } from '../store';
+import { getSocket } from '../lib/socket';
 import { AddLeadModal } from './PipelinePage';
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -306,7 +307,7 @@ function SnippetsModal({ snippets, onChange, onClose }: {
 export default function InboxPage() {
   const navigate = useNavigate();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
-  const { user } = useAuthStore();
+  const { user, workspace } = useAuthStore();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConvs, setLoadingConvs] = useState(true);
@@ -348,6 +349,62 @@ export default function InboxPage() {
     return localStorage.getItem('kommo:readReceipts') === 'true';
   });
   useEffect(() => { localStorage.setItem('kommo:readReceipts', String(readReceipts)); }, [readReceipts]);
+
+  // Presence: { contactId: 'composing' | 'recording' | 'available' | ... }
+  const [presenceMap, setPresenceMap] = useState<Record<string, string>>({});
+  const presenceTimeoutsRef = useRef<Record<string, any>>({});
+
+  // Socket listeners para presence e chamadas
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    if (workspace?.id) socket.emit('join:workspace', workspace.id);
+
+    const onPresence = (data: { contactId: string; state: string }) => {
+      setPresenceMap((prev) => ({ ...prev, [data.contactId]: data.state }));
+      // limpa presence após 8s se não houver nova actualização
+      if (presenceTimeoutsRef.current[data.contactId]) {
+        clearTimeout(presenceTimeoutsRef.current[data.contactId]);
+      }
+      if (data.state === 'composing' || data.state === 'recording') {
+        presenceTimeoutsRef.current[data.contactId] = setTimeout(() => {
+          setPresenceMap((prev) => {
+            const next = { ...prev };
+            delete next[data.contactId];
+            return next;
+          });
+        }, 8000);
+      }
+    };
+
+    const onCall = (data: { contactId: string; contactName: string; phone: string; callType: string; status: string }) => {
+      if (data.status === 'ringing') {
+        toast((tt) => (
+          <div className="flex items-center gap-3">
+            <span style={{ fontSize: 20 }}>📞</span>
+            <div>
+              <p className="font-semibold text-sm">{data.contactName} está a chamar</p>
+              <p className="text-xs opacity-70">{data.callType === 'video' ? 'Vídeo' : 'Voz'} · atende no telefone</p>
+            </div>
+            <button onClick={() => toast.dismiss(tt.id)} className="ml-2 text-xs">OK</button>
+          </div>
+        ), { duration: 15000, icon: null });
+
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification(`${data.contactName} está a chamar`, {
+            body: data.callType === 'video' ? 'Chamada de vídeo recebida' : 'Chamada de voz recebida',
+          });
+        }
+      }
+    };
+
+    socket.on('presence:update', onPresence);
+    socket.on('call:incoming', onCall);
+    return () => {
+      socket.off('presence:update', onPresence);
+      socket.off('call:incoming', onCall);
+    };
+  }, [workspace?.id]);
 
   // Modais
   const [newMessageOpen, setNewMessageOpen] = useState(false);
@@ -484,6 +541,19 @@ export default function InboxPage() {
   }, [visibleConversations, selectedKey]);
 
   // Snippet expansion: quando draft termina com /xxx <espaco>, expande
+  // Envio de presence (composing/recording/paused) com debounce
+  const presenceDebounceRef = useRef<any>(null);
+  const lastPresenceSentRef = useRef<{ state: string; at: number } | null>(null);
+  const sendPresence = (state: 'composing' | 'recording' | 'paused') => {
+    const phone = selected?.contact?.whatsapp || selected?.contact?.phone;
+    if (!phone || isInternalNote) return;
+    // throttle: só envia se mudou ou se passaram > 4s
+    const last = lastPresenceSentRef.current;
+    if (last && last.state === state && Date.now() - last.at < 4000) return;
+    lastPresenceSentRef.current = { state, at: Date.now() };
+    api.post('/integrations/evolution/presence', { phone, presence: state }).catch(() => {});
+  };
+
   const handleDraftChange = (val: string) => {
     setDraft(val);
     // detect /shortcut + space
@@ -494,6 +564,12 @@ export default function InboxPage() {
         const replaced = val.replace(/\/\w+\s$/, sn.value + ' ');
         setDraft(replaced);
       }
+    }
+    // Enviar presence "composing" + agendar "paused" após 3s sem actualizações
+    if (val.trim()) {
+      sendPresence('composing');
+      if (presenceDebounceRef.current) clearTimeout(presenceDebounceRef.current);
+      presenceDebounceRef.current = setTimeout(() => sendPresence('paused'), 3000);
     }
   };
 
@@ -542,7 +618,11 @@ export default function InboxPage() {
       mr.start();
       setRecording(true);
       setRecordingTime(0);
-      recordingTimerRef.current = setInterval(() => setRecordingTime((t) => t + 1), 1000);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime((t) => t + 1);
+        sendPresence('recording'); // renovar presence a cada 1s
+      }, 1000);
+      sendPresence('recording');
     } catch (err: any) {
       toast.error('Sem permissão para microfone. Activa nas definições do browser.');
     }
@@ -553,6 +633,7 @@ export default function InboxPage() {
       mediaRecorderRef.current.stop();
       setRecording(false);
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      sendPresence('paused');
     }
   };
 
@@ -563,6 +644,7 @@ export default function InboxPage() {
       mediaRecorderRef.current = null;
       setRecording(false);
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      sendPresence('paused');
     }
   };
 
@@ -916,10 +998,16 @@ export default function InboxPage() {
                     ) : (
                       <ChannelBadge channel={selected.channel} />
                     )}
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {selected.combined ? 'Multi-canal' : CHANNEL_LABELS[selected.channel]}
-                      {selected.contact?.phone && ` · ${selected.contact.phone}`}
-                    </span>
+                    {selected.contact?.id && presenceMap[selected.contact.id] === 'composing' ? (
+                      <span className="text-xs font-medium" style={{ color: 'var(--primary)' }}>a escrever...</span>
+                    ) : selected.contact?.id && presenceMap[selected.contact.id] === 'recording' ? (
+                      <span className="text-xs font-medium" style={{ color: '#10B981' }}>a gravar áudio...</span>
+                    ) : (
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {selected.combined ? 'Multi-canal' : CHANNEL_LABELS[selected.channel]}
+                        {selected.contact?.phone && ` · ${selected.contact.phone}`}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
