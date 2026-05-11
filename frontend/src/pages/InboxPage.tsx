@@ -367,6 +367,10 @@ export default function InboxPage() {
   const [presenceMap, setPresenceMap] = useState<Record<string, string>>({});
   const presenceTimeoutsRef = useRef<Record<string, any>>({});
 
+  // Refs para uso dentro de socket callbacks (evita TDZ)
+  const selectedRef = useRef<any>(null);
+  const readReceiptsRef = useRef<boolean>(false);
+
   // Lightbox para visualizar imagens em grande
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
@@ -450,22 +454,20 @@ export default function InboxPage() {
       if (msg.direction === 'INBOUND' && !msg.isInternal) {
         playNotificationSound();
       }
+      const sel = selectedRef.current;
       const matchesSelected =
-        !!selected &&
-        ((selected.combined && msg.contactId === selected.contact?.id) ||
-         (!selected.combined && msg.contactId === selected.contact?.id && (msg.channel === selected.channel || msg.isInternal)));
+        !!sel &&
+        ((sel.combined && msg.contactId === sel.contact?.id) ||
+         (!sel.combined && msg.contactId === sel.contact?.id && (msg.channel === sel.channel || msg.isInternal)));
       if (matchesSelected) {
         setMessages((prev) => prev.find((x) => x.id === msg.id) ? prev : [...prev, msg]);
-        // se estamos a ler e o toggle estiver ON, marcar como lida
-        if (msg.direction === 'INBOUND' && readReceipts) {
+        if (msg.direction === 'INBOUND' && readReceiptsRef.current) {
           api.post('/messages/mark-conversation-read', {
-            contactId: selected!.contact?.id, leadId: selected!.leadId, sendReceipt: true,
+            contactId: sel!.contact?.id, leadId: sel!.leadId, sendReceipt: true,
           }).catch(() => {});
         }
       }
-      // Sempre actualizar lista de conversas
       setConversations((prev) => {
-        const key = msg.contactId ? (msg.contactId === (selected?.contact?.id || '') && selected?.combined ? msg.contactId : `${msg.contactId}:${msg.channel}`) : `lead:${msg.leadId}:${msg.channel}`;
         const idx = prev.findIndex((c) => c.contact?.id === msg.contactId);
         if (idx === -1) return prev;
         const updated = [...prev];
@@ -474,9 +476,8 @@ export default function InboxPage() {
           ...conv,
           lastMessage: msg,
           total: conv.total + 1,
-          unread: msg.direction === 'INBOUND' && (selected?.contact?.id !== msg.contactId) ? (conv.unread || 0) + 1 : conv.unread,
+          unread: msg.direction === 'INBOUND' && (sel?.contact?.id !== msg.contactId) ? (conv.unread || 0) + 1 : conv.unread,
         };
-        // mover para o topo
         const [item] = updated.splice(idx, 1);
         updated.unshift(item);
         return updated;
@@ -491,7 +492,7 @@ export default function InboxPage() {
       socket.off('call:incoming', onCall);
       socket.off('message:new', onMessage);
     };
-  }, [workspace?.id, selected?.key, readReceipts]);
+  }, [workspace?.id]);
 
   // Modais
   const [newMessageOpen, setNewMessageOpen] = useState(false);
@@ -589,6 +590,10 @@ export default function InboxPage() {
   }, [conversations, folderFilter, metas, user]);
 
   const selected = useMemo(() => conversations.find((c) => c.key === selectedKey), [conversations, selectedKey]);
+
+  // Sincroniza refs (usados em socket callbacks)
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+  useEffect(() => { readReceiptsRef.current = readReceipts; }, [readReceipts]);
 
   useEffect(() => {
     if (!selected) { setMessages([]); return; }

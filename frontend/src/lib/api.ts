@@ -209,6 +209,7 @@ export interface ConversationMeta {
   channel: string | null;
   isArchived: boolean;
   isPinned: boolean;
+  priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
   assignedToId?: string | null;
   assignedTo?: { id: string; name: string; avatar?: string } | null;
   tags?: { tag: Tag }[];
