@@ -275,6 +275,9 @@ export interface Task {
   createdAt: string;
   leadId?: string;
   lead?: { id: string; title: string; pipelineId?: string };
+  contactId?: string;
+  contact?: { id: string; firstName: string; lastName?: string; phone?: string; whatsapp?: string; avatar?: string };
+  assignedToId?: string;
   assignedTo: User;
   parentTaskId?: string | null;
   subtasks?: Task[];

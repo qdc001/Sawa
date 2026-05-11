@@ -9,15 +9,17 @@ const router = Router();
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, avatar: true } },
   lead: { select: { id: true, title: true, pipelineId: true } },
+  contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, avatar: true } },
   subtasks: { orderBy: { createdAt: 'asc' as const } },
   tags: { include: { tag: true } },
 };
 
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { leadId, status, type, priority, assignedToId, dueFrom, dueTo, search, tagId, parentOnly } = req.query;
+    const { leadId, contactId, status, type, priority, assignedToId, dueFrom, dueTo, search, tagId, parentOnly } = req.query;
     const where: any = { assignedTo: { workspaceId: req.user!.workspaceId } };
     if (leadId) where.leadId = leadId;
+    if (contactId) where.contactId = contactId;
     if (status) where.status = status;
     if (type) where.type = type;
     if (priority) where.priority = priority;
@@ -43,23 +45,41 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { title, description, type, status, priority, dueAt, leadId, assignedToId, recurrence, parentTaskId, tags, force } = req.body;
+    const { title, description, type, status, priority, dueAt, leadId, contactId: rawContactId, assignedToId, recurrence, parentTaskId, tags, force } = req.body;
 
-    // Verificar se já existe tarefa pendente para este lead (excepto subtarefas)
-    if (leadId && !parentTaskId && !force) {
+    // Linking automático: se leadId, popular contactId a partir do lead; se contactId, popular leadId do lead aberto desse contacto
+    let finalLeadId: string | null = leadId || null;
+    let finalContactId: string | null = rawContactId || null;
+    if (finalLeadId && !finalContactId) {
+      const lead = await prisma.lead.findUnique({ where: { id: finalLeadId }, select: { contactId: true } });
+      if (lead?.contactId) finalContactId = lead.contactId;
+    }
+    if (finalContactId && !finalLeadId) {
+      const lead = await prisma.lead.findFirst({
+        where: { contactId: finalContactId, status: 'OPEN', workspaceId: req.user!.workspaceId },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (lead) finalLeadId = lead.id;
+    }
+
+    // Verificar se já existe tarefa pendente (lead OU contact)
+    if (!parentTaskId && !force && (finalLeadId || finalContactId)) {
+      const orFilters: any[] = [];
+      if (finalLeadId) orFilters.push({ leadId: finalLeadId });
+      if (finalContactId) orFilters.push({ contactId: finalContactId });
       const existing = await prisma.task.findFirst({
         where: {
-          leadId,
           parentTaskId: null,
           status: { in: ['PENDING', 'IN_PROGRESS'] },
+          OR: orFilters,
         },
         include: taskInclude,
       });
       if (existing) {
         return res.status(409).json({
-          message: 'Já existe uma tarefa pendente para este lead.',
+          message: 'Já existe uma tarefa pendente para este lead/contacto.',
           existingTask: existing,
-          hint: 'Conclui ou cancela a tarefa existente, ou envia force:true para criar mesmo assim.',
+          hint: 'Conclui a tarefa existente, ou envia force:true para criar mesmo assim.',
         });
       }
     }
@@ -72,7 +92,8 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
         status: status || 'PENDING',
         priority: priority || 'MEDIUM',
         dueAt: dueAt ? new Date(dueAt) : null,
-        leadId: leadId || null,
+        leadId: finalLeadId,
+        contactId: finalContactId,
         recurrence: recurrence || null,
         parentTaskId: parentTaskId || null,
         assignedToId: assignedToId || req.user!.id,

@@ -104,6 +104,10 @@ function TaskFormModal({
   );
   const [assignedToId, setAssignedToId] = useState(task?.assignedTo?.id || '');
   const [leadId, setLeadId] = useState((task as any)?.leadId || (task?.lead as any)?.id || '');
+  const [contactId, setContactId] = useState((task as any)?.contactId || (task?.contact as any)?.id || '');
+  const [contactSearch, setContactSearch] = useState('');
+  const [contactResults, setContactResults] = useState<{ id: string; firstName: string; lastName?: string }[]>([]);
+  const [contactObj, setContactObj] = useState<any>(task?.contact || null);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(task?.tags?.map((t: any) => t.tag?.id).filter(Boolean) || []);
   const [subtasks, setSubtasks] = useState<Task[]>(task?.subtasks || []);
   const [newSubtask, setNewSubtask] = useState('');
@@ -154,6 +158,7 @@ function TaskFormModal({
       recurrence: recurrence || null,
       assignedToId: assignedToId || undefined,
       leadId: leadId || null,
+      contactId: contactId || null,
       tags: selectedTagIds,
     };
     try {
@@ -252,6 +257,59 @@ function TaskFormModal({
               <option value="">— Nenhum —</option>
               {leads.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Contacto associado</label>
+            {contactObj ? (
+              <div className="flex items-center gap-2 p-2 rounded" style={{ background: 'var(--surface-2)' }}>
+                <UserIcon size={14} style={{ color: 'var(--primary)' }} />
+                <span className="text-sm flex-1">{contactObj.firstName} {contactObj.lastName || ''}</span>
+                <button type="button" onClick={() => { setContactObj(null); setContactId(''); }} className="p-1 rounded hover:bg-red-50">
+                  <X size={12} style={{ color: '#EF4444' }} />
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  value={contactSearch}
+                  onChange={async (e) => {
+                    const v = e.target.value;
+                    setContactSearch(v);
+                    if (v.trim().length >= 2) {
+                      try {
+                        const { data } = await api.get(`/contacts?search=${encodeURIComponent(v)}&limit=8`);
+                        setContactResults(data.contacts || []);
+                      } catch { setContactResults([]); }
+                    } else setContactResults([]);
+                  }}
+                  placeholder="Procurar contacto por nome ou telefone..."
+                  className="input-base"
+                />
+                {contactResults.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full card max-h-48 overflow-y-auto" style={{ background: 'var(--surface)' }}>
+                    {contactResults.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setContactObj(c);
+                          setContactId(c.id);
+                          setContactSearch('');
+                          setContactResults([]);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+                      >
+                        {c.firstName} {c.lastName || ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+              Se associas a um lead, o contacto é preenchido automaticamente. Se associas só a um contacto, é ligado ao lead aberto desse contacto (se houver).
+            </p>
           </div>
 
           {/* Tags */}
@@ -563,16 +621,24 @@ function AgendaCard({
         marginBottom: 8,
       }}
     >
-      {task.lead && (
+      {(task.lead || task.contact) && (
         <div className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: 'var(--primary)' }}>
-          <span className="truncate flex-1">{task.lead.title}</span>
-          <button
-            onClick={(e) => { e.stopPropagation(); window.location.href = `/inbox?leadId=${task.lead!.id}`; }}
-            className="p-0.5 rounded hover:bg-white/20 flex-shrink-0"
-            title="Abrir conversa"
-          >
-            <MessageSquare size={11} />
-          </button>
+          <span className="truncate flex-1">
+            {task.lead?.title || (task.contact ? `${task.contact.firstName} ${task.contact.lastName || ''}`.trim() : '')}
+          </span>
+          {(task.lead?.id || task.contact?.id) && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const q = task.lead?.id ? `leadId=${task.lead.id}` : `contactId=${task.contact!.id}`;
+                window.location.href = `/inbox?${q}`;
+              }}
+              className="p-0.5 rounded hover:bg-white/20 flex-shrink-0"
+              title="Abrir conversa"
+            >
+              <MessageSquare size={11} />
+            </button>
+          )}
         </div>
       )}
 

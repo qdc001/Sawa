@@ -400,7 +400,7 @@ export default function InboxPage() {
   };
 
   // Mini modal nova tarefa
-  const [newTaskFor, setNewTaskFor] = useState<{ leadId?: string | null; contactName: string } | null>(null);
+  const [newTaskFor, setNewTaskFor] = useState<{ leadId?: string | null; contactId?: string | null; contactName: string } | null>(null);
 
   // Pesquisa avançada
   const [showAdvSearch, setShowAdvSearch] = useState(false);
@@ -1603,10 +1603,13 @@ export default function InboxPage() {
             </div>
 
             <button
-              onClick={() => setNewTaskFor({ leadId: selected.leadId, contactName: fullName(selected.contact) })}
+              onClick={() => setNewTaskFor({
+                leadId: selected.leadId,
+                contactId: selected.contact?.id || null,
+                contactName: fullName(selected.contact),
+              })}
               className="btn btn-primary py-1.5 text-xs w-full"
-              disabled={!selected.leadId}
-              title={!selected.leadId ? 'Cria primeiro um lead para esta conversa' : 'Adicionar tarefa para este lead'}
+              disabled={!selected.leadId && !selected.contact?.id}
             >
               <CheckSquare size={12} /> Nova tarefa
             </button>
@@ -1713,6 +1716,7 @@ export default function InboxPage() {
       {newTaskFor && (
         <QuickNewTaskModal
           leadId={newTaskFor.leadId || null}
+          contactId={newTaskFor.contactId || null}
           contactName={newTaskFor.contactName}
           onClose={() => setNewTaskFor(null)}
           onCreated={() => { setNewTaskFor(null); toast.success('Tarefa criada'); }}
@@ -1757,8 +1761,9 @@ export default function InboxPage() {
 }
 
 // ── Mini modal Nova Tarefa (tratamento de tarefa única) ───
-function QuickNewTaskModal({ leadId, contactName, onClose, onCreated }: {
+function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated }: {
   leadId: string | null;
+  contactId: string | null;
   contactName: string;
   onClose: () => void;
   onCreated: () => void;
@@ -1774,11 +1779,13 @@ function QuickNewTaskModal({ leadId, contactName, onClose, onCreated }: {
   const [existing, setExisting] = useState<any | null>(null);
 
   const submit = async (force = false) => {
-    if (!leadId) { toast.error('Esta conversa não tem lead associado'); return; }
+    if (!leadId && !contactId) { toast.error('Conversa sem lead/contacto associado'); return; }
     setSaving(true);
     try {
       await api.post('/tasks', {
-        title, type, priority, leadId,
+        title, type, priority,
+        leadId: leadId || undefined,
+        contactId: contactId || undefined,
         dueAt: dueAt ? new Date(dueAt).toISOString() : null,
         force,
       });

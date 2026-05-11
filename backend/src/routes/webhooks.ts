@@ -419,6 +419,12 @@ router.post('/evolution', async (req: Request, res: Response) => {
     const data = req.body?.data || req.body;
     const instanceName = req.body?.instance || data?.instance || data?.instanceName;
 
+    // Debug: log eventos para diagnosticar mensagens fromMe (do telefone)
+    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' || event === 'send.message' || event === 'SEND_MESSAGE') {
+      const isFromMe = data?.key?.fromMe || data?.messages?.[0]?.key?.fromMe;
+      console.log(`Evo webhook [${event}] instance=${instanceName} fromMe=${isFromMe} hasKey=${!!data?.key}`);
+    }
+
     if (!instanceName) {
       return res.json({ ok: true, ignored: 'sem instance' });
     }
@@ -461,8 +467,11 @@ router.post('/evolution', async (req: Request, res: Response) => {
       return res.json({ ok: true });
     }
 
-    // Mensagens novas
-    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' || event === 'message' || event === 'send.message') {
+    // Mensagens novas (inbound + fromMe do telefone)
+    // Inclui: messages.upsert (chega/sincroniza), send.message (envio confirmado), messages.set (sync histórico)
+    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' ||
+        event === 'message' || event === 'send.message' || event === 'SEND_MESSAGE' ||
+        event === 'messages.set' || event === 'MESSAGES_SET') {
       // Evolution v2: data é o próprio objecto da mensagem (data.key + data.message)
       // Evolution v1: data.messages é array
       const messages = Array.isArray(data?.messages)

@@ -232,6 +232,7 @@ model Contact {
   customValues CustomFieldValue[]
   conversationMetas ConversationMeta[]
   csatRequests CsatRequest[]
+  tasks        Task[]
 
   @@map("contacts")
 }
@@ -325,6 +326,8 @@ model Task {
 
   lead        Lead?  @relation(fields: [leadId], references: [id])
   leadId      String?
+  contact     Contact? @relation(fields: [contactId], references: [id])
+  contactId   String?
   assignedTo  User   @relation(fields: [assignedToId], references: [id])
   assignedToId String
 
@@ -334,6 +337,7 @@ model Task {
 
   tags         TagOnTask[]
 
+  @@index([contactId])
   @@map("tasks")
 }
 
