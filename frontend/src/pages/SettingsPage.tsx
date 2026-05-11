@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import {
   User as UserIcon, Lock, Building2, Save, Loader2, Eye, EyeOff,
   Sun, Moon, Upload, Palette, FileDown, History, Download, Activity,
-  Shield, Bell, Globe, Mail, Smartphone, KeyRound, Trash2, X, Check,
+  Shield, Bell, Globe, Mail, Smartphone, KeyRound, Trash2, X, Check, Plus, RotateCcw,
   FileText as FileTextIcon,
 } from 'lucide-react';
-import api, { WorkspaceFull, AuditLog } from '../lib/api';
+import api, {
+  WorkspaceFull, AuditLog, TaskOption,
+  DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES,
+} from '../lib/api';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
 import { useTheme, applyPrimaryColor, setDateFormatPref, getDateFormatPref } from '../lib/theme';
@@ -62,6 +65,11 @@ export default function SettingsPage() {
   const [wsPrimaryColor, setWsPrimaryColor] = useState('#6366F1');
   const [wsDateFormat, setWsDateFormat] = useState('DD/MM/YYYY');
   const [wsFiscalMonth, setWsFiscalMonth] = useState(1);
+  const [wsAutoAssign, setWsAutoAssign] = useState(false);
+  const [wsTaskTypes, setWsTaskTypes] = useState<TaskOption[]>([]);
+  const [wsTaskPriorities, setWsTaskPriorities] = useState<TaskOption[]>([]);
+  const [wsTaskStatuses, setWsTaskStatuses] = useState<TaskOption[]>([]);
+  const [wsTaskRecurrences, setWsTaskRecurrences] = useState<TaskOption[]>([]);
   const [savingWs, setSavingWs] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -107,6 +115,15 @@ export default function SettingsPage() {
       setWsPrimaryColor(data.primaryColor || '#6366F1');
       setWsDateFormat(data.dateFormat || 'DD/MM/YYYY');
       setWsFiscalMonth(data.fiscalYearStartMonth || 1);
+      setWsAutoAssign(!!data.autoAssignEnabled);
+      const tt = Array.isArray(data.taskTypes) && data.taskTypes.length > 0 ? data.taskTypes : DEFAULT_TASK_TYPES;
+      const tp = Array.isArray(data.taskPriorities) && data.taskPriorities.length > 0 ? data.taskPriorities : DEFAULT_TASK_PRIORITIES;
+      const ts = Array.isArray(data.taskStatuses) && data.taskStatuses.length > 0 ? data.taskStatuses : DEFAULT_TASK_STATUSES;
+      const tr = Array.isArray(data.taskRecurrences) && data.taskRecurrences.length > 0 ? data.taskRecurrences : DEFAULT_TASK_RECURRENCES;
+      setWsTaskTypes(tt);
+      setWsTaskPriorities(tp);
+      setWsTaskStatuses(ts);
+      setWsTaskRecurrences(tr);
       // aplicar cor primaria persistida no servidor
       if (data.primaryColor) applyPrimaryColor(data.primaryColor);
     }).catch(() => {});
@@ -272,8 +289,20 @@ export default function SettingsPage() {
       const { data } = await api.patch('/workspaces/me', {
         name: wsName, logo: wsLogo, timezone: wsTimezone, currency: wsCurrency,
         primaryColor: wsPrimaryColor, dateFormat: wsDateFormat, fiscalYearStartMonth: wsFiscalMonth,
+        autoAssignEnabled: wsAutoAssign,
+        taskTypes: wsTaskTypes,
+        taskPriorities: wsTaskPriorities,
+        taskStatuses: wsTaskStatuses,
+        taskRecurrences: wsTaskRecurrences,
       });
-      updateWorkspace({ name: data.name, logo: data.logo, timezone: data.timezone, currency: data.currency });
+      updateWorkspace({
+        name: data.name, logo: data.logo, timezone: data.timezone, currency: data.currency,
+        autoAssignEnabled: data.autoAssignEnabled,
+        taskTypes: data.taskTypes,
+        taskPriorities: data.taskPriorities,
+        taskStatuses: data.taskStatuses,
+        taskRecurrences: data.taskRecurrences,
+      } as any);
       applyPrimaryColor(data.primaryColor);
       setDateFormatPref(data.dateFormat);
       toast.success('Workspace actualizada');
@@ -682,6 +711,47 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" checked={wsAutoAssign} onChange={(e) => setWsAutoAssign(e.target.checked)} />
+              Atribuição automática de conversas (round-robin)
+            </label>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              Quando uma mensagem nova chega sem responsável, atribui automaticamente ao agente com menos conversas activas.
+            </p>
+          </div>
+
+          <div className="border-t pt-4 space-y-4" style={{ borderColor: 'var(--border)' }}>
+            <p className="text-sm font-semibold">Opções de tarefas (customizar)</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Personaliza os valores que aparecem nos selectors quando crias/editas uma tarefa. <strong>Atenção:</strong> alterar valores existentes pode quebrar tarefas já criadas.
+            </p>
+            <OptionListEditor
+              title="Tipos"
+              options={wsTaskTypes}
+              defaults={DEFAULT_TASK_TYPES}
+              onChange={setWsTaskTypes}
+            />
+            <OptionListEditor
+              title="Prioridades"
+              options={wsTaskPriorities}
+              defaults={DEFAULT_TASK_PRIORITIES}
+              onChange={setWsTaskPriorities}
+            />
+            <OptionListEditor
+              title="Estados"
+              options={wsTaskStatuses}
+              defaults={DEFAULT_TASK_STATUSES}
+              onChange={setWsTaskStatuses}
+            />
+            <OptionListEditor
+              title="Recorrências"
+              options={wsTaskRecurrences}
+              defaults={DEFAULT_TASK_RECURRENCES}
+              onChange={setWsTaskRecurrences}
+            />
+          </div>
+
           <div className="flex gap-2 pt-2">
             <button onClick={saveWorkspace} disabled={savingWs} className="btn btn-primary py-2 px-4">
               {savingWs ? <Loader2 size={16} className="animate-spin" /> : <Save size={14} />} Guardar
@@ -720,6 +790,90 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Editor de lista de opções (tipos/prioridades/estados/recorrências) ───
+function OptionListEditor({ title, options, defaults, onChange }: {
+  title: string;
+  options: TaskOption[];
+  defaults: TaskOption[];
+  onChange: (next: TaskOption[]) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(true);
+
+  const update = (i: number, patch: Partial<TaskOption>) => {
+    onChange(options.map((o, idx) => idx === i ? { ...o, ...patch } : o));
+  };
+  const add = () => {
+    const value = `OPT_${Date.now()}`;
+    onChange([...options, { value, label: 'Nova opção', color: '#94A3B8' }]);
+  };
+  const remove = (i: number) => onChange(options.filter((_, idx) => idx !== i));
+  const moveUp = (i: number) => {
+    if (i === 0) return;
+    const arr = [...options]; [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]]; onChange(arr);
+  };
+  const moveDown = (i: number) => {
+    if (i === options.length - 1) return;
+    const arr = [...options]; [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]]; onChange(arr);
+  };
+  const reset = () => {
+    if (confirm(`Repor as opções de "${title}" para os valores padrão?`)) onChange([...defaults]);
+  };
+
+  return (
+    <div className="card p-3" style={{ background: 'var(--surface-2)' }}>
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <p className="text-sm font-semibold">{title} <span className="text-xs ml-2" style={{ color: 'var(--text-muted)' }}>({options.length})</span></p>
+        <span style={{ color: 'var(--text-muted)' }}>{collapsed ? '▶' : '▼'}</span>
+      </button>
+      {!collapsed && (
+        <div className="mt-3 space-y-2">
+          {options.map((o, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                type="color"
+                value={o.color || '#94A3B8'}
+                onChange={(e) => update(i, { color: e.target.value })}
+                className="w-8 h-8 rounded cursor-pointer border-0 flex-shrink-0"
+              />
+              <input
+                value={o.label}
+                onChange={(e) => update(i, { label: e.target.value })}
+                placeholder="Etiqueta"
+                className="input-base text-xs flex-1"
+              />
+              <input
+                value={o.value}
+                onChange={(e) => update(i, { value: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })}
+                placeholder="VALOR"
+                className="input-base text-xs"
+                style={{ width: 100 }}
+                title="Identificador interno (letras maiúsculas, números e _)"
+              />
+              <button type="button" onClick={() => moveUp(i)} className="p-1 rounded hover:bg-slate-100" title="Subir" disabled={i === 0}>↑</button>
+              <button type="button" onClick={() => moveDown(i)} className="p-1 rounded hover:bg-slate-100" title="Descer" disabled={i === options.length - 1}>↓</button>
+              <button type="button" onClick={() => remove(i)} className="p-1 rounded hover:bg-red-50" title="Eliminar">
+                <Trash2 size={12} style={{ color: '#EF4444' }} />
+              </button>
+            </div>
+          ))}
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={add} className="btn text-xs py-1.5 px-3 flex-1" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>
+              <Plus size={12} /> Adicionar
+            </button>
+            <button type="button" onClick={reset} className="btn text-xs py-1.5 px-3" style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}>
+              <RotateCcw size={12} /> Repor padrão
+            </button>
+          </div>
         </div>
       )}
     </div>

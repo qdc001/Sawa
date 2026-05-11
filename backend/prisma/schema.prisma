@@ -76,6 +76,12 @@ model Workspace {
   dateFormat   String  @default("DD/MM/YYYY")
   fiscalYearStartMonth Int @default(1) // 1 = Janeiro
   autoAssignEnabled Boolean @default(false) // atribuicao round-robin de conversas novas
+  // Opcoes customizaveis para tarefas (arrays JSON; vazio = usar defaults)
+  // Formato cada item: { value: string, label: string, color?: string }
+  taskTypes        Json @default("[]")
+  taskPriorities   Json @default("[]")
+  taskStatuses     Json @default("[]")
+  taskRecurrences  Json @default("[]")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -101,6 +101,36 @@ export interface Broadcast {
   }>;
 }
 
+// Opções customizáveis de tarefas
+export interface TaskOption { value: string; label: string; color?: string }
+
+export const DEFAULT_TASK_TYPES: TaskOption[] = [
+  { value: 'CALL', label: 'Chamada', color: '#3B82F6' },
+  { value: 'EMAIL', label: 'Email', color: '#6366F1' },
+  { value: 'MEETING', label: 'Reunião', color: '#10B981' },
+  { value: 'FOLLOW_UP', label: 'Seguimento', color: '#F59E0B' },
+  { value: 'DEMO', label: 'Demo', color: '#EC4899' },
+  { value: 'OTHER', label: 'Outra', color: '#94A3B8' },
+];
+export const DEFAULT_TASK_PRIORITIES: TaskOption[] = [
+  { value: 'LOW', label: 'Baixa', color: '#94A3B8' },
+  { value: 'MEDIUM', label: 'Média', color: '#3B82F6' },
+  { value: 'HIGH', label: 'Alta', color: '#F59E0B' },
+  { value: 'URGENT', label: 'Urgente', color: '#EF4444' },
+];
+export const DEFAULT_TASK_STATUSES: TaskOption[] = [
+  { value: 'PENDING', label: 'Pendente', color: '#94A3B8' },
+  { value: 'IN_PROGRESS', label: 'Em curso', color: '#3B82F6' },
+  { value: 'COMPLETED', label: 'Concluída', color: '#10B981' },
+  { value: 'CANCELLED', label: 'Cancelada', color: '#EF4444' },
+];
+export const DEFAULT_TASK_RECURRENCES: TaskOption[] = [
+  { value: '', label: 'Não se repete' },
+  { value: 'DAILY', label: 'Diariamente' },
+  { value: 'WEEKLY', label: 'Semanalmente' },
+  { value: 'MONTHLY', label: 'Mensalmente' },
+];
+
 export interface Workspace {
   id: string;
   name: string;
@@ -108,6 +138,14 @@ export interface Workspace {
   logo?: string;
   currency: string;
   timezone: string;
+  primaryColor?: string;
+  dateFormat?: string;
+  fiscalYearStartMonth?: number;
+  autoAssignEnabled?: boolean;
+  taskTypes?: TaskOption[];
+  taskPriorities?: TaskOption[];
+  taskStatuses?: TaskOption[];
+  taskRecurrences?: TaskOption[];
 }
 
 export interface Pipeline {

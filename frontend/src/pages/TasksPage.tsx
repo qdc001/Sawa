@@ -11,7 +11,10 @@ import {
   ChevronLeft, ChevronRight, CheckSquare, Square, MinusSquare,
   Tags as TagsIcon, Layout, Flag, Clock, User as UserIcon, MessageSquare,
 } from 'lucide-react';
-import api, { Task, User, Lead, Tag as TagType, Pipeline, Stage } from '../lib/api';
+import api, {
+  Task, User, Lead, Tag as TagType, Pipeline, Stage,
+  DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES,
+} from '../lib/api';
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 import { useAuthStore } from '../store';
@@ -164,6 +167,12 @@ function TaskFormModal({
   const isEdit = !!task?.id;
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
+  const { workspace } = useAuthStore();
+  const wsTaskTypes = (workspace?.taskTypes && (workspace.taskTypes as any).length > 0) ? (workspace.taskTypes as any) : DEFAULT_TASK_TYPES;
+  const wsTaskPriorities = (workspace?.taskPriorities && (workspace.taskPriorities as any).length > 0) ? (workspace.taskPriorities as any) : DEFAULT_TASK_PRIORITIES;
+  const wsTaskStatuses = (workspace?.taskStatuses && (workspace.taskStatuses as any).length > 0) ? (workspace.taskStatuses as any) : DEFAULT_TASK_STATUSES;
+  const wsTaskRecurrences = (workspace?.taskRecurrences && (workspace.taskRecurrences as any).length > 0) ? (workspace.taskRecurrences as any) : DEFAULT_TASK_RECURRENCES;
+
   const [type, setType] = useState(task?.type || 'CALL');
   const [status, setStatus] = useState(task?.status || 'PENDING');
   const [priority, setPriority] = useState(task?.priority || 'MEDIUM');
@@ -286,13 +295,13 @@ function TaskFormModal({
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Tipo</label>
               <select value={type} onChange={(e) => setType(e.target.value as any)} className="input-base">
-                {Object.entries(TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                {wsTaskTypes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Prioridade</label>
               <select value={priority} onChange={(e) => setPriority(e.target.value as any)} className="input-base">
-                {Object.entries(PRIORITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                {wsTaskPriorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           </div>
@@ -300,13 +309,13 @@ function TaskFormModal({
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Estado</label>
               <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="input-base">
-                {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                {wsTaskStatuses.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Recorrencia</label>
               <select value={recurrence || ''} onChange={(e) => setRecurrence(e.target.value as any)} className="input-base">
-                {Object.entries(RECURRENCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                {wsTaskRecurrences.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           </div>
@@ -323,7 +332,29 @@ function TaskFormModal({
           </div>
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Lead associado</label>
-            <LeadSearchPicker leads={leads} value={leadId} onChange={setLeadId} />
+            <LeadSearchPicker
+              leads={leads}
+              value={leadId}
+              onChange={async (id) => {
+                setLeadId(id);
+                // Linking automático: ao escolher lead, popular contacto se este tiver
+                if (id && !contactId) {
+                  const lead = leads.find((l) => l.id === id);
+                  if (lead?.contact) {
+                    setContactObj(lead.contact);
+                    setContactId(lead.contact.id);
+                  } else {
+                    try {
+                      const { data } = await api.get(`/leads/${id}`);
+                      if (data?.contact) {
+                        setContactObj(data.contact);
+                        setContactId(data.contact.id);
+                      }
+                    } catch {}
+                  }
+                }
+              }}
+            />
           </div>
 
           <div>
@@ -367,11 +398,27 @@ function TaskFormModal({
                       <button
                         key={c.id}
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                           setContactObj(c);
                           setContactId(c.id);
                           setContactSearch('');
                           setContactResults([]);
+                          // Linking automático: ao escolher contacto, popular lead aberto se houver
+                          if (!leadId) {
+                            const matchingLead = leads.find((l) =>
+                              l.contact?.id === c.id && l.status === 'OPEN'
+                            );
+                            if (matchingLead) {
+                              setLeadId(matchingLead.id);
+                            } else {
+                              try {
+                                const { data } = await api.get(`/leads?assignedToId=&status=OPEN&limit=200`);
+                                const all: any[] = data.leads || [];
+                                const found = all.find((l: any) => l.contactId === c.id || l.contact?.id === c.id);
+                                if (found) setLeadId(found.id);
+                              } catch {}
+                            }
+                          }
                         }}
                         className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
                       >
