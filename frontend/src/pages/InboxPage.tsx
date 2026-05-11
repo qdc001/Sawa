@@ -646,6 +646,59 @@ export default function InboxPage() {
 
   useEffect(() => { loadConversations(); /* eslint-disable-next-line */ }, [channelFilter, search, unreadOnly, combineByContact]);
 
+  // Abrir conversa específica via URL (?contactId=X ou ?leadId=Y vindos de Tasks/Pipeline)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const targetContactId = params.get('contactId');
+    const targetLeadId = params.get('leadId');
+    if (!targetContactId && !targetLeadId) return;
+    if (conversations.length === 0) return;
+
+    // Procurar conversa existente
+    let found = conversations.find((c) =>
+      (targetContactId && c.contact?.id === targetContactId) ||
+      (targetLeadId && c.leadId === targetLeadId)
+    );
+
+    if (found) {
+      setSelectedKey(found.key);
+      // limpa URL para não voltar a despoletar
+      window.history.replaceState({}, '', '/inbox');
+      return;
+    }
+
+    // Não existe conversa: criar entrada virtual
+    (async () => {
+      try {
+        let contactToUse: any = null;
+        if (targetContactId) {
+          const r = await api.get(`/contacts/${targetContactId}`);
+          contactToUse = r.data;
+        } else if (targetLeadId) {
+          const r = await api.get(`/leads/${targetLeadId}`);
+          contactToUse = r.data.contact;
+        }
+        if (!contactToUse) return;
+
+        const virtualConv: Conversation = {
+          key: `${contactToUse.id}:WHATSAPP`,
+          contact: contactToUse,
+          leadId: targetLeadId || null,
+          channel: 'WHATSAPP',
+          channels: ['WHATSAPP'],
+          lastMessage: null as any,
+          unread: 0,
+          total: 0,
+          combined: false,
+        } as any;
+        setConversations((prev) => [virtualConv, ...prev.filter((c) => c.key !== virtualConv.key)]);
+        setSelectedKey(virtualConv.key);
+        window.history.replaceState({}, '', '/inbox');
+      } catch {}
+    })();
+    // eslint-disable-next-line
+  }, [conversations.length]);
+
   useEffect(() => {
     api.get('/contacts?limit=500').then(({ data }) => setContacts(data.contacts || [])).catch(() => {});
     api.get('/pipelines').then(({ data }) => setPipelines(Array.isArray(data) ? data : [])).catch(() => {});

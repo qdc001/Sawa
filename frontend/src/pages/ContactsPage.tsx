@@ -826,7 +826,7 @@ export default function ContactsPage() {
     if (search.trim()) params.set('search', search.trim());
     if (typeFilter) params.set('type', typeFilter);
     if (tagFilter) params.set('tagId', tagFilter);
-    params.set('limit', '100');
+    params.set('limit', '1000');
     setLoading(true);
     api.get(`/contacts?${params.toString()}`)
       .then(({ data }) => {

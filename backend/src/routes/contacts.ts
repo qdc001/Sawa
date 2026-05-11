@@ -15,7 +15,7 @@ const contactInclude = {
 // GET /api/contacts
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { search, type, tagId, page = 1, limit = 20 } = req.query;
+    const { search, type, tagId, page = 1, limit = 50 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
     const where: any = { workspaceId: req.user!.workspaceId };
     if (type) where.type = type;

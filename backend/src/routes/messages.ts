@@ -300,7 +300,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 
     // Ao responder a uma conversa, marcar inbound anteriores como lidas (sempre) +
     // enviar read receipt ao remetente via Evolution (sempre que se responde)
-    if (shouldSend && contactId) {
+    if (shouldSendExternal && contactId) {
       const inboundUnread = await prisma.message.findMany({
         where: { direction: 'INBOUND', readAt: null, contactId },
         include: { contact: { select: { whatsapp: true, phone: true } } },

@@ -343,12 +343,20 @@ function TaskFormModal({
                   onChange={async (e) => {
                     const v = e.target.value;
                     setContactSearch(v);
-                    if (v.trim().length >= 2) {
+                    if (v.trim().length >= 1) {
                       try {
-                        const { data } = await api.get(`/contacts?search=${encodeURIComponent(v)}&limit=8`);
+                        const { data } = await api.get(`/contacts?search=${encodeURIComponent(v)}&limit=50`);
                         setContactResults(data.contacts || []);
                       } catch { setContactResults([]); }
                     } else setContactResults([]);
+                  }}
+                  onFocus={async () => {
+                    if (!contactSearch.trim() && contactResults.length === 0) {
+                      try {
+                        const { data } = await api.get('/contacts?limit=50');
+                        setContactResults(data.contacts || []);
+                      } catch {}
+                    }
                   }}
                   placeholder="Procurar contacto por nome ou telefone..."
                   className="input-base"

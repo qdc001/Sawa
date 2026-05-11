@@ -11,12 +11,19 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+let redirectingTo401 = false;
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+      // Evitar loop: só redirecionar uma vez e se não estiver já em /login
+      const path = window.location.pathname;
+      if (!redirectingTo401 && path !== '/login' && !path.startsWith('/accept-invite') && !path.startsWith('/reset-password') && !path.startsWith('/forgot-password') && !path.startsWith('/csat')) {
+        redirectingTo401 = true;
+        localStorage.removeItem('token');
+        localStorage.removeItem('auth-store');
+        setTimeout(() => { window.location.href = '/login'; }, 50);
+      }
     }
     return Promise.reject(error);
   }
