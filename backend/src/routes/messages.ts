@@ -274,22 +274,60 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// PATCH /api/messages/:id - editar mensagem (apenas conteudo)
+// PATCH /api/messages/:id - editar mensagem (conteudo + propagar para canal)
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     const { content } = req.body;
     if (!content) throw new AppError('Conteudo obrigatorio', 400);
-    const existing = await prisma.message.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.message.findUnique({
+      where: { id: req.params.id },
+      include: { contact: { select: { whatsapp: true, phone: true } } },
+    });
     if (!existing) throw new AppError('Mensagem nao encontrada', 404);
     if (existing.sentById !== req.user!.id) {
       throw new AppError('So podes editar mensagens que enviaste', 403);
     }
+
+    // Tentar editar no canal externo (WhatsApp via Evolution)
+    let editedExternal = false;
+    if (existing.channel === 'WHATSAPP' && existing.externalId && existing.contactId) {
+      const evo = await prisma.integration.findFirst({
+        where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+      });
+      if (evo) {
+        const creds: any = evo.credentials || {};
+        const phone = existing.contact?.whatsapp || existing.contact?.phone;
+        if (creds.baseUrl && creds.apiKey && creds.instanceName && phone) {
+          try {
+            const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/updateMessage/${creds.instanceName}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+              body: JSON.stringify({
+                number: phone.replace(/\D/g, ''),
+                key: { id: existing.externalId, remoteJid: `${phone.replace(/\D/g, '')}@s.whatsapp.net`, fromMe: true },
+                text: content,
+              }),
+            });
+            if (r.ok) editedExternal = true;
+            else {
+              const txt = await r.text();
+              console.warn('Evolution updateMessage falhou:', txt.substring(0, 200));
+            }
+          } catch (e: any) { console.warn('Evolution updateMessage erro:', e.message); }
+        }
+      }
+    }
+
     const message = await prisma.message.update({
       where: { id: req.params.id },
       data: { content, editedAt: new Date() },
       include: messageInclude,
     });
-    res.json(message);
+
+    const io = req.app.get('io');
+    if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('message:updated', message);
+
+    res.json({ ...message, editedExternal });
   } catch (e) { next(e); }
 });
 
@@ -449,6 +487,34 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     }
     await prisma.message.delete({ where: { id: req.params.id } });
     res.json({ message: 'Mensagem eliminada' });
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/messages/conversation - elimina TODAS as mensagens de uma conversa
+// body: { contactId, channel? }
+router.delete('/conversation', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, channel } = req.body;
+    if (!contactId) throw new AppError('contactId obrigatório', 400);
+
+    // Confirmar que o contacto pertence ao workspace
+    const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId: req.user!.workspaceId } });
+    if (!contact) throw new AppError('Contacto não encontrado', 404);
+
+    const where: any = { contactId };
+    if (channel && channel !== 'all') where.channel = channel;
+
+    const result = await prisma.message.deleteMany({ where });
+
+    // Limpar conversation meta também
+    await prisma.conversationMeta.deleteMany({
+      where: { workspaceId: req.user!.workspaceId, contactId, ...(channel && channel !== 'all' ? { channel } : {}) },
+    }).catch(() => {});
+
+    const io = req.app.get('io');
+    if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('conversation:deleted', { contactId, channel: channel || null });
+
+    res.json({ deleted: result.count });
   } catch (e) { next(e); }
 });
 

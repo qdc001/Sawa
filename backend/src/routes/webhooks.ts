@@ -167,11 +167,17 @@ router.post('/evolution', async (req: Request, res: Response) => {
       }
 
       for (const m of messages) {
-        // Ignorar mensagens enviadas pelo próprio operador (fromMe = true) — vêm do envio que já guardámos
-        if (m.key?.fromMe) continue;
-
         const remoteJid: string = m.key?.remoteJid || '';
         if (!remoteJid || remoteJid.endsWith('@g.us')) continue; // ignorar grupos
+
+        const fromMe = !!m.key?.fromMe;
+        const externalId: string | undefined = m.key?.id;
+
+        // Se for fromMe e já guardámos esta mensagem (envio via CRM), saltar
+        if (fromMe && externalId) {
+          const exists = await prisma.message.findFirst({ where: { externalId } });
+          if (exists) continue;
+        }
 
         const phone = remoteJid.split('@')[0].replace(/\D/g, '');
         if (!phone) continue;
@@ -275,9 +281,9 @@ router.post('/evolution', async (req: Request, res: Response) => {
           data: {
             content,
             type: msgType as any,
-            direction: 'INBOUND',
+            direction: fromMe ? 'OUTBOUND' : 'INBOUND',
             channel: 'WHATSAPP',
-            status: 'DELIVERED',
+            status: fromMe ? 'SENT' : 'DELIVERED',
             externalId: m.key?.id || undefined,
             mediaUrl,
             leadId: lead?.id,
@@ -289,6 +295,9 @@ router.post('/evolution', async (req: Request, res: Response) => {
           io.to(`workspace:${workspaceId}`).emit('message:new', saved);
           if (lead) io.to(`lead:${lead.id}`).emit('message:new', saved);
         }
+
+        // Skip de chatbots/automacoes/notify se for fromMe (mensagem enviada pelo dono do numero, nao requer resposta automatica)
+        if (fromMe) continue;
 
         // Auto-assign round-robin (se workspace tem toggle ON)
         autoAssignConversation(workspaceId, contact.id, 'WHATSAPP').then((assignedId) => {
@@ -316,6 +325,32 @@ router.post('/evolution', async (req: Request, res: Response) => {
         // Notificar por email opt-in
         notifyNewMessage(saved.id).catch(() => {});
       }
+      return res.json({ ok: true });
+    }
+
+    // Estado de mensagem (delivered/read/played)
+    if (event === 'messages.update' || event === 'MESSAGES_UPDATE') {
+      try {
+        const items = Array.isArray(data?.messages) ? data.messages : Array.isArray(data) ? data : [data];
+        for (const u of items) {
+          const id = u?.key?.id || u?.keyId || u?.id;
+          const newStatus = (u?.update?.status || u?.status || '').toString().toUpperCase();
+          if (!id || !newStatus) continue;
+          const mapped =
+            newStatus === 'READ' || newStatus === '4' ? 'READ' :
+            newStatus === 'PLAYED' ? 'READ' :
+            newStatus === 'DELIVERED' || newStatus === '3' ? 'DELIVERED' :
+            newStatus === 'SERVER_ACK' || newStatus === '2' ? 'SENT' :
+            null;
+          if (!mapped) continue;
+          await prisma.message.updateMany({ where: { externalId: id }, data: { status: mapped as any, ...(mapped === 'READ' ? { readAt: new Date() } : {}) } });
+          const updated = await prisma.message.findFirst({ where: { externalId: id } });
+          if (updated && io) {
+            io.to(`workspace:${workspaceId}`).emit('message:updated', updated);
+            if (updated.leadId) io.to(`lead:${updated.leadId}`).emit('message:updated', updated);
+          }
+        }
+      } catch (e) { console.error('messages.update parse error:', e); }
       return res.json({ ok: true });
     }
 

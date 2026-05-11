@@ -484,13 +484,32 @@ export default function InboxPage() {
       });
     };
 
+    const onMessageUpdated = (msg: Message) => {
+      setMessages((prev) => prev.map((m) => m.id === msg.id ? msg : m));
+      setConversations((prev) => prev.map((c) => c.lastMessage?.id === msg.id ? { ...c, lastMessage: msg } : c));
+    };
+
+    const onConversationDeleted = (data: { contactId: string; channel: string | null }) => {
+      setConversations((prev) => prev.filter((c) => {
+        if (c.contact?.id !== data.contactId) return true;
+        if (data.channel && c.channel !== data.channel) return true;
+        return false;
+      }));
+      const sel = selectedRef.current;
+      if (sel?.contact?.id === data.contactId) setMessages([]);
+    };
+
     socket.on('presence:update', onPresence);
     socket.on('call:incoming', onCall);
     socket.on('message:new', onMessage);
+    socket.on('message:updated', onMessageUpdated);
+    socket.on('conversation:deleted', onConversationDeleted);
     return () => {
       socket.off('presence:update', onPresence);
       socket.off('call:incoming', onCall);
       socket.off('message:new', onMessage);
+      socket.off('message:updated', onMessageUpdated);
+      socket.off('conversation:deleted', onConversationDeleted);
     };
   }, [workspace?.id]);
 
@@ -665,6 +684,20 @@ export default function InboxPage() {
     } catch (e: any) { toast.error(e.message || 'Erro a exportar'); }
   };
 
+  const handleDeleteConversation = async () => {
+    if (!selected?.contact?.id) return;
+    if (!confirm(`Eliminar todas as mensagens da conversa com ${selected.contact.firstName}? Esta acção não pode ser desfeita.`)) return;
+    try {
+      const res = await api.delete('/messages/conversation', {
+        data: { contactId: selected.contact.id, channel: selected.combined ? 'all' : selected.channel },
+      });
+      toast.success(`${res.data.deleted} mensagens eliminadas`);
+      setMessages([]);
+      setSelectedKey(null);
+      loadConversations();
+    } catch (e: any) { toast.error(e.response?.data?.message || 'Erro a eliminar'); }
+  };
+
   const handleSetPriority = async (priority: string) => {
     if (!selected?.contact?.id) return;
     try {
@@ -713,7 +746,7 @@ export default function InboxPage() {
         mediaUrl: attachment ? `${apiBase}${attachment.url}` : undefined,
         mediaType: attachment?.mimeType,
       });
-      setMessages((p) => [...p, data]);
+      setMessages((p) => p.find((x) => x.id === data.id) ? p : [...p, data]);
       setDraft(''); setReplyTo(null); setAttachment(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (!isInternalNote) {
@@ -1221,6 +1254,10 @@ export default function InboxPage() {
                     <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
                     <button onClick={() => setSoundEnabled(!soundEnabled)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       {soundEnabled ? '🔊' : '🔇'} Som: {soundEnabled ? 'ON' : 'OFF'}
+                    </button>
+                    <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
+                    <button onClick={() => { handleDeleteConversation(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-left" style={{ color: '#EF4444' }}>
+                      <Trash2 size={14} /> Eliminar conversa
                     </button>
                   </div>
                 )}

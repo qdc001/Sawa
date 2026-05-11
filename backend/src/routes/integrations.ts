@@ -232,7 +232,7 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
     }
 
     // 3) Configurar webhook (Evolution v2: /webhook/set/{instance} com body { webhook: {...} })
-    const webhookEvents = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'PRESENCE_UPDATE', 'CALL', 'QRCODE_UPDATED'];
+    const webhookEvents = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'PRESENCE_UPDATE', 'CALL', 'QRCODE_UPDATED', 'SEND_MESSAGE'];
     try {
       await evolutionFetch(creds, `/webhook/set/${instanceName}`, {
         method: 'POST',

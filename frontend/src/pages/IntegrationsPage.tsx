@@ -3,7 +3,7 @@ import { MessageCircle, Mail, Globe, CheckCircle2, Settings, Loader2, X, Plus, T
 import api, { IntegrationItem } from '../lib/api';
 import toast from 'react-hot-toast';
 
-type IntegrationType = 'WHATSAPP_CLOUD' | 'EVOLUTION' | 'EMAIL';
+type IntegrationType = 'WHATSAPP_CLOUD' | 'EVOLUTION' | 'EMAIL' | 'INSTAGRAM' | 'FACEBOOK' | 'TIKTOK';
 
 interface IntegrationDef {
   type: IntegrationType;
@@ -62,6 +62,47 @@ const DEFINITIONS: IntegrationDef[] = [
       { key: 'pass', label: 'Password / App password', type: 'password', required: true },
       { key: 'fromName', label: 'Nome remetente', placeholder: 'Absalão' },
       { key: 'fromEmail', label: 'Email remetente (opcional)', placeholder: 'igual ao utilizador se vazio' },
+    ],
+  },
+  {
+    type: 'INSTAGRAM',
+    backendType: 'INSTAGRAM',
+    name: 'Instagram Direct',
+    icon: MessageCircle,
+    color: '#E1306C',
+    bg: '#FCE7F3',
+    desc: 'Receber e responder DMs do Instagram via Meta Graph API. Precisa de conta business ligada a página Facebook.',
+    fields: [
+      { key: 'accessToken', label: 'Access Token (Long-lived)', type: 'password', required: true, placeholder: 'EAAG...' },
+      { key: 'pageId', label: 'Facebook Page ID', required: true },
+      { key: 'instagramBusinessId', label: 'Instagram Business Account ID', required: true },
+    ],
+  },
+  {
+    type: 'FACEBOOK',
+    backendType: 'FACEBOOK',
+    name: 'Facebook Messenger',
+    icon: MessageCircle,
+    color: '#1877F2',
+    bg: '#EFF6FF',
+    desc: 'Receber e responder mensagens do Facebook Messenger via Meta Graph API.',
+    fields: [
+      { key: 'accessToken', label: 'Page Access Token', type: 'password', required: true, placeholder: 'EAAG...' },
+      { key: 'pageId', label: 'Facebook Page ID', required: true },
+      { key: 'verifyToken', label: 'Verify Token (webhook)', required: true, placeholder: 'meta_fb_verify_2026' },
+    ],
+  },
+  {
+    type: 'TIKTOK',
+    backendType: 'WEBHOOK',
+    name: 'TikTok Business',
+    icon: MessageCircle,
+    color: '#000000',
+    bg: '#F1F5F9',
+    desc: 'Integração com TikTok Business Messages. Em beta — requer conta TikTok for Business aprovada.',
+    fields: [
+      { key: 'accessToken', label: 'Access Token', type: 'password', required: true },
+      { key: 'businessId', label: 'Business Account ID', required: true },
     ],
   },
 ];

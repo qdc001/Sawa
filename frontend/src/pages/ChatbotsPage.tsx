@@ -398,7 +398,7 @@ function NodePropertiesPanel({
       {/* TRIGGER: nada para editar (config está no flow) */}
       {node.type === 'trigger' && (
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          O trigger configura-se no topo do editor (botão Configurar fluxo).
+          O trigger configura-se nas <strong>Definições</strong> do fluxo (botão com ícone de engrenagem no topo direito do editor).
         </p>
       )}
 
