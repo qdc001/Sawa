@@ -5,6 +5,37 @@ import { AppError } from '../middleware/errorHandler';
 const prisma = new PrismaClient();
 const router = Router();
 
+// Helper: envia via Meta Graph API (Instagram DM ou Facebook Messenger)
+async function sendMetaOut(workspaceId: string, channel: 'INSTAGRAM' | 'FACEBOOK', recipientId: string, content: string, type: string, mediaUrl?: string): Promise<{ ok: boolean; externalId?: string; error?: string }> {
+  const integration = await prisma.integration.findFirst({
+    where: { workspaceId, type: channel as any, isActive: true },
+  });
+  if (!integration) return { ok: false, error: `Integração ${channel} não configurada` };
+  const creds: any = integration.credentials || {};
+  const accessToken = creds.accessToken || creds.pageAccessToken;
+  const pageId = creds.pageId;
+  if (!accessToken || !pageId) return { ok: false, error: 'accessToken ou pageId em falta' };
+
+  let messagePayload: any;
+  if (mediaUrl && type !== 'TEXT') {
+    const metaType = type === 'IMAGE' ? 'image' : type === 'VIDEO' ? 'video' : type === 'AUDIO' ? 'audio' : 'file';
+    messagePayload = { attachment: { type: metaType, payload: { url: mediaUrl, is_reusable: true } } };
+  } else {
+    messagePayload = { text: content };
+  }
+
+  try {
+    const r = await fetch(`https://graph.facebook.com/v20.0/${pageId}/messages?access_token=${accessToken}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient: { id: recipientId }, message: messagePayload, messaging_type: 'RESPONSE' }),
+    });
+    const data = await r.json();
+    if (!r.ok) return { ok: false, error: data?.error?.message || `HTTP ${r.status}` };
+    return { ok: true, externalId: data.message_id };
+  } catch (e: any) { return { ok: false, error: e.message }; }
+}
+
 // Helper: envia WhatsApp via canal disponível (Evolution preferido, depois Cloud API)
 async function sendWhatsAppOut(workspaceId: string, phone: string, content: string, type: string, mediaUrl?: string): Promise<{ ok: boolean; externalId?: string; via?: string; error?: string }> {
   // 1. Tentar Evolution
@@ -208,25 +239,34 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     let status = 'PENDING';
     let sendError: string | undefined;
 
-    // Enviar via canal externo (WhatsApp) se não for nota interna nem inbound
-    const shouldSend = !isInternal && channel === 'WHATSAPP' && (direction || 'OUTBOUND') === 'OUTBOUND' && contactId;
-    if (shouldSend) {
+    // Enviar via canal externo se não for nota interna nem inbound
+    const shouldSendExternal = !isInternal && (direction || 'OUTBOUND') === 'OUTBOUND' && contactId &&
+      ['WHATSAPP', 'INSTAGRAM', 'FACEBOOK'].includes(channel);
+
+    if (shouldSendExternal) {
       const contact = await prisma.contact.findUnique({ where: { id: contactId } });
-      const phone = contact?.whatsapp || contact?.phone;
-      if (!phone) {
-        sendError = 'Contacto sem número de WhatsApp';
-      } else {
-        const result = await sendWhatsAppOut(req.user!.workspaceId, phone, content, type || 'TEXT', mediaUrl);
-        if (result.ok) {
-          externalId = result.externalId;
-          status = 'SENT';
+
+      if (channel === 'WHATSAPP') {
+        const phone = contact?.whatsapp || contact?.phone;
+        if (!phone) {
+          sendError = 'Contacto sem número de WhatsApp';
         } else {
-          sendError = result.error;
-          status = 'FAILED';
+          const result = await sendWhatsAppOut(req.user!.workspaceId, phone, content, type || 'TEXT', mediaUrl);
+          if (result.ok) { externalId = result.externalId; status = 'SENT'; }
+          else { sendError = result.error; status = 'FAILED'; }
+        }
+      } else if (channel === 'INSTAGRAM' || channel === 'FACEBOOK') {
+        const recipientId = channel === 'INSTAGRAM' ? (contact as any)?.instagramId : (contact as any)?.facebookId;
+        if (!recipientId) {
+          sendError = `Contacto sem ID ${channel}`;
+        } else {
+          const result = await sendMetaOut(req.user!.workspaceId, channel as any, recipientId, content, type || 'TEXT', mediaUrl);
+          if (result.ok) { externalId = result.externalId; status = 'SENT'; }
+          else { sendError = result.error; status = 'FAILED'; }
         }
       }
     } else {
-      status = 'SENT'; // notas internas ou outros canais: marca SENT
+      status = 'SENT';
     }
 
     const message = await prisma.message.create({

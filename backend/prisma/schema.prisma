@@ -208,6 +208,9 @@ model Contact {
   email       String?
   phone       String?
   whatsapp    String?
+  instagramId String?     // IGSID (Instagram Scoped ID)
+  facebookId  String?     // PSID (Page-Scoped ID) Messenger
+  tiktokId    String?
   company     String?
   position    String?
   website     String?

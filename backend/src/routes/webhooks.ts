@@ -102,6 +102,287 @@ async function fetchMediaFromEvolution(creds: any, baileysMessage: any, fallback
 
 router.get('/', (_req, res) => res.json({ message: 'webhooks endpoint' }));
 
+// ============= Meta Webhook (Instagram + Facebook Messenger) =============
+// Verificação (GET)
+router.get('/meta', (req: Request, res: Response) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token && token === process.env.META_VERIFY_TOKEN) {
+    console.log('Meta webhook verificado');
+    return res.status(200).send(challenge);
+  }
+  res.sendStatus(403);
+});
+
+// Envio Meta (Instagram DM + Facebook Messenger usam mesmo endpoint)
+async function sendMetaMessage(creds: any, recipientId: string, text: string, mediaUrl?: string, mediaType?: 'image' | 'audio' | 'video' | 'file'): Promise<string | null> {
+  const accessToken = creds.accessToken || creds.pageAccessToken;
+  const pageId = creds.pageId;
+  if (!accessToken || !pageId) return null;
+
+  let messagePayload: any;
+  if (mediaUrl && mediaType) {
+    messagePayload = {
+      attachment: {
+        type: mediaType,
+        payload: { url: mediaUrl, is_reusable: true },
+      },
+    };
+  } else {
+    messagePayload = { text };
+  }
+
+  try {
+    const res = await fetch(`https://graph.facebook.com/v20.0/${pageId}/messages?access_token=${accessToken}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient: { id: recipientId },
+        message: messagePayload,
+        messaging_type: 'RESPONSE',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error('Meta send error:', data);
+      return null;
+    }
+    return data.message_id || null;
+  } catch (e) {
+    console.error('Meta send exception:', e);
+    return null;
+  }
+}
+
+// Receção (POST) — processa eventos Instagram + Facebook
+router.post('/meta', async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    const objectType = body.object; // 'instagram' | 'page'
+    if (!objectType || !Array.isArray(body.entry)) return res.sendStatus(200);
+
+    const channel = objectType === 'instagram' ? 'INSTAGRAM' : 'FACEBOOK';
+    const integrationType = channel; // INSTAGRAM ou FACEBOOK no enum
+    const io = (global as any).io;
+
+    for (const entry of body.entry) {
+      const pageId = entry.id;
+      // Encontrar integração pela pageId/instagramBusinessId
+      const integrations = await prisma.integration.findMany({
+        where: { type: integrationType as any, isActive: true },
+      });
+      const matched = integrations.find((i: any) => {
+        const c = i.credentials as any;
+        return c?.pageId === pageId || c?.instagramBusinessId === pageId;
+      }) || integrations[0]; // fallback
+      if (!matched) continue;
+      const workspaceId = matched.workspaceId;
+      const creds: any = matched.credentials || {};
+
+      const messagingItems = entry.messaging || entry.changes?.flatMap((c: any) => c.value?.messages || []) || [];
+      for (const event of messagingItems) {
+        const senderId = event.sender?.id;
+        const recipientId = event.recipient?.id;
+        if (!senderId) continue;
+        if (senderId === pageId) continue; // mensagem da própria página (ignorar)
+
+        const isInbound = recipientId === pageId;
+        const externalUserId = isInbound ? senderId : recipientId;
+
+        // Encontrar/criar contacto pelo ID externo
+        const idField = channel === 'INSTAGRAM' ? 'instagramId' : 'facebookId';
+        let contact = await prisma.contact.findFirst({
+          where: { [idField]: externalUserId, workspaceId } as any,
+        });
+        if (!contact) {
+          // Tentar obter perfil
+          let displayName = `Contacto ${channel}`;
+          try {
+            const profRes = await fetch(`https://graph.facebook.com/v20.0/${externalUserId}?fields=name,first_name&access_token=${creds.accessToken || creds.pageAccessToken}`);
+            if (profRes.ok) {
+              const prof = await profRes.json();
+              displayName = prof.first_name || prof.name || displayName;
+            }
+          } catch {}
+          contact = await prisma.contact.create({
+            data: {
+              firstName: displayName,
+              workspaceId,
+              type: 'PERSON',
+              [idField]: externalUserId,
+            } as any,
+          });
+        }
+
+        // Encontrar/criar lead aberto
+        let lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
+        if (!lead) {
+          const pipeline = await prisma.pipeline.findFirst({
+            where: { workspaceId, isDefault: true },
+            include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
+          });
+          const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
+          if (pipeline?.stages[0] && owner) {
+            lead = await prisma.lead.create({
+              data: {
+                title: `${channel} - ${contact.firstName}`,
+                source: channel === 'INSTAGRAM' ? 'Instagram' : 'Facebook',
+                workspaceId,
+                pipelineId: pipeline.id,
+                stageId: pipeline.stages[0].id,
+                contactId: contact.id,
+                createdById: owner.id,
+              },
+            });
+          }
+        }
+
+        // Extrair conteúdo
+        let content = '';
+        let msgType = 'TEXT';
+        let mediaUrl: string | undefined;
+
+        if (event.message) {
+          const m = event.message;
+          if (m.text) content = m.text;
+          else if (m.attachments?.length) {
+            const att = m.attachments[0];
+            if (att.type === 'image') { msgType = 'IMAGE'; content = '[Imagem]'; mediaUrl = att.payload?.url; }
+            else if (att.type === 'video') { msgType = 'VIDEO'; content = '[Vídeo]'; mediaUrl = att.payload?.url; }
+            else if (att.type === 'audio') { msgType = 'AUDIO'; content = '[Áudio]'; mediaUrl = att.payload?.url; }
+            else if (att.type === 'file') { msgType = 'DOCUMENT'; content = '[Documento]'; mediaUrl = att.payload?.url; }
+            else if (att.type === 'story_mention') { content = `[Menção em story]`; }
+            else if (att.type === 'share') { content = `[Partilha] ${att.payload?.url || ''}`; }
+            else content = `[${att.type}]`;
+          } else if (m.is_deleted) {
+            content = '(mensagem apagada)';
+          } else {
+            content = '[Mensagem]';
+          }
+        } else if (event.postback) {
+          content = event.postback.title || event.postback.payload || '[Botão clicado]';
+          msgType = 'INTERACTIVE';
+        } else {
+          continue;
+        }
+
+        const saved = await prisma.message.create({
+          data: {
+            content,
+            type: msgType as any,
+            direction: isInbound ? 'INBOUND' : 'OUTBOUND',
+            channel: channel as any,
+            status: isInbound ? 'DELIVERED' : 'SENT',
+            externalId: event.message?.mid || undefined,
+            mediaUrl,
+            leadId: lead?.id,
+            contactId: contact.id,
+          },
+        });
+
+        if (io) {
+          io.to(`workspace:${workspaceId}`).emit('message:new', saved);
+          if (lead) io.to(`lead:${lead.id}`).emit('message:new', saved);
+        }
+
+        if (isInbound) {
+          // Auto-assign + chatbots + automações + notify
+          autoAssignConversation(workspaceId, contact.id, channel).catch(() => {});
+          if ((msgType === 'TEXT' || msgType === 'INTERACTIVE') && content) {
+            runChatbotForMessage({
+              workspaceId, contactId: contact.id, leadId: lead?.id,
+              message: content, channel, io,
+            }).catch(() => {});
+          }
+          triggerAutomations({ type: 'message_received', workspaceId, entityType: 'message', entityId: saved.id }).catch(() => {});
+          notifyNewMessage(saved.id).catch(() => {});
+        }
+      }
+    }
+    res.sendStatus(200);
+  } catch (e: any) {
+    console.error('Meta webhook error:', e);
+    res.sendStatus(500);
+  }
+});
+
+// ============= TikTok Lead Forms webhook =============
+router.get('/tiktok', (req: Request, res: Response) => {
+  // Verificação de domínio TikTok
+  if (req.query.challenge) return res.status(200).send(req.query.challenge);
+  res.json({ message: 'TikTok lead webhook ready' });
+});
+
+router.post('/tiktok', async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    const io = (global as any).io;
+    // TikTok envia: { event: "leadgen.lead_created", data: { lead_form_id, lead_id, business_id, fields: [{name, value}], submitted_at } }
+    if (body.event !== 'leadgen.lead_created' && body.event !== 'lead_form_submission') {
+      return res.sendStatus(200);
+    }
+
+    const businessId = body.data?.business_id || body.business_id;
+    const integration = await prisma.integration.findFirst({
+      where: { type: 'WEBHOOK' as any, name: { contains: 'TikTok', mode: 'insensitive' }, isActive: true },
+    });
+    if (!integration) return res.sendStatus(200);
+    const workspaceId = integration.workspaceId;
+
+    const fields: Array<{ name: string; value: string }> = body.data?.fields || body.fields || [];
+    const fieldMap: Record<string, string> = {};
+    fields.forEach((f) => { fieldMap[(f.name || '').toLowerCase()] = f.value; });
+
+    const firstName = fieldMap['first_name'] || fieldMap['nome'] || fieldMap['full_name'] || 'Lead TikTok';
+    const phone = fieldMap['phone_number'] || fieldMap['phone'] || fieldMap['telefone'];
+    const email = fieldMap['email'];
+
+    let contact = phone ? await prisma.contact.findFirst({ where: { phone, workspaceId } }) : null;
+    if (!contact && email) contact = await prisma.contact.findFirst({ where: { email, workspaceId } });
+    if (!contact) {
+      contact = await prisma.contact.create({
+        data: {
+          firstName,
+          phone: phone || null,
+          email: email || null,
+          workspaceId,
+          type: 'PERSON',
+          tiktokId: body.data?.lead_id || null,
+          notes: 'Lead via TikTok Lead Form',
+        } as any,
+      });
+    }
+
+    // Criar lead
+    const pipeline = await prisma.pipeline.findFirst({
+      where: { workspaceId, isDefault: true },
+      include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
+    });
+    const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
+    if (pipeline?.stages[0] && owner) {
+      const lead = await prisma.lead.create({
+        data: {
+          title: `TikTok Lead - ${firstName}`,
+          source: 'TikTok',
+          workspaceId,
+          pipelineId: pipeline.id,
+          stageId: pipeline.stages[0].id,
+          contactId: contact.id,
+          createdById: owner.id,
+        },
+      });
+      if (io) io.to(`workspace:${workspaceId}`).emit('lead:created', lead);
+      triggerAutomations({ type: 'lead_created', workspaceId, entityType: 'lead', entityId: lead.id }).catch(() => {});
+    }
+
+    res.sendStatus(200);
+  } catch (e: any) {
+    console.error('TikTok webhook error:', e);
+    res.sendStatus(500);
+  }
+});
+
 // ============= Evolution API webhook =============
 // O servidor Evolution chama este endpoint com eventos: MESSAGES_UPSERT, CONNECTION_UPDATE, etc.
 router.post('/evolution', async (req: Request, res: Response) => {

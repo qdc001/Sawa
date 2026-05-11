@@ -609,9 +609,43 @@ export default function IntegrationsPage() {
           <li>Escaneia o QR com o WhatsApp do telefone (Definições → Aparelhos ligados).</li>
         </ol>
         <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
-          <strong>Outras integrações:</strong> WhatsApp Cloud (developers.facebook.com), SMTP (Gmail app password ou outro provedor).
           O webhook da Evolution é configurado automaticamente para <code>{window.location.origin.replace(':3000', ':3001').replace('crm-frontend', 'crm-backend')}/api/webhooks/evolution</code>.
         </p>
+      </div>
+
+      <div className="card p-4" style={{ background: 'var(--surface-2)' }}>
+        <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Como ligar Instagram + Facebook Messenger</p>
+        <ol className="text-xs space-y-1.5 list-decimal pl-4" style={{ color: 'var(--text-secondary)' }}>
+          <li>Cria uma <strong>App Meta</strong> em <a href="https://developers.facebook.com/apps/" target="_blank" rel="noreferrer" className="underline" style={{ color: 'var(--primary)' }}>developers.facebook.com</a>.</li>
+          <li>Adiciona os produtos <strong>Messenger</strong> e/ou <strong>Instagram Graph API</strong>.</li>
+          <li>Liga a tua Página Facebook (e a conta Instagram Business à página).</li>
+          <li>Gera um <strong>Page Access Token</strong> de longa duração (60 dias).</li>
+          <li>Configura o webhook URL: <code>{window.location.origin.replace(':3000', ':3001').replace('crm-frontend', 'crm-backend')}/api/webhooks/meta</code></li>
+          <li>Verify token: define <code>META_VERIFY_TOKEN</code> nas vars de ambiente do backend (qualquer string secreta) e usa a mesma string na configuração do webhook na Meta.</li>
+          <li>Subscreve os campos: <strong>messages, messaging_postbacks, message_deliveries, message_reads</strong>.</li>
+          <li>Subscreve a tua Página ao webhook.</li>
+          <li>Volta aqui e configura os cards de Instagram/Facebook com Page Access Token + Page ID (e Instagram Business Account ID para Instagram).</li>
+        </ol>
+      </div>
+
+      <div className="card p-4" style={{ background: 'var(--surface-2)' }}>
+        <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Como ligar TikTok Lead Forms</p>
+        <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+          <strong>Nota:</strong> a TikTok <strong>não tem API pública de DMs</strong>. Só é possível receber leads gerados via Lead Forms dos anúncios TikTok.
+        </p>
+        <ol className="text-xs space-y-1.5 list-decimal pl-4" style={{ color: 'var(--text-secondary)' }}>
+          <li>No TikTok Ads Manager → Tools → Events Manager → <strong>Lead Generation</strong>.</li>
+          <li>Configura webhook URL: <code>{window.location.origin.replace(':3000', ':3001').replace('crm-frontend', 'crm-backend')}/api/webhooks/tiktok</code></li>
+          <li>Quando alguém preencher um Lead Form num anúncio teu, será automaticamente criado um lead no CRM.</li>
+        </ol>
+      </div>
+
+      <div className="card p-4" style={{ background: 'var(--surface-2)' }}>
+        <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Outras integrações</p>
+        <ul className="text-xs space-y-1 list-disc pl-4" style={{ color: 'var(--text-secondary)' }}>
+          <li><strong>WhatsApp Cloud (Meta)</strong>: alternativa ao QR via API oficial. Precisa de número Business + aprovação Meta.</li>
+          <li><strong>Email SMTP</strong>: Gmail (app password), Outlook, SendGrid, ou outro servidor SMTP.</li>
+        </ul>
       </div>
 
       {editing && (
