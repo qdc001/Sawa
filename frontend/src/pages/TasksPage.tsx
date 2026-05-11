@@ -142,15 +142,15 @@ function TaskFormModal({
     e.preventDefault();
     if (!title.trim()) { toast.error('Titulo obrigatorio'); return; }
     setLoading(true);
+    const payload: any = {
+      title, description, type, status, priority,
+      dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+      recurrence: recurrence || null,
+      assignedToId: assignedToId || undefined,
+      leadId: leadId || null,
+      tags: selectedTagIds,
+    };
     try {
-      const payload: any = {
-        title, description, type, status, priority,
-        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
-        recurrence: recurrence || null,
-        assignedToId: assignedToId || undefined,
-        leadId: leadId || null,
-        tags: selectedTagIds,
-      };
       let saved: Task;
       if (isEdit) {
         const { data } = await api.patch(`/tasks/${task!.id}`, payload);
