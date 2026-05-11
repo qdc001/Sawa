@@ -10,6 +10,7 @@ import CopilotPanel from '../ai/CopilotPanel';
 import DesktopNotifications from '../DesktopNotifications';
 import toast from 'react-hot-toast';
 import api, { Lead, Contact } from '../../lib/api';
+import { getSocket } from '../../lib/socket';
 import { useT } from '../../lib/i18n';
 
 const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
@@ -55,6 +56,21 @@ export default function AppLayout() {
       toast.error(e.response?.data?.message || 'Erro');
     }
   };
+
+  // Banner de desconexão Evolution
+  const [evoDown, setEvoDown] = useState<{ minutes: number; message: string } | null>(null);
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    const onDown = (data: any) => setEvoDown({ minutes: data.minutesDown || 0, message: data.message || 'WhatsApp desligado' });
+    const onState = (data: any) => { if (data.state === 'open' || data.recovered) setEvoDown(null); };
+    socket.on('evolution:disconnected', onDown);
+    socket.on('evolution:state', onState);
+    return () => {
+      socket.off('evolution:disconnected', onDown);
+      socket.off('evolution:state', onState);
+    };
+  }, []);
 
   // Pesquisa global (partilhada via store para destacar tambem no kanban)
   const { globalSearchQuery: query, setGlobalSearchQuery: setQuery } = useUIStore();
@@ -381,6 +397,20 @@ export default function AppLayout() {
             </button>
           </div>
         </header>
+
+        {/* Banner de desconexão Evolution */}
+        {evoDown && (
+          <div className="px-4 py-2 flex items-center gap-3 text-sm" style={{ background: '#FEF3C7', borderBottom: '1px solid #FBBF24', color: '#92400E' }}>
+            <span style={{ fontSize: 18 }}>⚠️</span>
+            <span className="flex-1">
+              <strong>WhatsApp desligado há {evoDown.minutes} min.</strong> {evoDown.message}
+            </span>
+            <button onClick={() => navigate('/integrations')} className="btn text-xs py-1 px-3" style={{ background: '#F59E0B', color: 'white' }}>
+              Re-ligar
+            </button>
+            <button onClick={() => setEvoDown(null)} className="text-xs underline">Fechar</button>
+          </div>
+        )}
 
         {/* Page Content */}
         <main className="flex-1 overflow-auto">

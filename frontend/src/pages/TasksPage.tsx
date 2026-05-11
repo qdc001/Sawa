@@ -77,6 +77,76 @@ function applyDateFilter(tasks: Task[], filter: DateFilter): Task[] {
   });
 }
 
+// =============== Lead Search Picker (pesquisa em vez de dropdown longo) ===============
+function LeadSearchPicker({ leads, value, onChange }: { leads: Lead[]; value: string; onChange: (id: string) => void }) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const selected = leads.find((l) => l.id === value);
+  const filtered = search.trim()
+    ? leads.filter((l) =>
+        l.title.toLowerCase().includes(search.toLowerCase()) ||
+        (l.contact && `${l.contact.firstName} ${l.contact.lastName || ''}`.toLowerCase().includes(search.toLowerCase()))
+      ).slice(0, 20)
+    : leads.slice(0, 20);
+
+  if (selected && !open) {
+    return (
+      <div className="flex items-center gap-2 p-2 rounded" style={{ background: 'var(--surface-2)' }}>
+        <span className="text-sm flex-1 truncate">{selected.title}</span>
+        <button type="button" onClick={() => onChange('')} className="p-1 rounded hover:bg-red-50">
+          <X size={12} style={{ color: '#EF4444' }} />
+        </button>
+        <button type="button" onClick={() => setOpen(true)} className="text-xs underline" style={{ color: 'var(--primary)' }}>
+          mudar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <input
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Pesquisar lead por título ou contacto..."
+        className="input-base"
+      />
+      {open && (
+        <div className="absolute z-20 mt-1 w-full card max-h-56 overflow-y-auto" style={{ background: 'var(--surface)' }}>
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false); setSearch(''); }}
+            className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 italic"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            — Nenhum —
+          </button>
+          {filtered.length === 0 ? (
+            <p className="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>Sem resultados</p>
+          ) : (
+            filtered.map((l) => (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => { onChange(l.id); setOpen(false); setSearch(''); }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+              >
+                <p className="font-medium">{l.title}</p>
+                {l.contact && (
+                  <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                    {l.contact.firstName} {l.contact.lastName || ''}
+                  </p>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // =============== Modal: Nova/Editar Tarefa (com subtarefas) ===============
 function TaskFormModal({
   task, users, leads, tags,
@@ -253,10 +323,7 @@ function TaskFormModal({
           </div>
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Lead associado</label>
-            <select value={leadId} onChange={(e) => setLeadId(e.target.value)} className="input-base">
-              <option value="">— Nenhum —</option>
-              {leads.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
-            </select>
+            <LeadSearchPicker leads={leads} value={leadId} onChange={setLeadId} />
           </div>
 
           <div>

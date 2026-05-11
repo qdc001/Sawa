@@ -35,6 +35,66 @@ function priorityLabel(p: string): string {
   return c[p] || p;
 }
 
+// Picker de contacto com pesquisa
+function ContactSearchPicker({ contacts, value, onChange }: { contacts: Contact[]; value: string; onChange: (id: string) => void }) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const selected = contacts.find((c) => c.id === value);
+  const filtered = search.trim()
+    ? contacts.filter((c) =>
+        `${c.firstName} ${c.lastName || ''} ${c.phone || ''} ${c.whatsapp || ''} ${c.email || ''}`.toLowerCase().includes(search.toLowerCase())
+      ).slice(0, 20)
+    : contacts.slice(0, 20);
+
+  if (selected && !open) {
+    return (
+      <div className="flex items-center gap-2 p-2 rounded" style={{ background: 'var(--surface-2)' }}>
+        <UserIcon size={14} style={{ color: 'var(--primary)' }} />
+        <span className="text-sm flex-1 truncate">{selected.firstName} {selected.lastName || ''} {selected.phone ? `· ${selected.phone}` : ''}</span>
+        <button type="button" onClick={() => onChange('')} className="p-1 rounded hover:bg-red-50">
+          <X size={12} style={{ color: '#EF4444' }} />
+        </button>
+        <button type="button" onClick={() => setOpen(true)} className="text-xs underline" style={{ color: 'var(--primary)' }}>mudar</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <input
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Pesquisar contacto por nome, telefone ou email..."
+        className="input-base"
+      />
+      {open && (
+        <div className="absolute z-20 mt-1 w-full card max-h-56 overflow-y-auto" style={{ background: 'var(--surface)' }}>
+          {filtered.length === 0 ? (
+            <p className="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>Sem resultados</p>
+          ) : (
+            filtered.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => { onChange(c.id); setOpen(false); setSearch(''); }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+              >
+                <p className="font-medium">{c.firstName} {c.lastName || ''}</p>
+                {(c.phone || c.email) && (
+                  <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                    {c.phone || ''}{c.phone && c.email ? ' · ' : ''}{c.email || ''}
+                  </p>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ChannelBadge({ channel, size = 12 }: { channel: string; size?: number }) {
   const color = CHANNEL_COLORS[channel] || '#94A3B8';
   if (channel === 'EMAIL') return <Mail size={size} style={{ color }} />;
@@ -103,12 +163,11 @@ function NewMessageModal({ contacts, onClose, onCreated }: {
           <button onClick={onClose}><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <select value={contactId} onChange={(e) => setContactId(e.target.value)} className="input-base" required>
-            <option value="">— Escolher contacto —</option>
-            {contacts.map((c) => (
-              <option key={c.id} value={c.id}>{c.firstName} {c.lastName || ''} {c.phone ? `· ${c.phone}` : ''}</option>
-            ))}
-          </select>
+          <ContactSearchPicker
+            contacts={contacts}
+            value={contactId}
+            onChange={setContactId}
+          />
           <div className="grid grid-cols-2 gap-3">
             <select value={channel} onChange={(e) => setChannel(e.target.value)} className="input-base">
               {Object.entries(CHANNEL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}

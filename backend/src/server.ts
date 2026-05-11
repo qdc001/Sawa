@@ -46,6 +46,7 @@ import { rateLimiter } from './middleware/rateLimiter';
 // Lib
 import { processExpiredDelays } from './lib/chatbotEngine';
 import { checkOverdueTasks, processScheduledAutomations, checkNoResponseConversations, checkStagnantLeads } from './lib/automationEngine';
+import { checkEvolutionInstances } from './lib/evolutionMonitor';
 
 const app = express();
 const httpServer = createServer(app);
@@ -174,6 +175,15 @@ setInterval(() => {
 setInterval(() => {
   checkStagnantLeads().catch((e) => console.error('checkStagnantLeads error:', e));
 }, 60 * 60_000);
+
+// Monitoriza instâncias Evolution (auto-reconnect + notificação de desconexão) — corre a cada 5 minutos
+setInterval(() => {
+  checkEvolutionInstances().catch((e) => console.error('checkEvolutionInstances error:', e));
+}, 5 * 60_000);
+// E primeira verificação 30s após o startup
+setTimeout(() => {
+  checkEvolutionInstances().catch(() => {});
+}, 30_000);
 
 (global as any).io = io;
 export { io };
