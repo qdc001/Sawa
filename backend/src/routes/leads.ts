@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewLead } from '../lib/notify';
+import { propagateAssignee } from '../lib/propagateAssignee';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -187,10 +188,16 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       }
     }
 
-    if (assignedToId && assignedToId !== existing.assignedToId) {
-      triggerAutomations({ type: 'lead_assigned', workspaceId: req.user!.workspaceId, entityType: 'lead', entityId: lead.id })
-        .catch(() => {});
-      notifyNewLead(lead.id, assignedToId).catch(() => {});
+    if (assignedToId !== undefined && assignedToId !== existing.assignedToId) {
+      if (assignedToId) {
+        triggerAutomations({ type: 'lead_assigned', workspaceId: req.user!.workspaceId, entityType: 'lead', entityId: lead.id })
+          .catch(() => {});
+        notifyNewLead(lead.id, assignedToId).catch(() => {});
+      }
+      // Propagar para Contact + ConversationMeta + outros leads do mesmo contacto
+      if (lead.contactId) {
+        await propagateAssignee(req.user!.workspaceId, lead.contactId, assignedToId || null, 'lead');
+      }
     }
 
     const io = req.app.get('io');

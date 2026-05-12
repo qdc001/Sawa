@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
+import { propagateAssignee } from '../lib/propagateAssignee';
 const prisma = new PrismaClient();
 const router = Router();
 
@@ -225,6 +226,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       data: rest,
       include: contactInclude,
     });
+
+    // Propagar responsável para conversas + leads se a chamada inclui assignedToId
+    if (rest.assignedToId !== undefined) {
+      await propagateAssignee(req.user!.workspaceId, contact.id, rest.assignedToId || null, 'contact');
+    }
+
     res.json(contact);
   } catch (e) { next(e); }
 });

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
+import { propagateAssignee } from '../lib/propagateAssignee';
 const prisma = new PrismaClient();
 const router = Router();
 
@@ -524,6 +525,12 @@ router.post('/meta', async (req: AuthRequest, res: Response, next) => {
       where: { id: meta.id },
       include: { assignedTo: { select: { id: true, name: true } }, tags: { include: { tag: true } } },
     });
+
+    // Propagar responsável para Contact + outros ConversationMeta + Leads do mesmo contacto
+    if (assignedToId !== undefined && contactId) {
+      await propagateAssignee(req.user!.workspaceId, contactId, assignedToId || null, 'conversation');
+    }
+
     res.json(result);
   } catch (e) { next(e); }
 });
