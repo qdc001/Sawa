@@ -18,37 +18,14 @@ import api, {
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 import { useAuthStore } from '../store';
+import { useTaskOptions } from '../lib/taskOptions';
 import { useDragScroll, useScrollButton } from '../lib/useDragScroll';
 import MouseSettingsButton from '../components/MouseSettingsButton';
 
-const STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Pendente',
-  IN_PROGRESS: 'Em curso',
-  COMPLETED: 'Concluida',
-  CANCELLED: 'Cancelada',
-};
-const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  PENDING: { bg: '#FEF3C7', fg: '#92400E' },
-  IN_PROGRESS: { bg: '#DBEAFE', fg: '#1E40AF' },
-  COMPLETED: { bg: '#D1FAE5', fg: '#065F46' },
-  CANCELLED: { bg: '#F3F4F6', fg: '#374151' },
-};
-const TYPE_LABELS: Record<string, string> = {
-  CALL: 'Chamada', EMAIL: 'Email', MEETING: 'Reuniao',
-  FOLLOW_UP: 'Follow-up', DEMO: 'Demo', OTHER: 'Outro',
-};
+// Ícones associados a tipos predefinidos. Opções custom (criadas em Definições) caem para Circle.
 const TYPE_ICONS: Record<string, any> = {
   CALL: Phone, EMAIL: Mail, MEETING: UsersIcon,
   FOLLOW_UP: Repeat, DEMO: Briefcase, OTHER: Circle,
-};
-const PRIORITY_LABELS: Record<string, string> = {
-  LOW: 'Baixa', MEDIUM: 'Media', HIGH: 'Alta', URGENT: 'Urgente',
-};
-const PRIORITY_COLORS: Record<string, string> = {
-  LOW: '#94A3B8', MEDIUM: '#3B82F6', HIGH: '#F59E0B', URGENT: '#EF4444',
-};
-const RECURRENCE_LABELS: Record<string, string> = {
-  '': 'Nao se repete', DAILY: 'Diariamente', WEEKLY: 'Semanalmente', MONTHLY: 'Mensalmente',
 };
 
 function isOverdue(task: Task): boolean {
@@ -621,6 +598,8 @@ function TaskFormModal({
 
 // =============== Componentes Drag-Drop Calendario ===============
 function DraggableTaskBadge({ task, onClick }: { task: Task; onClick: () => void }) {
+  const { lookupPriority } = useTaskOptions();
+  const prio = lookupPriority(task.priority);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
   const overdue = isOverdue(task);
   const done = task.status === 'COMPLETED';
@@ -636,9 +615,9 @@ function DraggableTaskBadge({ task, onClick }: { task: Task; onClick: () => void
         color: done ? '#065F46' : overdue ? '#991B1B' : task.priority === 'URGENT' ? '#991B1B' : 'var(--primary)',
         textDecoration: done ? 'line-through' : 'none',
         opacity: isDragging ? 0.4 : 1,
-        borderLeft: `3px solid ${PRIORITY_COLORS[task.priority]}`,
+        borderLeft: `3px solid ${prio.color || '#94A3B8'}`,
       }}
-      title={`${task.title} · ${PRIORITY_LABELS[task.priority]}`}
+      title={`${task.title} · ${prio.label}`}
     >
       <span className="block truncate">{task.title}</span>
     </button>
@@ -825,6 +804,9 @@ function AgendaCard({
   onChangeStatus: (status: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
+  const { lookupType, lookupPriority } = useTaskOptions();
+  const typeOpt = lookupType(task.type);
+  const prio = lookupPriority(task.priority);
   const Icon = TYPE_ICONS[task.type] || Circle;
   const overdue = isOverdue(task);
 
@@ -839,7 +821,7 @@ function AgendaCard({
       className="card p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
       style={{
         opacity: isDragging ? 0.4 : 1,
-        borderLeft: `3px solid ${PRIORITY_COLORS[task.priority]}`,
+        borderLeft: `3px solid ${prio.color || '#94A3B8'}`,
         marginBottom: 8,
       }}
     >
@@ -873,8 +855,8 @@ function AgendaCard({
       )}
 
       <div className="flex items-center gap-2 mt-2 text-xs" style={{ color: overdue ? '#991B1B' : 'var(--text-secondary)' }}>
-        <Icon size={11} />
-        <span>{TYPE_LABELS[task.type]}</span>
+        <Icon size={11} style={{ color: typeOpt.color || undefined }} />
+        <span>{typeOpt.label}</span>
         {task.dueAt && (
           <>
             <span>·</span>
@@ -976,6 +958,7 @@ function AgendaView({
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [activeId, setActiveId] = useState<string | null>(null);
+  const { lookupPriority } = useTaskOptions();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollButton] = useScrollButton();
   useDragScroll(scrollRef, scrollButton);
@@ -1019,7 +1002,7 @@ function AgendaView({
       </div>
       <DragOverlay>
         {activeTask && (
-          <div className="card p-3 shadow-xl" style={{ borderLeft: `3px solid ${PRIORITY_COLORS[activeTask.priority]}` }}>
+          <div className="card p-3 shadow-xl" style={{ borderLeft: `3px solid ${lookupPriority(activeTask.priority).color || '#94A3B8'}` }}>
             <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{activeTask.title}</p>
           </div>
         )}
@@ -1030,23 +1013,20 @@ function AgendaView({
 
 // =============== Vista Kanban ===============
 function KanbanView({ tasks, onEdit }: { tasks: Task[]; onEdit: (t: Task) => void }) {
-  const cols: Array<{ key: string; label: string }> = [
-    { key: 'PENDING', label: 'Pendente' },
-    { key: 'IN_PROGRESS', label: 'Em curso' },
-    { key: 'COMPLETED', label: 'Concluida' },
-    { key: 'CANCELLED', label: 'Cancelada' },
-  ];
+  const { statuses, lookupPriority } = useTaskOptions();
+  const cols = statuses;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollButton] = useScrollButton();
   useDragScroll(scrollRef, scrollButton);
   return (
     <div ref={scrollRef} className="flex gap-3 p-4 h-full overflow-auto">
       {cols.map((col) => {
-        const colTasks = tasks.filter((t) => t.status === col.key);
-        const colColor = STATUS_COLORS[col.key]?.fg || 'var(--text-secondary)';
+        const colTasks = tasks.filter((t) => t.status === col.value);
+        const colColor = col.color || 'var(--text-secondary)';
+        const bg = col.color ? `${col.color}22` : 'var(--surface-3)';
         return (
-          <div key={col.key} className="flex flex-col flex-shrink-0 w-72">
-            <div className="p-3 rounded-t-lg flex items-center justify-between" style={{ background: STATUS_COLORS[col.key]?.bg, borderTop: `3px solid ${colColor}` }}>
+          <div key={col.value} className="flex flex-col flex-shrink-0 w-72">
+            <div className="p-3 rounded-t-lg flex items-center justify-between" style={{ background: bg, borderTop: `3px solid ${colColor}` }}>
               <span className="font-medium text-sm" style={{ color: colColor }}>{col.label}</span>
               <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ background: colColor, color: '#fff' }}>{colTasks.length}</span>
             </div>
@@ -1054,9 +1034,10 @@ function KanbanView({ tasks, onEdit }: { tasks: Task[]; onEdit: (t: Task) => voi
               {colTasks.map((t) => {
                 const overdue = isOverdue(t);
                 const Icon = TYPE_ICONS[t.type] || Circle;
+                const prio = lookupPriority(t.priority);
                 return (
                   <button key={t.id} onClick={() => onEdit(t)} className="card p-3 text-left w-full hover:shadow-md transition-shadow"
-                    style={{ borderLeft: `3px solid ${PRIORITY_COLORS[t.priority]}` }}>
+                    style={{ borderLeft: `3px solid ${prio.color || '#94A3B8'}` }}>
                     <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>{t.title}</p>
                     <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
                       <Icon size={10} />
@@ -1453,6 +1434,7 @@ export default function TasksPage() {
   const navigate = useNavigate();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
   const { user: currentUser } = useAuthStore();
+  const taskOpts = useTaskOptions();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -1602,12 +1584,12 @@ export default function TasksPage() {
     };
     const headers = ['Titulo', 'Tipo', 'Estado', 'Prioridade', 'Data limite', 'Responsavel', 'Lead', 'Tags', 'Recorrencia', 'Criada em'];
     const rows = filteredTasks.map((t: any) => [
-      t.title || '', TYPE_LABELS[t.type] || t.type, STATUS_LABELS[t.status] || t.status,
-      PRIORITY_LABELS[t.priority] || t.priority,
+      t.title || '', taskOpts.lookupType(t.type).label, taskOpts.lookupStatus(t.status).label,
+      taskOpts.lookupPriority(t.priority).label,
       t.dueAt ? new Date(t.dueAt).toLocaleString('pt-PT') : '',
       t.assignedTo?.name || '', t.lead?.title || '',
       (t.tags || []).map((tt: any) => tt.tag?.name).filter(Boolean).join(';'),
-      RECURRENCE_LABELS[t.recurrence || ''] || '',
+      taskOpts.lookupRecurrence(t.recurrence || '').label,
       t.createdAt ? new Date(t.createdAt).toLocaleString('pt-PT') : '',
     ].map(escape).join(','));
     const csv = '﻿' + headers.join(',') + '\n' + rows.join('\n');
@@ -1756,15 +1738,15 @@ export default function TasksPage() {
           </div>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
             <option value="">Todos estados</option>
-            {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {taskOpts.statuses.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
             <option value="">Toda prioridade</option>
-            {Object.entries(PRIORITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {taskOpts.priorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
             <option value="">Todos tipos</option>
-            {Object.entries(TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {taskOpts.types.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
             <option value="">Todos responsaveis</option>
@@ -1865,6 +1847,9 @@ export default function TasksPage() {
                 const overdue = isOverdue(t);
                 const done = t.status === 'COMPLETED';
                 const Icon = TYPE_ICONS[t.type] || Circle;
+                const typeOpt = taskOpts.lookupType(t.type);
+                const statusOpt = taskOpts.lookupStatus(t.status);
+                const prioOpt = taskOpts.lookupPriority(t.priority);
                 const subDone = (t.subtasks || []).filter((s: any) => s.status === 'COMPLETED').length;
                 const subTotal = (t.subtasks || []).length;
                 return (
@@ -1896,19 +1881,19 @@ export default function TasksPage() {
                     </td>
                     <td className="px-3 py-2">
                       <span className="inline-flex items-center gap-1 text-xs">
-                        <Flag size={11} style={{ color: PRIORITY_COLORS[t.priority] }} />
-                        <span style={{ color: PRIORITY_COLORS[t.priority] }}>{PRIORITY_LABELS[t.priority]}</span>
+                        <Flag size={11} style={{ color: prioOpt.color || '#94A3B8' }} />
+                        <span style={{ color: prioOpt.color || '#94A3B8' }}>{prioOpt.label}</span>
                       </span>
                     </td>
                     <td className="px-3 py-2">
-                      <span className="inline-flex items-center gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        <Icon size={12} /> {TYPE_LABELS[t.type]}
+                      <span className="inline-flex items-center gap-1 text-xs" style={{ color: typeOpt.color || 'var(--text-secondary)' }}>
+                        <Icon size={12} /> {typeOpt.label}
                       </span>
                     </td>
                     <td className="px-3 py-2">
                       <span className="text-xs px-2 py-0.5 rounded font-medium"
-                        style={{ background: STATUS_COLORS[t.status]?.bg, color: STATUS_COLORS[t.status]?.fg }}>
-                        {STATUS_LABELS[t.status]}
+                        style={{ background: (statusOpt.color || '#94A3B8') + '22', color: statusOpt.color || '#374151' }}>
+                        {statusOpt.label}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-xs" style={{ color: overdue && !done ? '#991B1B' : 'var(--text-secondary)' }}>

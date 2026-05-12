@@ -326,9 +326,11 @@ model Task {
   id          String     @id @default(cuid())
   title       String
   description String?
-  type        TaskType   @default(CALL)
-  status      TaskStatus @default(PENDING)
-  priority    Priority   @default(MEDIUM)
+  // Customizáveis no Workspace (taskTypes/taskStatuses/taskPriorities).
+  // Mantidos como String para aceitar valores definidos pelo utilizador.
+  type        String     @default("CALL")
+  status      String     @default("PENDING")
+  priority    String     @default("MEDIUM")
   dueAt       DateTime?
   completedAt DateTime?
   recurrence  String?    // DAILY | WEEKLY | MONTHLY (null = nao recorrente)
@@ -350,22 +352,6 @@ model Task {
 
   @@index([contactId])
   @@map("tasks")
-}
-
-enum TaskType {
-  CALL
-  EMAIL
-  MEETING
-  FOLLOW_UP
-  DEMO
-  OTHER
-}
-
-enum TaskStatus {
-  PENDING
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
 }
 
 // ==================== NOTES ====================
