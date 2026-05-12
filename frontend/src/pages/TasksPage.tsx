@@ -1044,14 +1044,94 @@ function ManageTagsModal({ tags, onClose, onChanged }: { tags: TagType[]; onClos
   );
 }
 
-// =============== Modal: Importar tarefas (CSV / Kommo) ===============
+// =============== Modal: Importar tarefas (CSV ou .ics do Kommo) ===============
 function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const [file, setFile] = useState<File | null>(null);
+  const [mode, setMode] = useState<'csv' | 'ics' | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewRows, setPreviewRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [delim, setDelim] = useState<',' | ';'>(',');
+  const [icsTasks, setIcsTasks] = useState<any[]>([]);
+
+  // Parser de iCalendar (.ics) — devolve já no formato esperado por /tasks/bulk-import
+  const parseICS = (text: string): any[] => {
+    // 1) Line unfolding: linhas que começam com espaço/tab pertencem à anterior
+    const unfolded: string[] = [];
+    text.split(/\r?\n/).forEach((line) => {
+      if ((line.startsWith(' ') || line.startsWith('\t')) && unfolded.length) {
+        unfolded[unfolded.length - 1] += line.slice(1);
+      } else {
+        unfolded.push(line);
+      }
+    });
+
+    // 2) Agrupar VEVENTs
+    const events: Record<string, string>[] = [];
+    let current: Record<string, string> | null = null;
+    for (const line of unfolded) {
+      if (line === 'BEGIN:VEVENT') current = {};
+      else if (line === 'END:VEVENT') { if (current) events.push(current); current = null; }
+      else if (current) {
+        const colon = line.indexOf(':');
+        if (colon === -1) continue;
+        // Chave pode ter parâmetros: DTSTART;TZID=...
+        const keyPart = line.slice(0, colon);
+        const key = keyPart.split(';')[0].toUpperCase();
+        const val = line.slice(colon + 1);
+        current[key] = val;
+      }
+    }
+
+    // 3) Mapear cada VEVENT para o formato do bulk-import
+    const unescape = (s: string) => s.replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\').trim();
+    const parseIcsDate = (raw: string): Date | null => {
+      if (!raw) return null;
+      // Formatos: YYYYMMDDTHHMMSSZ  (UTC)  ou  YYYYMMDD  (só data)
+      const utcMatch = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/);
+      if (utcMatch) {
+        const [, y, mo, d, h, mi, s] = utcMatch;
+        return new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +s));
+      }
+      const dateOnly = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+      if (dateOnly) {
+        const [, y, mo, d] = dateOnly;
+        return new Date(+y, +mo - 1, +d, 9, 0);
+      }
+      const d = new Date(raw);
+      return isNaN(d.getTime()) ? null : d;
+    };
+
+    return events.map((ev) => {
+      const summary = unescape(ev.SUMMARY || '');
+      const description = unescape(ev.DESCRIPTION || '');
+      const contactRaw = unescape(ev.CONTACT || '');
+      const start = parseIcsDate(ev.DTSTART || '');
+
+      // SUMMARY do Kommo: "Chamada, relacionadas com" | "Reunião, relacionada a" | "Tarefas, relacionadas a"
+      const type = summary.split(',')[0].trim();
+
+      // Título = primeira linha útil da descrição (antes do "\n . Contato:")
+      let title = description.split(/\n\s*\.\s*Contato:/i)[0].trim();
+      // Remove sufixo " - Nome" no fim (autor) se ficar muito comprido
+      if (!title) title = summary || 'Tarefa';
+      // Limitar a 200 chars
+      if (title.length > 200) title = title.slice(0, 197) + '...';
+
+      // Contacto: "Contato: Gilda das Neves" → "Gilda das Neves"
+      const contact = contactRaw.replace(/^\.?\s*Contato:\s*/i, '').trim();
+
+      return {
+        title,
+        description: description || null,
+        type,
+        dueAt: start ? start.toISOString() : null,
+        contact: contact || null,
+        status: 'PENDING',
+      };
+    }).filter((t) => t.title);
+  };
 
   const TARGET_FIELDS = [
     { key: 'title', label: 'Título / Texto *' },
@@ -1095,6 +1175,18 @@ function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImpo
     setFile(f);
     let text = await f.text();
     if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+    // Detectar ICS (extensão .ics ou conteúdo BEGIN:VCALENDAR)
+    const isIcs = /\.ics$/i.test(f.name) || /^BEGIN:VCALENDAR/m.test(text.slice(0, 200));
+    if (isIcs) {
+      setMode('ics');
+      const tasks = parseICS(text);
+      setIcsTasks(tasks);
+      if (tasks.length === 0) toast.error('Nenhuma tarefa encontrada no .ics');
+      return;
+    }
+
+    setMode('csv');
     // Detectar separador auto se primeira linha tem ; mas não tem ,
     let chosen = sep;
     const firstLine = text.split('\n')[0] || '';
@@ -1133,20 +1225,26 @@ function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImpo
 
   const handleImport = async () => {
     if (!file) return;
-    if (!mapping.title) { toast.error('Mapeia o campo Título'); return; }
     setLoading(true);
     try {
-      let text = await file.text();
-      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-      const parsed = parseCSV(text, delim);
-      const all = parsed.slice(1);
-      const idx: Record<string, number> = {};
-      Object.keys(mapping).forEach((k) => { idx[k] = headers.indexOf(mapping[k]); });
-      const tasks = all.map((r) => {
-        const obj: any = {};
-        Object.keys(idx).forEach((k) => { if (idx[k] >= 0) obj[k] = r[idx[k]]; });
-        return obj;
-      }).filter((t) => t.title);
+      let tasks: any[];
+      if (mode === 'ics') {
+        tasks = icsTasks;
+        if (!tasks.length) { toast.error('Sem tarefas para importar'); setLoading(false); return; }
+      } else {
+        if (!mapping.title) { toast.error('Mapeia o campo Título'); setLoading(false); return; }
+        let text = await file.text();
+        if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+        const parsed = parseCSV(text, delim);
+        const all = parsed.slice(1);
+        const idx: Record<string, number> = {};
+        Object.keys(mapping).forEach((k) => { idx[k] = headers.indexOf(mapping[k]); });
+        tasks = all.map((r) => {
+          const obj: any = {};
+          Object.keys(idx).forEach((k) => { if (idx[k] >= 0) obj[k] = r[idx[k]]; });
+          return obj;
+        }).filter((t) => t.title);
+      }
 
       const { data } = await api.post('/tasks/bulk-import', { tasks });
       toast.success(`${data.created} tarefas importadas (${data.skipped} ignoradas de ${data.total})`);
@@ -1163,28 +1261,54 @@ function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImpo
     <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
       <div className="card p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Importar tarefas (CSV / Kommo)</h3>
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Importar tarefas</h3>
           <button onClick={onClose}><X size={20} style={{ color: 'var(--text-muted)' }} /></button>
         </div>
         <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
-          Aceita o export CSV de tarefas do Kommo (ou outro CRM). A primeira linha deve ter cabeçalhos.
-          Os cabeçalhos comuns (Texto, Responsável, Complete till, Tipo, Contacto, Lead, ...) são mapeados automaticamente.
+          Aceita <strong>.ics</strong> (formato exportado pelo Kommo em "Tarefas → Exportar") ou <strong>.csv</strong> com cabeçalhos.
+          Para .ics, o mapeamento é automático (data, contacto, tipo).
         </p>
 
         {!file ? (
           <label className="block">
-            <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+            <input type="file" accept=".csv,.ics,text/csv,text/calendar" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
             <div className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:bg-slate-50" style={{ borderColor: 'var(--border)' }}>
               <FileSpreadsheet size={32} className="mx-auto mb-2" style={{ color: 'var(--text-muted)' }} />
-              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Clica para escolher um ficheiro CSV</p>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Suporta separadores , e ;</p>
+              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Clica para escolher um ficheiro</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>.ics (Kommo) ou .csv</p>
             </div>
           </label>
+        ) : mode === 'ics' ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs" style={{ color: 'var(--text-secondary)' }}>
+              <span>{file.name} — <strong>{icsTasks.length} tarefas</strong> detectadas</span>
+              <button onClick={() => { setFile(null); setMode(null); setIcsTasks([]); }} className="underline">trocar</button>
+            </div>
+            <div className="border rounded-lg max-h-80 overflow-y-auto text-xs" style={{ borderColor: 'var(--border)' }}>
+              {icsTasks.slice(0, 50).map((t, i) => (
+                <div key={i} className="p-2 border-b" style={{ borderColor: 'var(--border)' }}>
+                  <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{t.title}</div>
+                  <div className="flex gap-2 mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    <span>{t.type || '—'}</span>
+                    {t.dueAt && <span>• {new Date(t.dueAt).toLocaleDateString('pt-PT')}</span>}
+                    {t.contact && <span>• {t.contact}</span>}
+                  </div>
+                </div>
+              ))}
+              {icsTasks.length > 50 && (
+                <div className="p-2 text-center" style={{ color: 'var(--text-muted)' }}>... e mais {icsTasks.length - 50}</div>
+              )}
+            </div>
+            <div className="text-[11px] p-2 rounded" style={{ background: '#FEF3C7', color: '#92400E' }}>
+              As tarefas vão ser criadas com o teu user como responsável.
+              Os contactos são ligados se já existirem no CRM (por nome). Senão a tarefa fica sem contacto associado.
+            </div>
+          </div>
         ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs" style={{ color: 'var(--text-secondary)' }}>
               <span>{file.name} ({previewRows.length}+ linhas)</span>
-              <button onClick={() => { setFile(null); setHeaders([]); setPreviewRows([]); setMapping({}); }} className="underline">trocar</button>
+              <button onClick={() => { setFile(null); setMode(null); setHeaders([]); setPreviewRows([]); setMapping({}); }} className="underline">trocar</button>
             </div>
 
             <div>
@@ -1215,8 +1339,8 @@ function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImpo
 
         <div className="flex gap-2 mt-4">
           <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
-          <button onClick={handleImport} disabled={!file || loading} className="btn btn-primary flex-1 py-2">
-            {loading ? <Loader2 size={16} className="animate-spin" /> : 'Importar'}
+          <button onClick={handleImport} disabled={!file || loading || (mode === 'ics' && icsTasks.length === 0)} className="btn btn-primary flex-1 py-2">
+            {loading ? <Loader2 size={16} className="animate-spin" /> : `Importar${mode === 'ics' ? ` ${icsTasks.length}` : ''}`}
           </button>
         </div>
       </div>
