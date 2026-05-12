@@ -380,7 +380,11 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
       }).filter((c) => c.firstName);
 
       const { data } = await api.post('/contacts/bulk', { contacts });
-      toast.success(`${data.created} contactos importados (${data.skipped} ignorados de ${data.total})`);
+      const parts = [];
+      if (data.created) parts.push(`${data.created} criados`);
+      if (data.updated) parts.push(`${data.updated} actualizados`);
+      if (data.skipped) parts.push(`${data.skipped} ignorados`);
+      toast.success(`Importacao: ${parts.join(', ')} (total ${data.total})`);
       onImported();
       onClose();
     } catch (err: any) {

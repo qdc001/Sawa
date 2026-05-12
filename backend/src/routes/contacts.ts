@@ -84,7 +84,10 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/contacts/bulk - importar lista
+// POST /api/contacts/bulk - importar lista (com deduplicação)
+// Se já existir contacto com o mesmo whatsapp, phone OU email no workspace,
+// faz UPDATE em vez de duplicar. Campos não-vazios da entrada sobrepoem-se;
+// campos vazios na entrada não apagam o que já existia.
 router.post('/bulk', async (req: AuthRequest, res: Response, next) => {
   try {
     const { contacts } = req.body;
@@ -92,37 +95,75 @@ router.post('/bulk', async (req: AuthRequest, res: Response, next) => {
       throw new AppError('Lista de contactos vazia', 400);
     }
     let created = 0;
+    let updated = 0;
     let skipped = 0;
     const errors: string[] = [];
+    const workspaceId = req.user!.workspaceId;
+
+    const norm = (v: any) => (v === undefined || v === null) ? null : String(v).trim() || null;
+    const onlyDigits = (v: any) => norm(v)?.replace(/\D/g, '') || null;
+
     for (const c of contacts) {
-      const firstName = (c.firstName || '').toString().trim();
+      const firstName = norm(c.firstName);
       if (!firstName) { skipped++; continue; }
+
+      // Normalizar phone/whatsapp para procurar (só dígitos)
+      const whatsappDigits = onlyDigits(c.whatsapp) || onlyDigits(c.phone);
+      const phoneDigits = onlyDigits(c.phone) || whatsappDigits;
+      const email = norm(c.email)?.toLowerCase() || null;
+
       try {
-        await prisma.contact.create({
-          data: {
-            type: c.type === 'COMPANY' ? 'COMPANY' : 'PERSON',
-            firstName,
-            lastName: (c.lastName || '').toString().trim() || null,
-            email: (c.email || '').toString().trim() || null,
-            phone: (c.phone || '').toString().trim() || null,
-            whatsapp: (c.whatsapp || '').toString().trim() || null,
-            company: (c.company || '').toString().trim() || null,
-            position: (c.position || '').toString().trim() || null,
-            website: (c.website || '').toString().trim() || null,
-            address: (c.address || '').toString().trim() || null,
-            city: (c.city || '').toString().trim() || null,
-            country: (c.country || '').toString().trim() || null,
-            notes: (c.notes || '').toString().trim() || null,
-            workspaceId: req.user!.workspaceId,
-          },
-        });
-        created++;
+        // Tentar encontrar existente
+        const orFilters: any[] = [];
+        if (whatsappDigits) orFilters.push({ whatsapp: whatsappDigits });
+        if (phoneDigits && phoneDigits !== whatsappDigits) orFilters.push({ phone: { contains: phoneDigits } });
+        if (email) orFilters.push({ email });
+        const existing = orFilters.length
+          ? await prisma.contact.findFirst({ where: { workspaceId, OR: orFilters } })
+          : null;
+
+        const fields: any = {
+          type: c.type === 'COMPANY' ? 'COMPANY' : 'PERSON',
+          firstName,
+          lastName: norm(c.lastName),
+          email,
+          phone: norm(c.phone),
+          whatsapp: whatsappDigits,
+          company: norm(c.company),
+          position: norm(c.position),
+          website: norm(c.website),
+          address: norm(c.address),
+          city: norm(c.city),
+          country: norm(c.country),
+          notes: norm(c.notes),
+        };
+
+        if (existing) {
+          // Merge: só sobrepoe se a entrada nova tiver valor não-vazio
+          const updates: any = {};
+          for (const [k, v] of Object.entries(fields)) {
+            if (v !== null && v !== '' && v !== undefined) updates[k] = v;
+          }
+          // Se o firstName actual parece placeholder (número/Contacto WhatsApp), sobrepor sempre
+          const looksLikePlaceholder =
+            !existing.firstName ||
+            /^\+?\d[\d\s]*$/.test(existing.firstName) ||
+            existing.firstName === 'Contacto WhatsApp';
+          if (!looksLikePlaceholder && fields.firstName === existing.firstName) {
+            delete updates.firstName;
+          }
+          await prisma.contact.update({ where: { id: existing.id }, data: updates });
+          updated++;
+        } else {
+          await prisma.contact.create({ data: { ...fields, workspaceId } });
+          created++;
+        }
       } catch (e: any) {
         skipped++;
-        if (errors.length < 5) errors.push(`Linha ${created + skipped}: ${e.message}`);
+        if (errors.length < 5) errors.push(`Linha ${created + updated + skipped}: ${e.message}`);
       }
     }
-    res.status(201).json({ created, skipped, total: contacts.length, errors });
+    res.status(201).json({ created, updated, skipped, total: contacts.length, errors });
   } catch (e) { next(e); }
 });
 

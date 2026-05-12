@@ -242,4 +242,136 @@ router.delete('/:id/tags/:tagId', async (req: AuthRequest, res: Response, next) 
   } catch (e) { next(e); }
 });
 
+// POST /api/tasks/bulk-import - importar lista de tarefas (ex: exportadas do Kommo)
+// Aceita um array `tasks` com campos flexíveis. Faz match de lead/contact por nome,
+// mapeia tipo/status/prioridade (PT e EN do Kommo), e usa o utilizador autenticado
+// como assignedTo por defeito quando não há match.
+router.post('/bulk-import', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { tasks } = req.body;
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      throw new AppError('Lista de tarefas vazia', 400);
+    }
+    const workspaceId = req.user!.workspaceId;
+    const fallbackUserId = req.user!.id;
+
+    // Caches para reduzir consultas
+    const usersByName = new Map<string, string>();
+    const users = await prisma.user.findMany({ where: { workspaceId }, select: { id: true, name: true, email: true } });
+    users.forEach((u) => {
+      usersByName.set(u.name.toLowerCase(), u.id);
+      if (u.email) usersByName.set(u.email.toLowerCase(), u.id);
+    });
+
+    const norm = (v: any) => (v === undefined || v === null) ? '' : String(v).trim();
+    const mapType = (raw: string): any => {
+      const v = raw.toLowerCase();
+      if (/chamada|call|liga[cç][aã]o|phone/.test(v)) return 'CALL';
+      if (/email|e-mail|mail/.test(v)) return 'EMAIL';
+      if (/reuni[aã]o|meet|encontro/.test(v)) return 'MEETING';
+      if (/follow|seguimento/.test(v)) return 'FOLLOW_UP';
+      if (/demo|apresenta/.test(v)) return 'DEMO';
+      return 'OTHER';
+    };
+    const mapStatus = (raw: string): any => {
+      const v = raw.toLowerCase();
+      if (/conclu[ií]da|complet|done|fechad|finaliz/.test(v)) return 'COMPLETED';
+      if (/cancel/.test(v)) return 'CANCELLED';
+      if (/progress|andamento|a fazer|in[_ ]?progress/.test(v)) return 'IN_PROGRESS';
+      return 'PENDING';
+    };
+    const mapPriority = (raw: string): any => {
+      const v = raw.toLowerCase();
+      if (/urgent/.test(v)) return 'URGENT';
+      if (/alta|high/.test(v)) return 'HIGH';
+      if (/baixa|low/.test(v)) return 'LOW';
+      return 'MEDIUM';
+    };
+    const parseDate = (raw: string): Date | null => {
+      if (!raw) return null;
+      const s = norm(raw);
+      // ISO directo
+      let d = new Date(s);
+      if (!isNaN(d.getTime())) return d;
+      // DD/MM/YYYY [HH:MM]
+      const m = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:[ T](\d{1,2}):(\d{2}))?/);
+      if (m) {
+        const [, dd, mm, yyyy, hh, mi] = m;
+        const year = yyyy.length === 2 ? 2000 + Number(yyyy) : Number(yyyy);
+        d = new Date(year, Number(mm) - 1, Number(dd), Number(hh || 9), Number(mi || 0));
+        if (!isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
+
+    let created = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const t of tasks) {
+      try {
+        const title = norm(t.title || t.text || t.Tarefa || t.descricao || t.Descrição || t.subject);
+        if (!title) { skipped++; continue; }
+
+        // Match de responsável
+        const respRaw = norm(t.responsibleUser || t.responsible || t.Responsável || t.responsavel || t.assignedTo);
+        const assignedToId = (respRaw && usersByName.get(respRaw.toLowerCase())) || fallbackUserId;
+
+        // Match de contacto por nome ou telefone
+        let contactId: string | null = null;
+        const contactRaw = norm(t.contact || t.Contacto || t.contactName);
+        const phoneRaw = norm(t.contactPhone || t.phone || t.Telefone).replace(/\D/g, '');
+        if (phoneRaw) {
+          const c = await prisma.contact.findFirst({ where: { workspaceId, OR: [{ whatsapp: phoneRaw }, { phone: { contains: phoneRaw } }] } });
+          if (c) contactId = c.id;
+        }
+        if (!contactId && contactRaw) {
+          const c = await prisma.contact.findFirst({ where: { workspaceId, firstName: { equals: contactRaw, mode: 'insensitive' } } });
+          if (c) contactId = c.id;
+        }
+
+        // Match de lead por título
+        let leadId: string | null = null;
+        const leadRaw = norm(t.lead || t.Lead || t.leadTitle || t.deal);
+        if (leadRaw) {
+          const l = await prisma.lead.findFirst({ where: { workspaceId, title: { equals: leadRaw, mode: 'insensitive' } } });
+          if (l) leadId = l.id;
+        }
+        // Se há contacto e nenhum lead explícito, tentar lead aberto desse contacto
+        if (!leadId && contactId) {
+          const l = await prisma.lead.findFirst({ where: { workspaceId, contactId, status: 'OPEN' } });
+          if (l) leadId = l.id;
+        }
+
+        const description = norm(t.description || t.notes || t.Notas) || null;
+        const taskType = mapType(norm(t.type || t.Tipo));
+        const status = mapStatus(norm(t.status || t.Estado));
+        const priority = mapPriority(norm(t.priority || t.Prioridade));
+        const dueAt = parseDate(norm(t.dueAt || t.dueDate || t.completeTill || t['Complete till'] || t.deadline || t.data || t.Data));
+        const completedAt = status === 'COMPLETED' ? parseDate(norm(t.completedAt || t.completed_at)) || new Date() : null;
+
+        await prisma.task.create({
+          data: {
+            title,
+            description,
+            type: taskType,
+            status,
+            priority,
+            dueAt,
+            completedAt,
+            assignedToId,
+            leadId,
+            contactId,
+          },
+        });
+        created++;
+      } catch (e: any) {
+        skipped++;
+        if (errors.length < 5) errors.push(`Linha ${created + skipped}: ${e.message}`);
+      }
+    }
+    res.status(201).json({ created, skipped, total: tasks.length, errors });
+  } catch (e) { next(e); }
+});
+
 export default router;

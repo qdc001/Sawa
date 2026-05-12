@@ -6,6 +6,7 @@ import nodemailer from 'nodemailer';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
+import { analysePhone, nameFromPushOrPhone } from '../lib/phoneFormat';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -453,21 +454,38 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
             const phone = remoteJid.split('@')[0].replace(/\D/g, '');
             if (!phone) { stats.errors++; continue; }
 
-            const pushName: string =
-              chat?.pushName || chat?.name || chat?.notify || chat?.subject || phone;
+            const rawPush: string =
+              chat?.pushName || chat?.name || chat?.notify || chat?.subject || '';
+            const phoneInfo = analysePhone(phone);
+            const displayName = nameFromPushOrPhone(rawPush, phone);
 
-            // 1.1) Contacto
-            let contact = await prisma.contact.findFirst({ where: { whatsapp: phone, workspaceId } });
+            // 1.1) Contacto — dedup por whatsapp (rawDigits), e quando muito longo (LID) tentamos também correspondência por nome+LID
+            let contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
             let createdContact = false;
             if (!contact) {
               contact = await prisma.contact.create({
-                data: { firstName: pushName, whatsapp: phone, phone, workspaceId, type: 'PERSON' },
+                data: {
+                  firstName: displayName,
+                  whatsapp: phoneInfo.rawDigits,
+                  phone: phoneInfo.isLid ? null : phoneInfo.display,
+                  workspaceId,
+                  type: 'PERSON',
+                },
               });
               createdContact = true;
               stats.contactsCreated++;
-            } else if (!contact.firstName || contact.firstName === phone) {
-              if (pushName && pushName !== phone) {
-                contact = await prisma.contact.update({ where: { id: contact.id }, data: { firstName: pushName } });
+            } else {
+              // Actualizar só se vier informação melhor: nome real onde estava número, ou phone formatado em falta
+              const updates: any = {};
+              const looksLikePlaceholder = !contact.firstName ||
+                /^\+?\d[\d\s]*$/.test(contact.firstName) ||
+                contact.firstName === 'Contacto WhatsApp';
+              if (rawPush && rawPush.trim() && looksLikePlaceholder) {
+                updates.firstName = displayName;
+              }
+              if (!contact.phone && !phoneInfo.isLid) updates.phone = phoneInfo.display;
+              if (Object.keys(updates).length) {
+                contact = await prisma.contact.update({ where: { id: contact.id }, data: updates });
                 stats.contactsUpdated++;
               }
             }
@@ -491,7 +509,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
             if (!lead && pipeline?.stages[0] && owner) {
               lead = await prisma.lead.create({
                 data: {
-                  title: `WhatsApp - ${pushName}`,
+                  title: `WhatsApp - ${displayName}`,
                   source: 'WhatsApp (importado)',
                   workspaceId,
                   pipelineId: pipeline.id,

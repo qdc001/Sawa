@@ -6,10 +6,10 @@ import {
 } from '@dnd-kit/core';
 import {
   Plus, Search, X, Loader2, Trash2, Edit3, Check, Calendar as CalIcon,
-  List as ListIcon, RotateCcw, AlertCircle, ExternalLink, Download,
+  List as ListIcon, RotateCcw, AlertCircle, ExternalLink, Download, Upload,
   Phone, Mail, Users as UsersIcon, Repeat, Briefcase, Circle,
   ChevronLeft, ChevronRight, CheckSquare, Square, MinusSquare,
-  Tags as TagsIcon, Layout, Flag, Clock, User as UserIcon, MessageSquare,
+  Tags as TagsIcon, Layout, Flag, Clock, User as UserIcon, MessageSquare, FileSpreadsheet,
 } from 'lucide-react';
 import api, {
   Task, User, Lead, Tag as TagType, Pipeline, Stage, TaskOption,
@@ -1044,6 +1044,186 @@ function ManageTagsModal({ tags, onClose, onChanged }: { tags: TagType[]; onClos
   );
 }
 
+// =============== Modal: Importar tarefas (CSV / Kommo) ===============
+function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [previewRows, setPreviewRows] = useState<string[][]>([]);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [delim, setDelim] = useState<',' | ';'>(',');
+
+  const TARGET_FIELDS = [
+    { key: 'title', label: 'Título / Texto *' },
+    { key: 'description', label: 'Descrição' },
+    { key: 'dueAt', label: 'Data limite' },
+    { key: 'type', label: 'Tipo (Chamada/Reunião/...)' },
+    { key: 'status', label: 'Estado' },
+    { key: 'priority', label: 'Prioridade' },
+    { key: 'responsibleUser', label: 'Responsável (nome ou email)' },
+    { key: 'contact', label: 'Contacto (nome)' },
+    { key: 'contactPhone', label: 'Telefone do contacto' },
+    { key: 'lead', label: 'Lead (título)' },
+  ];
+
+  const parseCSV = (text: string, sep: string): string[][] => {
+    const result: string[][] = [];
+    let row: string[] = [];
+    let cell = '';
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      const next = text[i + 1];
+      if (inQuotes) {
+        if (ch === '"' && next === '"') { cell += '"'; i++; }
+        else if (ch === '"') { inQuotes = false; }
+        else cell += ch;
+      } else {
+        if (ch === '"') inQuotes = true;
+        else if (ch === sep) { row.push(cell); cell = ''; }
+        else if (ch === '\n' || ch === '\r') {
+          if (cell !== '' || row.length > 0) { row.push(cell); result.push(row); row = []; cell = ''; }
+          if (ch === '\r' && next === '\n') i++;
+        } else cell += ch;
+      }
+    }
+    if (cell !== '' || row.length > 0) { row.push(cell); result.push(row); }
+    return result.filter((r) => r.some((c) => c.trim() !== ''));
+  };
+
+  const handleFile = async (f: File, sep: string = delim) => {
+    setFile(f);
+    let text = await f.text();
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    // Detectar separador auto se primeira linha tem ; mas não tem ,
+    let chosen = sep;
+    const firstLine = text.split('\n')[0] || '';
+    if (firstLine.includes(';') && !firstLine.includes(',')) { chosen = ';'; setDelim(';'); }
+    const parsed = parseCSV(text, chosen);
+    if (parsed.length === 0) { toast.error('CSV vazio'); return; }
+    const hdrs = parsed[0].map((h) => h.trim());
+    setHeaders(hdrs);
+    setPreviewRows(parsed.slice(1, 6));
+    // Auto-map (PT + EN + Kommo)
+    const auto: Record<string, string> = {};
+    TARGET_FIELDS.forEach(({ key }) => {
+      const lowered = hdrs.map((h) => h.toLowerCase());
+      const find = (...needles: string[]) => {
+        for (const n of needles) {
+          const idx = lowered.findIndex((h) => h === n || h.includes(n));
+          if (idx >= 0) return hdrs[idx];
+        }
+        return undefined;
+      };
+      let found: string | undefined;
+      if (key === 'title') found = find('título', 'titulo', 'title', 'texto', 'text', 'tarefa', 'task name', 'subject');
+      else if (key === 'description') found = find('descrição', 'descricao', 'description', 'notas', 'notes');
+      else if (key === 'dueAt') found = find('complete till', 'data limite', 'due date', 'due_at', 'data', 'deadline', 'date');
+      else if (key === 'type') found = find('tipo', 'type', 'task type');
+      else if (key === 'status') found = find('estado', 'status');
+      else if (key === 'priority') found = find('prioridade', 'priority');
+      else if (key === 'responsibleUser') found = find('responsável', 'responsavel', 'responsible', 'assignee', 'owner');
+      else if (key === 'contact') found = find('contacto', 'contato', 'contact');
+      else if (key === 'contactPhone') found = find('telefone', 'phone');
+      else if (key === 'lead') found = find('lead', 'deal', 'negócio', 'negocio');
+      if (found) auto[key] = found;
+    });
+    setMapping(auto);
+  };
+
+  const handleImport = async () => {
+    if (!file) return;
+    if (!mapping.title) { toast.error('Mapeia o campo Título'); return; }
+    setLoading(true);
+    try {
+      let text = await file.text();
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      const parsed = parseCSV(text, delim);
+      const all = parsed.slice(1);
+      const idx: Record<string, number> = {};
+      Object.keys(mapping).forEach((k) => { idx[k] = headers.indexOf(mapping[k]); });
+      const tasks = all.map((r) => {
+        const obj: any = {};
+        Object.keys(idx).forEach((k) => { if (idx[k] >= 0) obj[k] = r[idx[k]]; });
+        return obj;
+      }).filter((t) => t.title);
+
+      const { data } = await api.post('/tasks/bulk-import', { tasks });
+      toast.success(`${data.created} tarefas importadas (${data.skipped} ignoradas de ${data.total})`);
+      onImported();
+      onClose();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a importar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+      <div className="card p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Importar tarefas (CSV / Kommo)</h3>
+          <button onClick={onClose}><X size={20} style={{ color: 'var(--text-muted)' }} /></button>
+        </div>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
+          Aceita o export CSV de tarefas do Kommo (ou outro CRM). A primeira linha deve ter cabeçalhos.
+          Os cabeçalhos comuns (Texto, Responsável, Complete till, Tipo, Contacto, Lead, ...) são mapeados automaticamente.
+        </p>
+
+        {!file ? (
+          <label className="block">
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+            <div className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:bg-slate-50" style={{ borderColor: 'var(--border)' }}>
+              <FileSpreadsheet size={32} className="mx-auto mb-2" style={{ color: 'var(--text-muted)' }} />
+              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Clica para escolher um ficheiro CSV</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Suporta separadores , e ;</p>
+            </div>
+          </label>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs" style={{ color: 'var(--text-secondary)' }}>
+              <span>{file.name} ({previewRows.length}+ linhas)</span>
+              <button onClick={() => { setFile(null); setHeaders([]); setPreviewRows([]); setMapping({}); }} className="underline">trocar</button>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Mapeamento</p>
+              <div className="grid grid-cols-2 gap-2">
+                {TARGET_FIELDS.map(({ key, label }) => (
+                  <div key={key}>
+                    <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>{label}</label>
+                    <select
+                      value={mapping[key] || ''}
+                      onChange={(e) => setMapping({ ...mapping, [key]: e.target.value })}
+                      className="input-base text-xs py-1.5 w-full"
+                    >
+                      <option value="">(ignorar)</option>
+                      {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-[11px] p-2 rounded" style={{ background: '#FEF3C7', color: '#92400E' }}>
+              Tarefas sem responsável correspondente ficam atribuídas a ti.
+              Tipo/Estado/Prioridade são mapeados de PT/EN automaticamente.
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-4">
+          <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
+          <button onClick={handleImport} disabled={!file || loading} className="btn btn-primary flex-1 py-2">
+            {loading ? <Loader2 size={16} className="animate-spin" /> : 'Importar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // =============== Pagina principal ===============
 export default function TasksPage() {
   const navigate = useNavigate();
@@ -1073,6 +1253,7 @@ export default function TasksPage() {
   const [initialDate, setInitialDate] = useState<string | undefined>();
   const [editing, setEditing] = useState<Task | null>(null);
   const [showTagsManager, setShowTagsManager] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   // Selecao multipla
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -1311,6 +1492,9 @@ export default function TasksPage() {
               </button>
             ))}
           </div>
+          <button onClick={() => setImporting(true)} className="btn py-2 px-3" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }} title="Importar tarefas (CSV do Kommo ou outro)">
+            <Upload size={14} /> Importar
+          </button>
           <button onClick={() => { setInitialDate(undefined); setAdding(true); }} className="btn btn-primary py-2 px-3">
             <Plus size={14} /> Nova Tarefa
           </button>
@@ -1561,6 +1745,9 @@ export default function TasksPage() {
       )}
       {showTagsManager && (
         <ManageTagsModal tags={tags} onClose={() => setShowTagsManager(false)} onChanged={loadTags} />
+      )}
+      {importing && (
+        <ImportTasksModal onClose={() => setImporting(false)} onImported={loadTasks} />
       )}
     </div>
   );

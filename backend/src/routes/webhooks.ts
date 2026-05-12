@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
+import { analysePhone, nameFromPushOrPhone } from '../lib/phoneFormat';
 import fs from 'fs';
 import path from 'path';
 
@@ -561,13 +562,29 @@ router.post('/evolution', async (req: Request, res: Response) => {
           content = '[Mensagem]';
         }
 
-        // Encontrar/criar contacto
-        const contactName = m.pushName || phone;
-        let contact = await prisma.contact.findFirst({ where: { whatsapp: phone, workspaceId } });
+        // Encontrar/criar contacto (com formatação de número e detecção de LID)
+        const phoneInfo = analysePhone(phone);
+        const contactName = nameFromPushOrPhone(m.pushName, phone);
+        let contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
         if (!contact) {
           contact = await prisma.contact.create({
-            data: { firstName: contactName, whatsapp: phone, phone, workspaceId, type: 'PERSON' },
+            data: {
+              firstName: contactName,
+              whatsapp: phoneInfo.rawDigits,
+              phone: phoneInfo.isLid ? null : phoneInfo.display,
+              workspaceId,
+              type: 'PERSON',
+            },
           });
+        } else if (m.pushName && m.pushName.trim()) {
+          // Se já existia e o nome era um placeholder (número ou "Contacto WhatsApp"), actualiza
+          const looksLikePlaceholder =
+            !contact.firstName ||
+            /^\+?\d[\d\s]*$/.test(contact.firstName) ||
+            contact.firstName === 'Contacto WhatsApp';
+          if (looksLikePlaceholder && contactName !== contact.firstName) {
+            contact = await prisma.contact.update({ where: { id: contact.id }, data: { firstName: contactName } });
+          }
         }
 
         // Encontrar/criar lead aberto
