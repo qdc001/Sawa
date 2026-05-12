@@ -14,24 +14,50 @@ const contactInclude = {
 };
 
 // GET /api/contacts
+// Filtro de responsável considera 3 origens:
+//   1) Contact.assignedToId (atribuído directamente na ficha do contacto)
+//   2) ConversationMeta.assignedToId (atribuído na Caixa de Entrada, por canal)
+//   3) Lead.assignedToId (atribuído num lead deste contacto)
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { search, type, tagId, assignedToId, page = 1, limit = 50 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
-    const where: any = { workspaceId: req.user!.workspaceId };
-    if (type) where.type = type;
-    if (assignedToId === '__none__') where.assignedToId = null;
-    else if (assignedToId) where.assignedToId = assignedToId;
-    if (search) where.OR = [
-      { firstName: { contains: search as string, mode: 'insensitive' } },
-      { lastName: { contains: search as string, mode: 'insensitive' } },
-      { email: { contains: search as string, mode: 'insensitive' } },
-      { phone: { contains: search as string, mode: 'insensitive' } },
-      { whatsapp: { contains: search as string, mode: 'insensitive' } },
-      { company: { contains: search as string, mode: 'insensitive' } },
-    ];
-    if (tagId) where.tags = { some: { tagId: tagId as string } };
+    const workspaceId = req.user!.workspaceId;
+    const andFilters: any[] = [{ workspaceId }];
+    if (type) andFilters.push({ type });
+    if (tagId) andFilters.push({ tags: { some: { tagId: tagId as string } } });
 
+    if (assignedToId === '__none__') {
+      // Nenhuma das 3 origens atribuída
+      andFilters.push({
+        assignedToId: null,
+        conversationMetas: { none: { assignedToId: { not: null } } },
+        leads: { none: { assignedToId: { not: null } } },
+      });
+    } else if (assignedToId) {
+      andFilters.push({
+        OR: [
+          { assignedToId: assignedToId as string },
+          { conversationMetas: { some: { assignedToId: assignedToId as string } } },
+          { leads: { some: { assignedToId: assignedToId as string } } },
+        ],
+      });
+    }
+
+    if (search) {
+      andFilters.push({
+        OR: [
+          { firstName: { contains: search as string, mode: 'insensitive' } },
+          { lastName: { contains: search as string, mode: 'insensitive' } },
+          { email: { contains: search as string, mode: 'insensitive' } },
+          { phone: { contains: search as string, mode: 'insensitive' } },
+          { whatsapp: { contains: search as string, mode: 'insensitive' } },
+          { company: { contains: search as string, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const where = { AND: andFilters };
     const [contacts, total] = await Promise.all([
       prisma.contact.findMany({
         where, skip, take: Number(limit),
