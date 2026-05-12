@@ -20,7 +20,8 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
     const skip = (Number(page) - 1) * Number(limit);
     const where: any = { workspaceId: req.user!.workspaceId };
     if (type) where.type = type;
-    if (assignedToId) where.assignedToId = assignedToId;
+    if (assignedToId === '__none__') where.assignedToId = null;
+    else if (assignedToId) where.assignedToId = assignedToId;
     if (search) where.OR = [
       { firstName: { contains: search as string, mode: 'insensitive' } },
       { lastName: { contains: search as string, mode: 'insensitive' } },

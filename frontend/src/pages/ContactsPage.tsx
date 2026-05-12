@@ -799,10 +799,12 @@ export default function ContactsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tags, setTags] = useState<TagType[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
 
   const [search, setSearch] = useState(globalSearchQuery || '');
   const [typeFilter, setTypeFilter] = useState<'' | 'PERSON' | 'COMPANY'>('');
   const [tagFilter, setTagFilter] = useState<string>('');
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('');
   const [sortKey, setSortKey] = useState<SortKey>('firstName');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -840,6 +842,7 @@ export default function ContactsPage() {
   useEffect(() => {
     loadTags();
     api.get('/pipelines').then(({ data }) => setPipelinesForLead(Array.isArray(data) ? data : [])).catch(() => {});
+    api.get('/users').then(({ data }) => setUsers(Array.isArray(data) ? data : [])).catch(() => {});
   }, []);
 
   const loadContacts = () => {
@@ -847,6 +850,7 @@ export default function ContactsPage() {
     if (search.trim()) params.set('search', search.trim());
     if (typeFilter) params.set('type', typeFilter);
     if (tagFilter) params.set('tagId', tagFilter);
+    if (assigneeFilter) params.set('assignedToId', assigneeFilter);
     params.set('limit', String(PAGE_SIZE));
     params.set('page', String(page));
     setLoading(true);
@@ -863,10 +867,10 @@ export default function ContactsPage() {
     loadContacts();
     setSelectedIds(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, typeFilter, tagFilter, page]);
+  }, [search, typeFilter, tagFilter, assigneeFilter, page]);
 
   // Quando muda filtro de pesquisa, voltar à página 1
-  useEffect(() => { setPage(1); }, [search, typeFilter, tagFilter]);
+  useEffect(() => { setPage(1); }, [search, typeFilter, tagFilter, assigneeFilter]);
 
   const queryContactId = searchParams.get('contactId');
   useEffect(() => {
@@ -902,7 +906,7 @@ export default function ContactsPage() {
   const sortIcon = (key: SortKey) => sortKey !== key ? <ArrowUpDown size={12} /> : sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />;
 
   const resetFilters = () => {
-    setSearch(''); setGlobalSearchQuery(''); setTypeFilter(''); setTagFilter('');
+    setSearch(''); setGlobalSearchQuery(''); setTypeFilter(''); setTagFilter(''); setAssigneeFilter('');
   };
 
   const openEdit = async (contact: Contact) => {
@@ -1007,7 +1011,7 @@ export default function ContactsPage() {
     if (def) setPipelineForLead({ id: def.id, stageId: def.stages?.[0]?.id || '' });
   };
 
-  const hasFilters = !!(search || typeFilter || tagFilter);
+  const hasFilters = !!(search || typeFilter || tagFilter || assigneeFilter);
 
   return (
     <div className="flex flex-col h-full">
@@ -1049,6 +1053,11 @@ export default function ContactsPage() {
         <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="input-base" style={{ width: 'auto', minWidth: 140 }}>
           <option value="">Todas tags</option>
           {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="input-base" style={{ width: 'auto', minWidth: 160 }} title="Filtrar por responsável">
+          <option value="">Todos responsáveis</option>
+          <option value="__none__">— Sem responsável —</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
         </select>
         {hasFilters && (
           <button onClick={resetFilters} className="btn py-2 px-3" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>
