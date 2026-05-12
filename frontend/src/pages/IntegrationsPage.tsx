@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
-import { MessageCircle, Mail, Globe, CheckCircle2, Settings, Loader2, X, Plus, Trash2, Send, QrCode, Power, RefreshCw, Smartphone } from 'lucide-react';
+import { MessageCircle, Mail, Globe, CheckCircle2, Settings, Loader2, X, Plus, Trash2, Send, QrCode, Power, RefreshCw, Smartphone, Download } from 'lucide-react';
 import api, { IntegrationItem } from '../lib/api';
 import toast from 'react-hot-toast';
+import { getSocket } from '../lib/socket';
 
 type IntegrationType = 'WHATSAPP_CLOUD' | 'EVOLUTION' | 'EMAIL' | 'INSTAGRAM' | 'FACEBOOK' | 'TIKTOK';
 
@@ -278,6 +279,10 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
   const [refreshing, setRefreshing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const pollRef = useRef<any>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number; contactsCreated: number; messagesImported: number } | null>(null);
+  const [syncPromptShown, setSyncPromptShown] = useState(false);
+  const lastSyncAt: string | null = (existing?.credentials as any)?.lastSyncAt || null;
 
   const saveConfig = async () => {
     if (!baseUrl || !apiKey) { toast.error('URL base e API key obrigatórios'); return; }
@@ -368,6 +373,60 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
     }
   }, [step]);
 
+  // Sync de conversas existentes
+  const startSync = async (silent = false) => {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncProgress({ current: 0, total: 0, contactsCreated: 0, messagesImported: 0 });
+    try {
+      await api.post('/integrations/evolution/sync-chats', {});
+      if (!silent) toast.success('Sincronização iniciada — vai aparecendo na Caixa de Entrada');
+    } catch (e: any) {
+      setSyncing(false);
+      setSyncProgress(null);
+      toast.error(e.response?.data?.error || e.response?.data?.message || 'Erro ao iniciar sincronização');
+    }
+  };
+
+  // Listener de progresso da sync
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    const onSync = (p: any) => {
+      if (p.stage === 'chats_listed') {
+        setSyncProgress((prev) => ({ ...(prev || { contactsCreated: 0, messagesImported: 0, current: 0, total: 0 }), total: p.total || 0 }));
+      } else if (p.stage === 'progress') {
+        setSyncProgress({
+          current: p.current || 0,
+          total: p.total || 0,
+          contactsCreated: p.contactsCreated || 0,
+          messagesImported: p.messagesImported || 0,
+        });
+      } else if (p.stage === 'done') {
+        setSyncing(false);
+        setSyncProgress(null);
+        toast.success(`Importadas ${p.messagesImported} mensagens de ${p.chatsScanned} conversas`);
+        onChanged();
+      } else if (p.stage === 'error') {
+        setSyncing(false);
+        setSyncProgress(null);
+        toast.error('Sincronização falhou: ' + (p.error || 'erro desconhecido'));
+      }
+    };
+    socket.on('evolution:sync', onSync);
+    return () => { socket.off('evolution:sync', onSync); };
+  }, [onChanged]);
+
+  // Prompt automático: assim que liga (state=open) e ainda nunca sincronizou
+  useEffect(() => {
+    if (state === 'open' && !lastSyncAt && !syncPromptShown && !syncing) {
+      setSyncPromptShown(true);
+      if (confirm('WhatsApp ligado! Queres importar agora todas as conversas existentes para o CRM? (Pode demorar alguns minutos)')) {
+        startSync();
+      }
+    }
+  }, [state, lastSyncAt, syncPromptShown, syncing]);
+
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
       <div className="card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
@@ -432,9 +491,53 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
                 <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
                   Instância: <code>{instanceName}</code>
                 </p>
+
+                {/* Importar conversas existentes */}
+                <div className="mb-4 p-3 rounded-lg text-left" style={{ background: 'var(--surface-2)' }}>
+                  <p className="text-xs font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                    Importar conversas existentes
+                  </p>
+                  <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+                    Traz para a Caixa de Entrada todas as conversas, contactos e últimas mensagens já presentes no WhatsApp deste número.
+                    {lastSyncAt && <> Última: {new Date(lastSyncAt).toLocaleString('pt-PT')}.</>}
+                  </p>
+
+                  {syncing && syncProgress ? (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                        <span>
+                          {syncProgress.total > 0
+                            ? `${syncProgress.current}/${syncProgress.total} conversas`
+                            : 'A listar conversas...'}
+                        </span>
+                        <span>{syncProgress.messagesImported} msgs</span>
+                      </div>
+                      {syncProgress.total > 0 && (
+                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+                          <div
+                            className="h-full transition-all"
+                            style={{
+                              background: '#25D366',
+                              width: `${Math.min(100, (syncProgress.current / syncProgress.total) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => startSync()}
+                      className="btn text-xs py-1.5 w-full"
+                      style={{ background: '#25D366', color: 'white' }}
+                    >
+                      <Download size={12} /> {lastSyncAt ? 'Sincronizar novamente' : 'Importar agora'}
+                    </button>
+                  )}
+                </div>
+
                 <button
                   onClick={disconnect}
-                  disabled={disconnecting}
+                  disabled={disconnecting || syncing}
                   className="btn text-xs py-2 px-4 mx-auto"
                   style={{ background: '#FEF2F2', color: '#EF4444' }}
                 >

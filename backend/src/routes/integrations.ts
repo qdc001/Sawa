@@ -364,6 +364,276 @@ router.post('/evolution/presence', async (req: AuthRequest, res: Response, next)
   } catch (e) { next(e); }
 });
 
+// POST /api/integrations/evolution/sync-chats
+// Importa conversas/contactos/mensagens existentes do WhatsApp para o CRM.
+// Corre em background; progresso emitido via socket.io (evento `evolution:sync`).
+router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { limitChats, messagesPerChat, fetchAvatars } = req.body || {};
+    const maxChats = Math.min(Number(limitChats) || 500, 2000);
+    const msgsPerChat = Math.min(Number(messagesPerChat) || 50, 200);
+    const wantAvatars = fetchAvatars !== false;
+
+    const integration = await prisma.integration.findFirst({
+      where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
+    });
+    if (!integration) throw new AppError('Evolution não configurada', 400);
+    const creds: any = integration.credentials || {};
+    if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
+      throw new AppError('Configuração Evolution incompleta', 400);
+    }
+
+    const workspaceId = req.user!.workspaceId;
+    const userId = req.user!.id;
+    const io = (global as any).io;
+
+    // Já há sync a correr para este workspace? (lock simples em memória)
+    const lockKey = `__evoSyncLock_${workspaceId}`;
+    if ((global as any)[lockKey]) {
+      return res.status(409).json({ error: 'Já existe uma sincronização em curso para este workspace' });
+    }
+    (global as any)[lockKey] = true;
+
+    res.status(202).json({ started: true, maxChats, msgsPerChat });
+
+    // === Background job ===
+    (async () => {
+      const emit = (payload: any) => {
+        if (io) io.to(`workspace:${workspaceId}`).emit('evolution:sync', payload);
+      };
+      const stats = { chatsScanned: 0, contactsCreated: 0, contactsUpdated: 0, leadsCreated: 0, messagesImported: 0, messagesSkipped: 0, errors: 0 };
+
+      try {
+        emit({ stage: 'started', maxChats, msgsPerChat });
+
+        // 1) Buscar lista de chats (tenta v2 primeiro, depois v1)
+        let chats: any[] = [];
+        try {
+          const r = await evolutionFetch(creds, `/chat/findChats/${creds.instanceName}`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+          chats = Array.isArray(r) ? r : (r?.chats || r?.data || []);
+        } catch (e1: any) {
+          try {
+            const r = await evolutionFetch(creds, `/chat/findChats/${creds.instanceName}`, { method: 'GET' });
+            chats = Array.isArray(r) ? r : (r?.chats || r?.data || []);
+          } catch (e2: any) {
+            throw new AppError(`Não foi possível listar chats: ${e1.message}`, 502);
+          }
+        }
+
+        // Filtrar grupos e limitar
+        chats = chats
+          .filter((c: any) => {
+            const jid = c?.remoteJid || c?.id || c?.chatId || '';
+            return jid && !String(jid).endsWith('@g.us') && !String(jid).endsWith('@broadcast');
+          })
+          .slice(0, maxChats);
+
+        emit({ stage: 'chats_listed', total: chats.length });
+
+        // Pipeline default + owner (uma vez)
+        const pipeline = await prisma.pipeline.findFirst({
+          where: { workspaceId, isDefault: true },
+          include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
+        });
+        const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
+
+        for (let i = 0; i < chats.length; i++) {
+          const chat = chats[i];
+          stats.chatsScanned++;
+
+          try {
+            const remoteJid: string = chat?.remoteJid || chat?.id || chat?.chatId || '';
+            const phone = remoteJid.split('@')[0].replace(/\D/g, '');
+            if (!phone) { stats.errors++; continue; }
+
+            const pushName: string =
+              chat?.pushName || chat?.name || chat?.notify || chat?.subject || phone;
+
+            // 1.1) Contacto
+            let contact = await prisma.contact.findFirst({ where: { whatsapp: phone, workspaceId } });
+            let createdContact = false;
+            if (!contact) {
+              contact = await prisma.contact.create({
+                data: { firstName: pushName, whatsapp: phone, phone, workspaceId, type: 'PERSON' },
+              });
+              createdContact = true;
+              stats.contactsCreated++;
+            } else if (!contact.firstName || contact.firstName === phone) {
+              if (pushName && pushName !== phone) {
+                contact = await prisma.contact.update({ where: { id: contact.id }, data: { firstName: pushName } });
+                stats.contactsUpdated++;
+              }
+            }
+
+            // 1.2) Avatar (best-effort)
+            if (wantAvatars && createdContact && !contact.avatar) {
+              try {
+                const pic = await evolutionFetch(creds, `/chat/fetchProfilePictureUrl/${creds.instanceName}`, {
+                  method: 'POST',
+                  body: JSON.stringify({ number: phone }),
+                });
+                const url = pic?.profilePictureUrl || pic?.url;
+                if (url && typeof url === 'string') {
+                  await prisma.contact.update({ where: { id: contact.id }, data: { avatar: url } });
+                }
+              } catch { /* silent */ }
+            }
+
+            // 1.3) Lead aberto
+            let lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
+            if (!lead && pipeline?.stages[0] && owner) {
+              lead = await prisma.lead.create({
+                data: {
+                  title: `WhatsApp - ${pushName}`,
+                  source: 'WhatsApp (importado)',
+                  workspaceId,
+                  pipelineId: pipeline.id,
+                  stageId: pipeline.stages[0].id,
+                  contactId: contact.id,
+                  createdById: owner.id,
+                },
+              });
+              stats.leadsCreated++;
+            }
+
+            // 1.4) Mensagens recentes deste chat
+            let messages: any[] = [];
+            try {
+              const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  where: { key: { remoteJid } },
+                  limit: msgsPerChat,
+                }),
+              });
+              messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
+            } catch { /* tenta variante v1 */ }
+
+            if (messages.length === 0) {
+              try {
+                const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}?limit=${msgsPerChat}&remoteJid=${encodeURIComponent(remoteJid)}`, { method: 'GET' });
+                messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
+              } catch { /* silent */ }
+            }
+
+            // Ordenar mais antigas primeiro
+            messages.sort((a: any, b: any) => {
+              const ta = Number(a?.messageTimestamp || a?.timestamp || 0);
+              const tb = Number(b?.messageTimestamp || b?.timestamp || 0);
+              return ta - tb;
+            });
+
+            for (const m of messages) {
+              try {
+                const externalId: string | undefined = m?.key?.id || m?.id;
+                if (!externalId) { stats.messagesSkipped++; continue; }
+
+                // Skip se já existe
+                const exists = await prisma.message.findFirst({ where: { externalId }, select: { id: true } });
+                if (exists) { stats.messagesSkipped++; continue; }
+
+                const fromMe = !!m?.key?.fromMe;
+                const msg = m?.message || {};
+                const unwrapped =
+                  msg.ephemeralMessage?.message ||
+                  msg.viewOnceMessage?.message ||
+                  msg.viewOnceMessageV2?.message ||
+                  msg.documentWithCaptionMessage?.message ||
+                  msg;
+
+                let content = '';
+                let msgType: any = 'TEXT';
+
+                if (unwrapped.conversation || msg.conversation) {
+                  content = unwrapped.conversation || msg.conversation;
+                } else if (unwrapped.extendedTextMessage?.text || msg.extendedTextMessage?.text) {
+                  content = unwrapped.extendedTextMessage?.text || msg.extendedTextMessage?.text;
+                } else if (unwrapped.imageMessage || msg.imageMessage) {
+                  msgType = 'IMAGE';
+                  content = (unwrapped.imageMessage || msg.imageMessage)?.caption || '[Imagem]';
+                } else if (unwrapped.videoMessage || msg.videoMessage) {
+                  msgType = 'VIDEO';
+                  content = (unwrapped.videoMessage || msg.videoMessage)?.caption || '[Vídeo]';
+                } else if (unwrapped.audioMessage || msg.audioMessage) {
+                  msgType = 'AUDIO'; content = '[Áudio]';
+                } else if (unwrapped.documentMessage || msg.documentMessage) {
+                  msgType = 'DOCUMENT';
+                  content = (unwrapped.documentMessage || msg.documentMessage)?.fileName || '[Documento]';
+                } else if (msg.locationMessage) {
+                  msgType = 'LOCATION';
+                  content = `Localização: ${msg.locationMessage.degreesLatitude}, ${msg.locationMessage.degreesLongitude}`;
+                } else if (msg.stickerMessage) {
+                  msgType = 'IMAGE'; content = '[Sticker]';
+                } else if (msg.protocolMessage) {
+                  stats.messagesSkipped++; continue; // mensagens de sistema/protocol (apagadas, etc)
+                } else {
+                  content = '[Mensagem]';
+                }
+
+                const ts = Number(m?.messageTimestamp || m?.timestamp || 0);
+                const createdAt = ts > 0 ? new Date(ts * 1000) : new Date();
+
+                await prisma.message.create({
+                  data: {
+                    content,
+                    type: msgType,
+                    direction: fromMe ? 'OUTBOUND' : 'INBOUND',
+                    channel: 'WHATSAPP',
+                    status: fromMe ? 'SENT' : 'DELIVERED',
+                    externalId,
+                    leadId: lead?.id,
+                    contactId: contact.id,
+                    createdAt,
+                  },
+                });
+                stats.messagesImported++;
+              } catch (eMsg: any) {
+                stats.errors++;
+                console.error('sync-chats message error:', eMsg.message);
+              }
+            }
+          } catch (eChat: any) {
+            stats.errors++;
+            console.error('sync-chats chat error:', eChat.message);
+          }
+
+          // Emitir progresso a cada 5 chats
+          if ((i + 1) % 5 === 0 || i === chats.length - 1) {
+            emit({ stage: 'progress', current: i + 1, total: chats.length, ...stats });
+          }
+        }
+
+        // Marcar sync como feita
+        await prisma.integration.update({
+          where: { id: integration.id },
+          data: { credentials: { ...creds, lastSyncAt: new Date().toISOString(), lastSyncStats: stats } },
+        });
+
+        emit({ stage: 'done', ...stats });
+
+        // Notificação no CRM
+        await prisma.notification.create({
+          data: {
+            userId,
+            title: 'Sincronização WhatsApp concluída',
+            body: `${stats.chatsScanned} conversas, ${stats.contactsCreated} contactos novos, ${stats.messagesImported} mensagens importadas.`,
+            type: 'evolution_sync',
+            link: '/inbox',
+          },
+        }).catch(() => {});
+      } catch (e: any) {
+        console.error('sync-chats fatal:', e);
+        emit({ stage: 'error', error: e.message, ...stats });
+      } finally {
+        delete (global as any)[lockKey];
+      }
+    })();
+  } catch (e) { next(e); }
+});
+
 // POST /api/integrations/evolution/disconnect - logout / desliga a sessão
 router.post('/evolution/disconnect', async (req: AuthRequest, res: Response, next) => {
   try {
