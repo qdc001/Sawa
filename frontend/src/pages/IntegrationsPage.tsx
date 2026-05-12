@@ -374,12 +374,17 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
   }, [step]);
 
   // Sync de conversas existentes
-  const startSync = async (silent = false) => {
+  // limitChats=0, messagesPerChat=0 => sem limites
+  const startSync = async (silent = false, opts?: { limitChats?: number; messagesPerChat?: number; throttleMs?: number }) => {
     if (syncing) return;
     setSyncing(true);
     setSyncProgress({ current: 0, total: 0, contactsCreated: 0, messagesImported: 0 });
     try {
-      await api.post('/integrations/evolution/sync-chats', {});
+      await api.post('/integrations/evolution/sync-chats', {
+        limitChats: opts?.limitChats ?? 0,
+        messagesPerChat: opts?.messagesPerChat ?? 0,
+        throttleMs: opts?.throttleMs ?? 200,
+      });
       if (!silent) toast.success('Sincronização iniciada — vai aparecendo na Caixa de Entrada');
     } catch (e: any) {
       setSyncing(false);
@@ -421,7 +426,7 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
   useEffect(() => {
     if (state === 'open' && !lastSyncAt && !syncPromptShown && !syncing) {
       setSyncPromptShown(true);
-      if (confirm('WhatsApp ligado! Queres importar agora todas as conversas existentes para o CRM? (Pode demorar alguns minutos)')) {
+      if (confirm('WhatsApp ligado! Queres importar agora TODAS as conversas existentes (sem limite) para o CRM? Pode demorar vários minutos.')) {
         startSync();
       }
     }
@@ -498,7 +503,8 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
                     Importar conversas existentes
                   </p>
                   <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
-                    Traz para a Caixa de Entrada todas as conversas, contactos e últimas mensagens já presentes no WhatsApp deste número.
+                    Traz para a Caixa de Entrada <strong>todas</strong> as conversas, contactos e mensagens disponíveis no WhatsApp deste número (sem limite).
+                    Pode demorar vários minutos consoante o histórico.
                     {lastSyncAt && <> Última: {new Date(lastSyncAt).toLocaleString('pt-PT')}.</>}
                   </p>
 

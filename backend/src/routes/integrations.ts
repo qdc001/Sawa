@@ -369,10 +369,14 @@ router.post('/evolution/presence', async (req: AuthRequest, res: Response, next)
 // Corre em background; progresso emitido via socket.io (evento `evolution:sync`).
 router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { limitChats, messagesPerChat, fetchAvatars } = req.body || {};
-    const maxChats = Math.min(Number(limitChats) || 500, 2000);
-    const msgsPerChat = Math.min(Number(messagesPerChat) || 50, 200);
+    const { limitChats, messagesPerChat, fetchAvatars, throttleMs } = req.body || {};
+    // 0 ou null = ilimitado. Sem valor = default conservador.
+    const rawChats = limitChats === undefined ? 500 : Number(limitChats);
+    const rawMsgs = messagesPerChat === undefined ? 50 : Number(messagesPerChat);
+    const maxChats = !rawChats || rawChats <= 0 ? Number.MAX_SAFE_INTEGER : rawChats;
+    const msgsPerChat = !rawMsgs || rawMsgs <= 0 ? Number.MAX_SAFE_INTEGER : rawMsgs;
     const wantAvatars = fetchAvatars !== false;
+    const sleepMs = Math.max(0, Number(throttleMs) || 0);
 
     const integration = await prisma.integration.findFirst({
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
@@ -499,22 +503,24 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
               stats.leadsCreated++;
             }
 
-            // 1.4) Mensagens recentes deste chat
+            // 1.4) Mensagens deste chat
+            // Se msgsPerChat for finito, mandamos `limit`. Se for ilimitado, omitimos para o servidor devolver o máximo.
+            const limitedMode = msgsPerChat !== Number.MAX_SAFE_INTEGER;
             let messages: any[] = [];
             try {
+              const body: any = { where: { key: { remoteJid } } };
+              if (limitedMode) body.limit = msgsPerChat;
               const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}`, {
                 method: 'POST',
-                body: JSON.stringify({
-                  where: { key: { remoteJid } },
-                  limit: msgsPerChat,
-                }),
+                body: JSON.stringify(body),
               });
               messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
             } catch { /* tenta variante v1 */ }
 
             if (messages.length === 0) {
               try {
-                const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}?limit=${msgsPerChat}&remoteJid=${encodeURIComponent(remoteJid)}`, { method: 'GET' });
+                const qs = limitedMode ? `limit=${msgsPerChat}&` : '';
+                const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}?${qs}remoteJid=${encodeURIComponent(remoteJid)}`, { method: 'GET' });
                 messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
               } catch { /* silent */ }
             }
@@ -603,6 +609,11 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
           // Emitir progresso a cada 5 chats
           if ((i + 1) % 5 === 0 || i === chats.length - 1) {
             emit({ stage: 'progress', current: i + 1, total: chats.length, ...stats });
+          }
+
+          // Pausa entre chats para não rebentar a Evolution / DB em syncs grandes
+          if (sleepMs > 0 && i < chats.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, sleepMs));
           }
         }
 
