@@ -438,6 +438,44 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
 
         emit({ stage: 'chats_listed', total: chats.length });
 
+        // 1.5) Buscar lista global de contactos da Evolution (fonte fiável para nomes)
+        // e indexar por número (rawDigits). Inclui pushName/verifiedName/name.
+        const evoContactsByPhone: Map<string, any> = new Map();
+        try {
+          const r = await evolutionFetch(creds, `/chat/findContacts/${creds.instanceName}`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+          const list = Array.isArray(r) ? r : (r?.contacts || r?.data || []);
+          for (const ec of list) {
+            const jid = ec?.remoteJid || ec?.id || '';
+            const phone = String(jid).split('@')[0].replace(/\D/g, '');
+            if (phone) evoContactsByPhone.set(phone, ec);
+          }
+        } catch { /* opcional */ }
+
+        // 1.6) Detectar nome do dono da instância (para tratar como placeholder se aparecer como nome de contacto)
+        let ownerName: string | null = null;
+        try {
+          const r = await evolutionFetch(creds, `/instance/fetchInstances?instanceName=${creds.instanceName}`, { method: 'GET' });
+          const arr = Array.isArray(r) ? r : (r?.instances || [r]);
+          const inst = arr.find((x: any) =>
+            (x?.instance?.instanceName || x?.name || x?.instanceName) === creds.instanceName
+          ) || arr[0];
+          ownerName = inst?.instance?.profileName || inst?.profileName || inst?.owner?.pushName || null;
+          if (ownerName) ownerName = ownerName.trim();
+        } catch { /* opcional */ }
+
+        const isPlaceholderName = (name: string | null | undefined): boolean => {
+          if (!name) return true;
+          const trimmed = name.trim();
+          if (!trimmed) return true;
+          if (trimmed === 'Contacto WhatsApp') return true;
+          if (/^\+?\d[\d\s]*$/.test(trimmed)) return true; // só dígitos/espaços/+
+          if (ownerName && trimmed.toLowerCase() === ownerName.toLowerCase()) return true;
+          return false;
+        };
+
         // Pipeline default + owner (uma vez)
         const pipeline = await prisma.pipeline.findFirst({
           where: { workspaceId, isDefault: true },
@@ -454,12 +492,21 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
             const phone = remoteJid.split('@')[0].replace(/\D/g, '');
             if (!phone) { stats.errors++; continue; }
 
-            const rawPush: string =
-              chat?.pushName || chat?.name || chat?.notify || chat?.subject || '';
+            // Fonte do nome (em ordem de preferência):
+            // 1) pushName do contacto na lista global (mais fiável)
+            // 2) chat.notify / chat.name / chat.subject
+            // 3) Nunca chat.pushName — vimos casos em que devolve o nome do dono
+            const evoContact = evoContactsByPhone.get(phone);
+            let rawPush: string =
+              (evoContact?.pushName || evoContact?.verifiedName || evoContact?.name || '').trim() ||
+              (chat?.notify || chat?.name || chat?.subject || '').trim();
+            // Descartar se for o nome do dono (placeholder)
+            if (rawPush && ownerName && rawPush.toLowerCase() === ownerName.toLowerCase()) rawPush = '';
+
             const phoneInfo = analysePhone(phone);
             const displayName = nameFromPushOrPhone(rawPush, phone);
 
-            // 1.1) Contacto — dedup por whatsapp (rawDigits), e quando muito longo (LID) tentamos também correspondência por nome+LID
+            // 1.1) Contacto — dedup por whatsapp (rawDigits)
             let contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
             let createdContact = false;
             if (!contact) {
@@ -475,13 +522,12 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
               createdContact = true;
               stats.contactsCreated++;
             } else {
-              // Actualizar só se vier informação melhor: nome real onde estava número, ou phone formatado em falta
               const updates: any = {};
-              const looksLikePlaceholder = !contact.firstName ||
-                /^\+?\d[\d\s]*$/.test(contact.firstName) ||
-                contact.firstName === 'Contacto WhatsApp';
-              if (rawPush && rawPush.trim() && looksLikePlaceholder) {
+              if (rawPush && isPlaceholderName(contact.firstName)) {
                 updates.firstName = displayName;
+              } else if (isPlaceholderName(contact.firstName) && contact.firstName !== displayName) {
+                // Sem pushName novo mas o actual era do dono / número cru — substituir por número formatado
+                updates.firstName = phoneInfo.fallbackName;
               }
               if (!contact.phone && !phoneInfo.isLid) updates.phone = phoneInfo.display;
               if (Object.keys(updates).length) {
@@ -635,10 +681,17 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
           }
         }
 
-        // Marcar sync como feita
+        // Marcar sync como feita + persistir nome do dono
         await prisma.integration.update({
           where: { id: integration.id },
-          data: { credentials: { ...creds, lastSyncAt: new Date().toISOString(), lastSyncStats: stats } },
+          data: {
+            credentials: {
+              ...creds,
+              lastSyncAt: new Date().toISOString(),
+              lastSyncStats: stats,
+              ...(ownerName ? { ownerName } : {}),
+            },
+          },
         });
 
         emit({ stage: 'done', ...stats });
@@ -660,6 +713,87 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
         delete (global as any)[lockKey];
       }
     })();
+  } catch (e) { next(e); }
+});
+
+// POST /api/integrations/evolution/fix-names
+// Arruma contactos que ficaram com o nome do dono do WhatsApp (ex: "Arquimedes Bruno") ou outros placeholders.
+// Para cada contacto cujo nome bate com o ownerName, substitui pelo número formatado (ou pushName se tivermos).
+router.post('/evolution/fix-names', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const integration = await prisma.integration.findFirst({
+      where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
+    });
+    if (!integration) throw new AppError('Evolution não configurada', 400);
+    const creds: any = integration.credentials || {};
+
+    // 1) Determinar ownerName (preferir o que está em creds, senão buscar)
+    let ownerName: string | null = (creds.ownerName || '').trim() || null;
+    if (!ownerName && creds.baseUrl && creds.apiKey && creds.instanceName) {
+      try {
+        const r = await evolutionFetch(creds, `/instance/fetchInstances?instanceName=${creds.instanceName}`, { method: 'GET' });
+        const arr = Array.isArray(r) ? r : (r?.instances || [r]);
+        const inst = arr.find((x: any) =>
+          (x?.instance?.instanceName || x?.name || x?.instanceName) === creds.instanceName
+        ) || arr[0];
+        ownerName = (inst?.instance?.profileName || inst?.profileName || inst?.owner?.pushName || '').trim() || null;
+        if (ownerName) {
+          await prisma.integration.update({ where: { id: integration.id }, data: { credentials: { ...creds, ownerName } } });
+        }
+      } catch { /* silent */ }
+    }
+
+    // 2) Buscar índice de contactos da Evolution (para tentar atribuir nome real)
+    const evoContactsByPhone = new Map<string, any>();
+    if (creds.baseUrl && creds.apiKey && creds.instanceName) {
+      try {
+        const r = await evolutionFetch(creds, `/chat/findContacts/${creds.instanceName}`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+        const list = Array.isArray(r) ? r : (r?.contacts || r?.data || []);
+        for (const ec of list) {
+          const jid = ec?.remoteJid || ec?.id || '';
+          const phone = String(jid).split('@')[0].replace(/\D/g, '');
+          if (phone) evoContactsByPhone.set(phone, ec);
+        }
+      } catch { /* silent */ }
+    }
+
+    // 3) Encontrar candidatos: contactos com firstName == ownerName OU placeholder de número OU "Contacto WhatsApp"
+    const where: any = { workspaceId };
+    const ors: any[] = [
+      { firstName: 'Contacto WhatsApp' },
+    ];
+    if (ownerName) ors.push({ firstName: { equals: ownerName, mode: 'insensitive' } });
+    where.OR = ors;
+
+    const candidates = await prisma.contact.findMany({ where });
+
+    let fixed = 0;
+    let skipped = 0;
+    for (const c of candidates) {
+      try {
+        const phone = (c.whatsapp || '').replace(/\D/g, '');
+        if (!phone) { skipped++; continue; }
+        const evoContact = evoContactsByPhone.get(phone);
+        let push: string = (evoContact?.pushName || evoContact?.verifiedName || evoContact?.name || '').trim();
+        if (push && ownerName && push.toLowerCase() === ownerName.toLowerCase()) push = '';
+        const phoneInfo = analysePhone(phone);
+        const newName = push || phoneInfo.fallbackName;
+        if (newName && newName !== c.firstName) {
+          await prisma.contact.update({ where: { id: c.id }, data: { firstName: newName } });
+          fixed++;
+        } else {
+          skipped++;
+        }
+      } catch {
+        skipped++;
+      }
+    }
+
+    res.json({ ownerName, candidates: candidates.length, fixed, skipped });
   } catch (e) { next(e); }
 });
 

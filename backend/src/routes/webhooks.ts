@@ -564,7 +564,13 @@ router.post('/evolution', async (req: Request, res: Response) => {
 
         // Encontrar/criar contacto (com formatação de número e detecção de LID)
         const phoneInfo = analysePhone(phone);
-        const contactName = nameFromPushOrPhone(m.pushName, phone);
+        // Descartar pushName se for o do dono da instância (guardado em creds.ownerName)
+        const ownerName: string | null = (matched.credentials as any)?.ownerName || null;
+        const incomingPush =
+          m.pushName && ownerName && String(m.pushName).trim().toLowerCase() === ownerName.toLowerCase()
+            ? ''
+            : (m.pushName || '');
+        const contactName = nameFromPushOrPhone(incomingPush, phone);
         let contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
         if (!contact) {
           contact = await prisma.contact.create({
@@ -576,13 +582,15 @@ router.post('/evolution', async (req: Request, res: Response) => {
               type: 'PERSON',
             },
           });
-        } else if (m.pushName && m.pushName.trim()) {
-          // Se já existia e o nome era um placeholder (número ou "Contacto WhatsApp"), actualiza
+        } else if (incomingPush && incomingPush.trim()) {
+          // Substitui nome só se o actual for placeholder (numero/Contacto WhatsApp/ownerName)
+          const trimmed = (contact.firstName || '').trim();
           const looksLikePlaceholder =
-            !contact.firstName ||
-            /^\+?\d[\d\s]*$/.test(contact.firstName) ||
-            contact.firstName === 'Contacto WhatsApp';
-          if (looksLikePlaceholder && contactName !== contact.firstName) {
+            !trimmed ||
+            /^\+?\d[\d\s]*$/.test(trimmed) ||
+            trimmed === 'Contacto WhatsApp' ||
+            (!!ownerName && trimmed.toLowerCase() === ownerName.toLowerCase());
+          if (looksLikePlaceholder && contactName !== trimmed) {
             contact = await prisma.contact.update({ where: { id: contact.id }, data: { firstName: contactName } });
           }
         }

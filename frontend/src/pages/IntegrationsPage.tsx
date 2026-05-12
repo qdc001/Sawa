@@ -282,6 +282,7 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{ current: number; total: number; contactsCreated: number; messagesImported: number } | null>(null);
   const [syncPromptShown, setSyncPromptShown] = useState(false);
+  const [fixingNames, setFixingNames] = useState(false);
   const lastSyncAt: string | null = (existing?.credentials as any)?.lastSyncAt || null;
 
   const saveConfig = async () => {
@@ -422,6 +423,25 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
     return () => { socket.off('evolution:sync', onSync); };
   }, [onChanged]);
 
+  // Corrigir nomes (contactos que ficaram com nome do dono ou só dígitos)
+  const fixNames = async () => {
+    if (fixingNames) return;
+    setFixingNames(true);
+    try {
+      const { data } = await api.post('/integrations/evolution/fix-names');
+      if (data.fixed > 0) {
+        toast.success(`Corrigidos ${data.fixed} contactos${data.ownerName ? ` (dono: ${data.ownerName})` : ''}`);
+      } else {
+        toast.success(`Nada para corrigir (${data.candidates} candidatos verificados)`);
+      }
+      onChanged();
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || e.response?.data?.message || 'Erro ao corrigir');
+    } finally {
+      setFixingNames(false);
+    }
+  };
+
   // Prompt automático: assim que liga (state=open) e ainda nunca sincronizou
   useEffect(() => {
     if (state === 'open' && !lastSyncAt && !syncPromptShown && !syncing) {
@@ -531,13 +551,25 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
                       )}
                     </div>
                   ) : (
-                    <button
-                      onClick={() => startSync()}
-                      className="btn text-xs py-1.5 w-full"
-                      style={{ background: '#25D366', color: 'white' }}
-                    >
-                      <Download size={12} /> {lastSyncAt ? 'Sincronizar novamente' : 'Importar agora'}
-                    </button>
+                    <div className="space-y-1.5">
+                      <button
+                        onClick={() => startSync()}
+                        className="btn text-xs py-1.5 w-full"
+                        style={{ background: '#25D366', color: 'white' }}
+                      >
+                        <Download size={12} /> {lastSyncAt ? 'Sincronizar novamente' : 'Importar agora'}
+                      </button>
+                      <button
+                        onClick={fixNames}
+                        disabled={fixingNames}
+                        className="btn text-xs py-1.5 w-full"
+                        style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+                        title="Substitui nomes incorrectos (do dono do WhatsApp ou só dígitos) pelo número formatado ou pushName real"
+                      >
+                        {fixingNames ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        Corrigir nomes de contactos
+                      </button>
+                    </div>
                   )}
                 </div>
 
