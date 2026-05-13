@@ -748,8 +748,8 @@ export async function applyEvoContactToCrm(
   workspaceId: string,
   evoContact: any,
   ownerName: string | null,
-  opts: { force?: boolean } = {},
-): Promise<{ updated: boolean; reason?: string }> {
+  opts: { force?: boolean; createMissing?: boolean; requireName?: boolean } = {},
+): Promise<{ updated: boolean; created?: boolean; reason?: string }> {
   const jid: string = evoContact?.remoteJid || evoContact?.id || '';
   if (!jid || jid.endsWith('@g.us') || jid.endsWith('@broadcast')) return { updated: false, reason: 'jid invalido' };
   const phone = String(jid).split('@')[0].replace(/\D/g, '');
@@ -765,11 +765,30 @@ export async function applyEvoContactToCrm(
   const verified = filterOwner(evoContact?.verifiedName);
   const push = filterOwner(evoContact?.pushName) || filterOwner(evoContact?.notify);
   const best = bookName || verified || push;
-  if (!best) return { updated: false, reason: 'sem nome novo' };
 
-  const { rawDigits } = analysePhone(phone);
-  const contact = await prismaClient.contact.findFirst({ where: { whatsapp: rawDigits, workspaceId } });
-  if (!contact) return { updated: false, reason: 'contacto inexistente' };
+  const phoneInfo = analysePhone(phone);
+  const contact = await prismaClient.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
+
+  // ─── Caso: contacto NÃO existe ───
+  if (!contact) {
+    if (!opts.createMissing) return { updated: false, reason: 'contacto inexistente' };
+    // Para criar precisamos de pelo menos um nome (do livro de contactos preferido). Sem nome saltamos por defeito.
+    if (opts.requireName !== false && !best) return { updated: false, reason: 'sem nome para criar' };
+    const firstName = best || phoneInfo.fallbackName;
+    await prismaClient.contact.create({
+      data: {
+        firstName,
+        whatsapp: phoneInfo.rawDigits,
+        phone: phoneInfo.isLid ? null : phoneInfo.display,
+        workspaceId,
+        type: 'PERSON',
+      },
+    });
+    return { updated: true, created: true };
+  }
+
+  // ─── Caso: contacto JÁ existe ───
+  if (!best) return { updated: false, reason: 'sem nome novo' };
 
   const current = (contact.firstName || '').trim();
   const looksLikePlaceholder =
@@ -787,10 +806,16 @@ export async function applyEvoContactToCrm(
 
 // POST /api/integrations/evolution/sync-contact-names
 // Re-puxa a lista de contactos da Evolution (livro de contactos do dispositivo)
-// e actualiza os nomes no CRM. Útil depois de guardar contactos novos no telefone.
+// e actualiza/cria contactos no CRM.
+// Body:
+//   force         — substitui nomes mesmo se já tiverem sido editados manualmente
+//   createMissing — também cria contactos novos no CRM para entradas do livro do telefone
+//                   que ainda não tinham contacto. Por defeito false (só actualiza existentes).
+//   requireName   — quando createMissing=true, só cria se tiver pelo menos um nome real
+//                   (default true) — senão deixa de fora contactos anónimos.
 router.post('/evolution/sync-contact-names', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { force } = req.body || {};
+    const { force, createMissing, requireName } = req.body || {};
     const workspaceId = req.user!.workspaceId;
     const integration = await prisma.integration.findFirst({
       where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
@@ -814,18 +839,24 @@ router.post('/evolution/sync-contact-names', async (req: AuthRequest, res: Respo
     }
 
     let updated = 0;
+    let created = 0;
     let skipped = 0;
     for (const ec of evoList) {
       try {
-        const r = await applyEvoContactToCrm(prisma, workspaceId, ec, ownerName, { force: !!force });
-        if (r.updated) updated++;
+        const r = await applyEvoContactToCrm(prisma, workspaceId, ec, ownerName, {
+          force: !!force,
+          createMissing: !!createMissing,
+          requireName: requireName !== false,
+        });
+        if (r.created) created++;
+        else if (r.updated) updated++;
         else skipped++;
       } catch {
         skipped++;
       }
     }
 
-    res.json({ total: evoList.length, updated, skipped, force: !!force });
+    res.json({ total: evoList.length, created, updated, skipped, force: !!force, createMissing: !!createMissing });
   } catch (e) { next(e); }
 });
 

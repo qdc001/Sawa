@@ -444,15 +444,24 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
   };
 
   // Sincronizar nomes a partir do livro de contactos do telefone (Evolution findContacts)
-  const syncContactNames = async (force = false) => {
+  // Modos:
+  //   'update'  — apenas actualiza nomes dos contactos que já existem no CRM
+  //   'import'  — também cria contactos novos para entradas do livro que ainda não estão no CRM
+  const syncContactNames = async (mode: 'update' | 'import' = 'update') => {
     if (syncingContactNames) return;
     setSyncingContactNames(true);
     try {
-      const { data } = await api.post('/integrations/evolution/sync-contact-names', { force });
-      toast.success(`${data.updated} nomes actualizados (${data.skipped} sem mudança)`);
+      const { data } = await api.post('/integrations/evolution/sync-contact-names', {
+        createMissing: mode === 'import',
+      });
+      const parts: string[] = [];
+      if (data.created) parts.push(`${data.created} criados`);
+      if (data.updated) parts.push(`${data.updated} actualizados`);
+      if (data.skipped) parts.push(`${data.skipped} sem mudança`);
+      toast.success(parts.length ? parts.join(', ') : 'Nada a fazer');
       onChanged();
     } catch (e: any) {
-      toast.error(e.response?.data?.error || e.response?.data?.message || 'Erro ao sincronizar nomes');
+      toast.error(e.response?.data?.error || e.response?.data?.message || 'Erro ao sincronizar');
     } finally {
       setSyncingContactNames(false);
     }
@@ -578,14 +587,24 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
                         <Download size={12} /> {lastSyncAt ? 'Sincronizar novamente' : 'Importar agora'}
                       </button>
                       <button
-                        onClick={() => syncContactNames(false)}
+                        onClick={() => syncContactNames('import')}
                         disabled={syncingContactNames}
                         className="btn text-xs py-1.5 w-full"
                         style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
-                        title="Vai à agenda do telefone via WhatsApp e actualiza nomes dos contactos que ainda têm placeholder no CRM"
+                        title="Importa todos os contactos do livro de contactos do telefone — cria os que faltam e actualiza nomes dos que existem"
                       >
                         {syncingContactNames ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                        Sincronizar nomes da agenda
+                        Importar contactos da agenda
+                      </button>
+                      <button
+                        onClick={() => syncContactNames('update')}
+                        disabled={syncingContactNames}
+                        className="btn text-xs py-1.5 w-full"
+                        style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+                        title="Apenas actualiza nomes dos contactos que já existem no CRM (sem criar novos)"
+                      >
+                        {syncingContactNames ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        Sincronizar só nomes (sem criar)
                       </button>
                       <button
                         onClick={fixNames}
