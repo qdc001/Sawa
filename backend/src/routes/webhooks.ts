@@ -421,8 +421,11 @@ router.post('/evolution', async (req: Request, res: Response) => {
     const data = req.body?.data || req.body;
     const instanceName = req.body?.instance || data?.instance || data?.instanceName;
 
-    // Debug: log eventos para diagnosticar mensagens fromMe (do telefone)
-    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' || event === 'send.message' || event === 'SEND_MESSAGE') {
+    // Debug verboso desactivado por defeito — define EVO_VERBOSE=1 na env para reactivar.
+    // Cada mensagem gerava 1 linha de log; em workspaces activos isto enche stdout
+    // e impacta performance/disco do contentor.
+    if (process.env.EVO_VERBOSE === '1' &&
+      (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' || event === 'send.message' || event === 'SEND_MESSAGE')) {
       const isFromMe = data?.key?.fromMe || data?.messages?.[0]?.key?.fromMe;
       console.log(`Evo webhook [${event}] instance=${instanceName} fromMe=${isFromMe} hasKey=${!!data?.key}`);
     }
@@ -493,9 +496,25 @@ router.post('/evolution', async (req: Request, res: Response) => {
         const fromMe = !!m.key?.fromMe;
         const externalId: string | undefined = m.key?.id;
 
+        // Filtrar logo tipos não suportados (reacções, stickers, mensagens encriptadas, protocol)
+        // — antes martelávamos a BD com 1 message.create + dedup + lead lookup + emit por cada
+        // reacção 👍 ou sticker, e isso enche o backend rapidamente. Skip silencioso.
+        const rawMsg = m.message || {};
+        const innerKeys = Object.keys(rawMsg);
+        const isUnsupported =
+          rawMsg.reactionMessage ||
+          rawMsg.secretEncryptedMessage ||
+          rawMsg.protocolMessage ||
+          rawMsg.pollUpdateMessage ||
+          rawMsg.pollCreationMessage ||
+          (innerKeys.length === 1 && innerKeys[0] === 'messageContextInfo') ||
+          (innerKeys.length === 2 && innerKeys.includes('messageContextInfo') &&
+            (innerKeys.includes('reactionMessage') || innerKeys.includes('secretEncryptedMessage')));
+        if (isUnsupported) continue;
+
         // Se for fromMe e já guardámos esta mensagem (envio via CRM), saltar
         if (fromMe && externalId) {
-          const exists = await prisma.message.findFirst({ where: { externalId } });
+          const exists = await prisma.message.findFirst({ where: { externalId }, select: { id: true } });
           if (exists) continue;
         }
 
@@ -503,7 +522,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
         if (!phone) continue;
 
         // Extrair conteúdo
-        const msg = m.message || {};
+        const msg = rawMsg;
         let content = '';
         let msgType = 'TEXT';
         let mediaUrl: string | undefined;
@@ -556,11 +575,14 @@ router.post('/evolution', async (req: Request, res: Response) => {
           msgType = 'INTERACTIVE';
           interactiveId = msg.listResponseMessage.singleSelectReply?.selectedRowId || null;
           content = msg.listResponseMessage.title || interactiveId || '[Lista]';
+        } else if (unwrapped.stickerMessage || msg.stickerMessage) {
+          msgType = 'IMAGE'; content = '[Sticker]';
         } else {
-          // Diagnóstico: tipo de mensagem não reconhecido
-          const keys = Object.keys(msg).join(',');
-          console.log('Evolution webhook: tipo desconhecido. Chaves do msg:', keys, '| messageType:', m.messageType);
-          content = '[Mensagem]';
+          // Tipo não reconhecido — não cria mensagem para não poluir BD.
+          if (process.env.EVO_VERBOSE === '1') {
+            console.log('Evolution webhook: tipo desconhecido. Chaves:', Object.keys(msg).join(','), '| messageType:', m.messageType);
+          }
+          continue;
         }
 
         // Encontrar/criar contacto (com formatação de número e detecção de LID)

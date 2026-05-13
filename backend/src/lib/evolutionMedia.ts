@@ -38,14 +38,22 @@ export async function fetchMediaFromEvolution(
   creds: any,
   baileysMessage: any,
   fallbackExt: string,
+  timeoutMs: number = 15000,
 ): Promise<string | null> {
   if (!creds?.baseUrl || !creds?.apiKey || !creds?.instanceName) return null;
   try {
-    const res = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/getBase64FromMediaMessage/${creds.instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
-      body: JSON.stringify({ message: { key: baileysMessage.key, message: baileysMessage.message } }),
-    });
+    // Timeout para evitar que um download lento bloqueie a thread do webhook
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/getBase64FromMediaMessage/${creds.instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+        body: JSON.stringify({ message: { key: baileysMessage.key, message: baileysMessage.message } }),
+        signal: controller.signal,
+      });
+    } finally { clearTimeout(timer); }
     if (!res.ok) {
       console.error('getBase64FromMediaMessage failed:', await res.text());
       return null;

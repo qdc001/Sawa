@@ -73,11 +73,19 @@ export async function checkEvolutionInstances(): Promise<void> {
 
     const elapsedMs = now - sinceStart;
 
-    // Tentar reconectar se 'close' ou 'unknown'/'error'
-    if (state === 'close' || state === 'connecting' || state === 'unknown' || state === 'error') {
+    // Tentar reconectar se 'close' ou 'unknown'/'error', mas só nos primeiros 30 min após cair.
+    // Depois disso a instância está provavelmente morta e só re-escanear o QR resolve — continuar
+    // a martelar /instance/connect só polui logs e gera carga inútil.
+    if (
+      (state === 'close' || state === 'connecting' || state === 'unknown' || state === 'error') &&
+      elapsedMs < 30 * 60_000
+    ) {
       try {
         await evolutionPost(creds, `/instance/connect/${creds.instanceName}`, {});
-        console.log(`Evolution auto-reconnect tentado para ${creds.instanceName} (state era ${state})`);
+        // só logar a 1ª vez por cada janela de 5 min
+        if (!prev || prev.state !== state || now - prev.since > 5 * 60_000) {
+          console.log(`Evolution auto-reconnect tentado para ${creds.instanceName} (state era ${state})`);
+        }
       } catch (e) {
         // silent
       }
