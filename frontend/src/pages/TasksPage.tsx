@@ -221,8 +221,8 @@ export function TaskOptionBadge({ option, size = 'sm' }: { option?: TaskOption; 
   );
 }
 
-// =============== Modal: Nova/Editar Tarefa (com subtarefas) ===============
-function TaskFormModal({
+// =============== Modal: Nova/Editar Tarefa (versao simplificada) ===============
+function TaskFormModalV2({
   task, users, leads, tags,
   onClose, onSaved, onTagsChanged, initialDate,
 }: {
@@ -353,7 +353,7 @@ function TaskFormModal({
       <div className="card p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-            {isEdit ? 'Editar Tarefa' : 'Nova Tarefa'}
+            {isEdit ? '⚡ Editar Tarefa' : '⚡ Nova Tarefa'}
           </h3>
           <button onClick={onClose}><X size={20} style={{ color: 'var(--text-muted)' }} /></button>
         </div>
@@ -1826,7 +1826,7 @@ export default function TasksPage() {
       </div>
 
       {adding && (
-        <TaskFormModal
+        <TaskFormModalV2
           users={users} leads={leads} tags={tags}
           initialDate={initialDate}
           onClose={() => { setAdding(false); setInitialDate(undefined); }}
@@ -1835,7 +1835,7 @@ export default function TasksPage() {
         />
       )}
       {editing && (
-        <TaskFormModal
+        <TaskFormModalV2
           task={editing} users={users} leads={leads} tags={tags}
           onClose={() => setEditing(null)}
           onSaved={(t) => setTasks((prev) => prev.map((x) => (x.id === t.id ? t : x)))}
