@@ -1066,6 +1066,22 @@ export default function InboxPage() {
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro IA'); } finally { setAiLoading(false); }
   };
 
+  // Corrige apenas ortografia e gramática (sem alterar o estilo do texto)
+  const handleAICorrect = async () => {
+    if (!draft.trim()) return;
+    setAiLoading(true);
+    try {
+      const { data } = await api.post('/ai/improve-text', { text: draft, action: 'correct-grammar' });
+      const corrected = data.result || draft;
+      if (corrected.trim() === draft.trim()) {
+        toast.success('Sem erros encontrados');
+      } else {
+        setDraft(corrected);
+        toast.success('Ortografia corrigida');
+      }
+    } catch (err: any) { toast.error(err.response?.data?.message || 'Erro IA'); } finally { setAiLoading(false); }
+  };
+
   const handleCreateLeadFromConv = () => {
     if (!selected) return;
     if (pipelines.length === 0) { toast.error('Sem pipelines'); return; }
@@ -1629,8 +1645,15 @@ export default function InboxPage() {
                   Sugerir resposta
                 </button>
                 {draft.trim() && (
+                  <button onClick={handleAICorrect} disabled={aiLoading} className="text-xs px-2 py-1 rounded font-medium"
+                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }} title="Corrige apenas ortografia e gramática (sem alterar o estilo)">
+                    {aiLoading ? <Loader2 size={11} className="animate-spin inline" /> : <Check size={11} className="inline mr-1" />}
+                    Corrigir
+                  </button>
+                )}
+                {draft.trim() && (
                   <button onClick={handleAIImprove} disabled={aiLoading} className="text-xs px-2 py-1 rounded font-medium"
-                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }} title="Melhorar texto com IA">
+                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }} title="Melhorar texto com IA (reescreve para soar melhor)">
                     <Wand2 size={11} className="inline mr-1" /> Melhorar
                   </button>
                 )}
@@ -1686,6 +1709,10 @@ export default function InboxPage() {
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                     rows={1}
                     disabled={sending}
+                    spellCheck
+                    lang="pt-PT"
+                    autoCorrect="on"
+                    autoCapitalize="sentences"
                   />
                   {!draft.trim() && !attachment && !isInternalNote && (
                     <button onClick={startRecording} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" title="Gravar mensagem de voz">
