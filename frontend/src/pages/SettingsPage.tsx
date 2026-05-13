@@ -738,18 +738,6 @@ export default function SettingsPage() {
               defaults={DEFAULT_TASK_PRIORITIES}
               onChange={setWsTaskPriorities}
             />
-            <OptionListEditor
-              title="Estados"
-              options={wsTaskStatuses}
-              defaults={DEFAULT_TASK_STATUSES}
-              onChange={setWsTaskStatuses}
-            />
-            <OptionListEditor
-              title="Recorrências"
-              options={wsTaskRecurrences}
-              defaults={DEFAULT_TASK_RECURRENCES}
-              onChange={setWsTaskRecurrences}
-            />
           </div>
 
           <div className="flex gap-2 pt-2">
