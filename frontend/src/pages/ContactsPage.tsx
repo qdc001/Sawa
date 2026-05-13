@@ -11,6 +11,7 @@ import {
 import api, { Contact, Lead, Tag as TagType, CustomField, CustomFieldType, User } from '../lib/api';
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
+import { useTaskOptions } from '../lib/taskOptions';
 import { CustomFieldInput, AddLeadModal } from './PipelinePage';
 
 type SortKey = 'firstName' | 'company' | 'createdAt';
@@ -1268,10 +1269,13 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { types: taskTypes, priorities: taskPriorities, lookupType, lookupPriority } = useTaskOptions();
+  const defaultType = taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP';
+  const defaultPriority = taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM';
   const fullName = `${contact.firstName}${contact.lastName ? ' ' + contact.lastName : ''}`;
   const [title, setTitle] = useState(`Seguir ${fullName}`);
-  const [type, setType] = useState('FOLLOW_UP');
-  const [priority, setPriority] = useState('MEDIUM');
+  const [type, setType] = useState(defaultType);
+  const [priority, setPriority] = useState(defaultPriority);
   const [dueAt, setDueAt] = useState<string>(() => {
     const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
     return d.toISOString().slice(0, 16);
@@ -1326,19 +1330,21 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
           <div className="space-y-3">
             <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-base text-sm" placeholder="Título" />
             <div className="grid grid-cols-2 gap-2">
-              <select value={type} onChange={(e) => setType(e.target.value)} className="input-base text-sm">
-                <option value="CALL">Chamada</option>
-                <option value="EMAIL">Email</option>
-                <option value="MEETING">Reunião</option>
-                <option value="FOLLOW_UP">Seguimento</option>
-                <option value="DEMO">Demo</option>
-                <option value="OTHER">Outra</option>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="input-base text-sm"
+                style={{ borderLeft: `4px solid ${lookupType(type).color || '#94A3B8'}` }}
+              >
+                {taskTypes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
-              <select value={priority} onChange={(e) => setPriority(e.target.value)} className="input-base text-sm">
-                <option value="LOW">Baixa</option>
-                <option value="MEDIUM">Média</option>
-                <option value="HIGH">Alta</option>
-                <option value="URGENT">Urgente</option>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="input-base text-sm"
+                style={{ borderLeft: `4px solid ${lookupPriority(priority).color || '#94A3B8'}` }}
+              >
+                {taskPriorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="input-base text-sm" />

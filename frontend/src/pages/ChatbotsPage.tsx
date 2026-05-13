@@ -8,6 +8,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import toast from 'react-hot-toast';
 import api, { ChatbotFlow, ChatbotTrigger, ChatbotNodeType, ChatbotSession, ChatbotLogEntry } from '../lib/api';
+import { useTaskOptions } from '../lib/taskOptions';
 
 // ── Custom Nodes ──────────────────────────────────────
 const nodeStyle = (color: string, selected = false) => ({
@@ -377,6 +378,7 @@ function NodePropertiesPanel({
   node, onChange, onDelete,
 }: { node: Node; onChange: (data: any) => void; onDelete: () => void }) {
   const data = node.data || {};
+  const { types: taskTypes, priorities: taskPriorities } = useTaskOptions();
 
   const updateField = (key: string, value: any) => onChange({ ...data, [key]: value });
   const updateActionParam = (key: string, value: any) =>
@@ -555,16 +557,11 @@ function NodePropertiesPanel({
                 placeholder="Descrição (opcional)"
               />
               <select
-                value={data.actionParams?.type || 'FOLLOW_UP'}
+                value={data.actionParams?.type || taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP'}
                 onChange={(e) => updateActionParam('type', e.target.value)}
                 className="input-base w-full text-xs"
               >
-                <option value="CALL">Chamada</option>
-                <option value="EMAIL">Email</option>
-                <option value="MEETING">Reunião</option>
-                <option value="FOLLOW_UP">Seguimento</option>
-                <option value="DEMO">Demo</option>
-                <option value="OTHER">Outra</option>
+                {taskTypes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               <input
                 type="number"
@@ -578,14 +575,11 @@ function NodePropertiesPanel({
 
           {data.actionType === 'set_priority' && (
             <select
-              value={data.actionParams?.priority || 'MEDIUM'}
+              value={data.actionParams?.priority || taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM'}
               onChange={(e) => updateActionParam('priority', e.target.value)}
               className="input-base w-full text-xs"
             >
-              <option value="LOW">Baixa</option>
-              <option value="MEDIUM">Média</option>
-              <option value="HIGH">Alta</option>
-              <option value="URGENT">Urgente</option>
+              {taskPriorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           )}
 

@@ -10,6 +10,7 @@ import api, {
   AutomationCondition, AutomationConditionOp, AutomationAction, AutomationActionType,
   AutomationRun,
 } from '../lib/api';
+import { useTaskOptions } from '../lib/taskOptions';
 
 // ── Constantes ─────────────────────────────────────────
 const TRIGGERS: { type: AutomationTriggerType; label: string; icon: string; entity: string }[] = [
@@ -199,6 +200,7 @@ function ActionEditor({ action, onChange, onRemove }: {
 }) {
   const params = action.params || {};
   const updateParam = (k: string, v: any) => onChange({ ...action, params: { ...params, [k]: v } });
+  const { types: taskTypes, priorities: taskPriorities } = useTaskOptions();
 
   return (
     <div className="card p-3" style={{ background: 'var(--surface-2)' }}>
@@ -276,27 +278,19 @@ function ActionEditor({ action, onChange, onRemove }: {
           />
           <div className="flex gap-2">
             <select
-              value={params.taskType || 'FOLLOW_UP'}
+              value={params.taskType || taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP'}
               onChange={(e) => updateParam('taskType', e.target.value)}
               className="input-base text-xs flex-1"
             >
-              <option value="CALL">Chamada</option>
-              <option value="EMAIL">Email</option>
-              <option value="MEETING">Reunião</option>
-              <option value="FOLLOW_UP">Seguimento</option>
-              <option value="DEMO">Demo</option>
-              <option value="OTHER">Outra</option>
+              {taskTypes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             <select
-              value={params.priority || 'MEDIUM'}
+              value={params.priority || taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM'}
               onChange={(e) => updateParam('priority', e.target.value)}
               className="input-base text-xs"
               style={{ width: 90 }}
             >
-              <option value="LOW">Baixa</option>
-              <option value="MEDIUM">Média</option>
-              <option value="HIGH">Alta</option>
-              <option value="URGENT">Urgente</option>
+              {taskPriorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             <input
               type="number"
@@ -334,14 +328,11 @@ function ActionEditor({ action, onChange, onRemove }: {
 
       {action.type === 'set_priority' && (
         <select
-          value={params.priority || 'MEDIUM'}
+          value={params.priority || taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM'}
           onChange={(e) => updateParam('priority', e.target.value)}
           className="input-base w-full text-xs"
         >
-          <option value="LOW">Baixa</option>
-          <option value="MEDIUM">Média</option>
-          <option value="HIGH">Alta</option>
-          <option value="URGENT">Urgente</option>
+          {taskPriorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       )}
 
@@ -405,10 +396,7 @@ function ActionEditor({ action, onChange, onRemove }: {
           <input value={params.source || ''} onChange={(e) => updateParam('source', e.target.value)} className="input-base w-full text-xs" placeholder="Origem" />
           <select value={params.priority || ''} onChange={(e) => updateParam('priority', e.target.value)} className="input-base w-full text-xs">
             <option value="">-- Prioridade (sem alterar) --</option>
-            <option value="LOW">Baixa</option>
-            <option value="MEDIUM">Média</option>
-            <option value="HIGH">Alta</option>
-            <option value="URGENT">Urgente</option>
+            {taskPriorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <input type="number" value={params.expectedCloseInDays || ''} onChange={(e) => updateParam('expectedCloseInDays', e.target.value)} className="input-base w-full text-xs" placeholder="Fechar em X dias (opcional)" />
         </div>

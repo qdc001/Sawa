@@ -13,6 +13,7 @@ import api, {
 import toast from 'react-hot-toast';
 import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
+import { useTaskOptions } from '../lib/taskOptions';
 import { AddLeadModal } from './PipelinePage';
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -1883,9 +1884,12 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { types: taskTypes, priorities: taskPriorities, lookupType, lookupPriority } = useTaskOptions();
+  const defaultType = taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP';
+  const defaultPriority = taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM';
   const [title, setTitle] = useState(`Seguir ${contactName}`);
-  const [type, setType] = useState('FOLLOW_UP');
-  const [priority, setPriority] = useState('MEDIUM');
+  const [type, setType] = useState(defaultType);
+  const [priority, setPriority] = useState(defaultPriority);
   const [dueAt, setDueAt] = useState<string>(() => {
     const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
     return d.toISOString().slice(0, 16);
@@ -1952,22 +1956,24 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs font-medium mb-1">Tipo</label>
-                <select value={type} onChange={(e) => setType(e.target.value)} className="input-base text-sm">
-                  <option value="CALL">Chamada</option>
-                  <option value="EMAIL">Email</option>
-                  <option value="MEETING">Reunião</option>
-                  <option value="FOLLOW_UP">Seguimento</option>
-                  <option value="DEMO">Demo</option>
-                  <option value="OTHER">Outra</option>
+                <select
+                  value={type}
+                  onChange={(e) => setType(e.target.value)}
+                  className="input-base text-sm"
+                  style={{ borderLeft: `4px solid ${lookupType(type).color || '#94A3B8'}` }}
+                >
+                  {taskTypes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1">Prioridade</label>
-                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="input-base text-sm">
-                  <option value="LOW">Baixa</option>
-                  <option value="MEDIUM">Média</option>
-                  <option value="HIGH">Alta</option>
-                  <option value="URGENT">Urgente</option>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  className="input-base text-sm"
+                  style={{ borderLeft: `4px solid ${lookupPriority(priority).color || '#94A3B8'}` }}
+                >
+                  {taskPriorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
             </div>
