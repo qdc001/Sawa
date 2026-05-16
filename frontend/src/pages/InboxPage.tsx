@@ -931,18 +931,44 @@ export default function InboxPage() {
     } catch (e: any) { toast.error(e.response?.data?.message || 'Erro'); }
   };
 
+  // Sugestões de snippets que aparecem em dropdown enquanto se escreve "/xxx"
+  const [snippetSuggestions, setSnippetSuggestions] = useState<Snippet[]>([]);
+
+  const applySnippetByKey = (val: string, sn: Snippet) => {
+    // Substitui "/key" (com ou sem espaço a seguir) pelo valor + espaço
+    const replaced = val.replace(/\/\w*\s?$/, sn.value + ' ');
+    setDraft(replaced);
+    setSnippetSuggestions([]);
+    // foco volta ao textarea
+    setTimeout(() => draftRef.current?.focus(), 0);
+  };
+
   const handleDraftChange = (val: string) => {
     setDraft(val);
-    // detect /shortcut + space
-    const match = val.match(/\/(\w+)\s$/);
-    if (match) {
-      const sn = snippets.find((s) => s.key === match[1]);
+
+    // 1) Expansão automática quando se escreve "/xxx " (chave completa + espaço)
+    const matchSpaced = val.match(/\/(\w+)\s$/);
+    if (matchSpaced) {
+      const sn = snippets.find((s) => s.key === matchSpaced[1]);
       if (sn) {
-        const replaced = val.replace(/\/\w+\s$/, sn.value + ' ');
-        setDraft(replaced);
+        applySnippetByKey(val, sn);
+        return;
       }
     }
-    // Enviar presence "composing" + agendar "paused" após 3s sem actualizações
+
+    // 2) Sugestões "live" enquanto se escreve "/abc" (sem espaço ainda)
+    const matchPartial = val.match(/\/(\w*)$/);
+    if (matchPartial) {
+      const q = matchPartial[1].toLowerCase();
+      const matches = snippets.filter((s) =>
+        !q || s.key.toLowerCase().startsWith(q) || s.value.toLowerCase().includes(q),
+      ).slice(0, 6);
+      setSnippetSuggestions(matches);
+    } else {
+      setSnippetSuggestions([]);
+    }
+
+    // Presence (a escrever)
     if (val.trim()) {
       sendPresence('composing');
       if (presenceDebounceRef.current) clearTimeout(presenceDebounceRef.current);
@@ -1795,6 +1821,26 @@ export default function InboxPage() {
                 </div>
               )}
 
+              {/* Sugestões de Snippets (acima do composer) */}
+              {snippetSuggestions.length > 0 && (
+                <div className="mb-1 rounded-lg shadow-md overflow-hidden" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                  <div className="px-2 py-1 text-[10px] uppercase font-semibold" style={{ color: 'var(--text-muted)', background: 'var(--surface-2)' }}>
+                    Snippets · clica para inserir
+                  </div>
+                  {snippetSuggestions.map((sn) => (
+                    <button
+                      key={sn.key}
+                      type="button"
+                      onClick={() => applySnippetByKey(draft, sn)}
+                      className="w-full text-left px-3 py-2 hover:bg-slate-100 flex items-start gap-2"
+                    >
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>/{sn.key}</span>
+                      <span className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{sn.value}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
               {recording ? (
                 <div className="flex items-center gap-3 p-3 rounded-xl" style={{ border: '1px solid #EF4444', background: '#FEF2F2' }}>
@@ -1823,7 +1869,21 @@ export default function InboxPage() {
                     placeholder={isInternalNote ? 'Nota interna (so visivel para a equipa)...' : `Mensagem para ${fullName(selected.contact)}... (/atalho para snippets)`}
                     value={draft}
                     onChange={(e) => handleDraftChange(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                    onKeyDown={(e) => {
+                      // Tab ou Enter com sugestões abertas → escolhe a primeira sugestão de snippet
+                      if (snippetSuggestions.length > 0 && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+                        e.preventDefault();
+                        applySnippetByKey(draft, snippetSuggestions[0]);
+                        return;
+                      }
+                      // Escape fecha as sugestões
+                      if (e.key === 'Escape' && snippetSuggestions.length > 0) {
+                        e.preventDefault();
+                        setSnippetSuggestions([]);
+                        return;
+                      }
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+                    }}
                     rows={1}
                     disabled={sending}
                     spellCheck
