@@ -668,6 +668,17 @@ export default function InboxPage() {
 
   useEffect(() => setSearch(globalSearchQuery || ''), [globalSearchQuery]);
 
+  // Preserva conversas "virtuais" (criadas via ?contactId=X mas sem mensagens ainda) ao recarregar.
+  // Sem isto, o setConversations apagava-as e a conversa fechava sozinha.
+  const mergeConversations = (fresh: Conversation[]) => {
+    setConversations((prev) => {
+      const virtuals = prev.filter((c) => !c.lastMessage);
+      const freshKeys = new Set(fresh.map((c) => c.key));
+      const keepVirtuals = virtuals.filter((v) => !freshKeys.has(v.key));
+      return [...keepVirtuals, ...fresh];
+    });
+  };
+
   const loadConversations = () => {
     const params = new URLSearchParams();
     if (channelFilter) params.set('channel', channelFilter);
@@ -680,13 +691,14 @@ export default function InboxPage() {
     api.get(`/messages/conversations?${params.toString()}`)
       .then(({ data }) => {
         // Backend agora devolve { conversations, total, page, totalPages }
-        // Mantém compatibilidade com versões antigas que devolviam array directo
+        // Mantém compatibilidade com versões antigas que devolviam array directo.
+        // Usamos mergeConversations para não apagar conversas virtuais abertas pelo utilizador.
         if (Array.isArray(data)) {
-          setConversations(data);
+          mergeConversations(data);
           setConvTotal(data.length);
           setConvTotalPages(1);
         } else {
-          setConversations(data.conversations || []);
+          mergeConversations(data.conversations || []);
           setConvTotal(data.total || 0);
           setConvTotalPages(data.totalPages || 1);
         }
