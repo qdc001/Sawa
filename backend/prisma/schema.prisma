@@ -101,6 +101,7 @@ model Workspace {
   // { header, overdueHeader, todayHeader, tomorrowHeader, taskLine, footer }
   // Vazio = usa defaults definidos no código.
   dailyDigestTemplate Json @default("{}")
+  assignmentNotifyEnabled Boolean @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
-import { runDigestForWorkspace, previewDigestForUser, DEFAULT_DIGEST_TEMPLATE } from '../lib/dailyTaskDigest';
+import { runDigestForWorkspace, previewDigestForUser, DEFAULT_DIGEST_TEMPLATE, notifyWhatsAppAssignment, testAssignmentNotifyForUser } from '../lib/dailyTaskDigest';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -25,7 +25,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, assignmentNotifyEnabled } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -48,6 +48,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(dailyDigestHour !== undefined && { dailyDigestHour: Math.max(0, Math.min(23, Number(dailyDigestHour) || 0)) }),
         ...(dailyDigestMinute !== undefined && { dailyDigestMinute: Math.max(0, Math.min(59, Number(dailyDigestMinute) || 0)) }),
         ...(dailyDigestTemplate !== undefined && { dailyDigestTemplate }),
+        ...(assignmentNotifyEnabled !== undefined && { assignmentNotifyEnabled: !!assignmentNotifyEnabled }),
       },
     });
     await prisma.auditLog.create({
@@ -146,6 +147,16 @@ router.post('/me/daily-digest/preview', async (req: AuthRequest, res: Response, 
 // Devolve o template default (para o botão "Repor padrão").
 router.get('/me/daily-digest/defaults', async (_req: AuthRequest, res: Response) => {
   res.json({ template: DEFAULT_DIGEST_TEMPLATE });
+});
+
+// POST /api/workspaces/me/assignment-notify/test
+// Envia uma notificação de atribuição de exemplo ao utilizador autenticado.
+router.post('/me/assignment-notify/test', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const result = await testAssignmentNotifyForUser(req.user!.workspaceId, req.user!.id);
+    if (!result.ok) return res.status(400).json({ message: result.reason });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
 });
 
 export default router;

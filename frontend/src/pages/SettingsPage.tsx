@@ -80,6 +80,8 @@ export default function SettingsPage() {
   const [digestPreview, setDigestPreview] = useState<string>('');
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [testingDigest, setTestingDigest] = useState(false);
+  const [wsAssignmentNotifyEnabled, setWsAssignmentNotifyEnabled] = useState(true);
+  const [testingAssignmentNotify, setTestingAssignmentNotify] = useState(false);
   const [savingWs, setSavingWs] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -138,6 +140,7 @@ export default function SettingsPage() {
       setWsTaskTitles(ttt);
       setWsTaskFieldLabels((data.taskFieldLabels && typeof data.taskFieldLabels === 'object') ? data.taskFieldLabels : {});
       setWsDigestEnabled(!!data.dailyDigestEnabled);
+      setWsAssignmentNotifyEnabled(data.assignmentNotifyEnabled !== false);
       setWsDigestHour(typeof data.dailyDigestHour === 'number' ? data.dailyDigestHour : 7);
       setWsDigestMinute(typeof data.dailyDigestMinute === 'number' ? data.dailyDigestMinute : 0);
       setWsDigestTemplate(data.dailyDigestTemplate && typeof data.dailyDigestTemplate === 'object' ? data.dailyDigestTemplate : {});
@@ -316,6 +319,7 @@ export default function SettingsPage() {
         taskTitles: wsTaskTitles,
         taskFieldLabels: wsTaskFieldLabels,
         dailyDigestEnabled: wsDigestEnabled,
+        assignmentNotifyEnabled: wsAssignmentNotifyEnabled,
         dailyDigestHour: wsDigestHour,
         dailyDigestMinute: wsDigestMinute,
         dailyDigestTemplate: wsDigestTemplate,
@@ -910,6 +914,38 @@ export default function SettingsPage() {
               style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
             >
               {testingDigest ? <Loader2 size={12} className="animate-spin" /> : 'Enviar agora (teste)'}
+            </button>
+          </div>
+
+          <div className="border-t pt-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
+            <p className="text-sm font-semibold">Notificação de atribuição (WhatsApp)</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Quando um contacto ou lead é atribuído a um membro da equipa, esse membro recebe imediatamente uma mensagem WhatsApp no grupo ou número configurado no seu perfil.
+            </p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={wsAssignmentNotifyEnabled}
+                onChange={(e) => setWsAssignmentNotifyEnabled(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm">Activar notificações de atribuição</span>
+            </label>
+            <button
+              onClick={async () => {
+                setTestingAssignmentNotify(true);
+                try {
+                  await api.post('/workspaces/me/assignment-notify/test');
+                  toast.success('Mensagem de teste enviada para o teu grupo/número.');
+                } catch (e: any) {
+                  toast.error(e.response?.data?.message || 'Erro ao enviar teste.');
+                } finally { setTestingAssignmentNotify(false); }
+              }}
+              disabled={testingAssignmentNotify}
+              className="btn py-1.5 px-3 text-xs"
+              style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+            >
+              {testingAssignmentNotify ? <Loader2 size={12} className="animate-spin" /> : 'Enviar notificação de teste'}
             </button>
           </div>
 

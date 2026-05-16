@@ -302,6 +302,7 @@ export async function notifyWhatsAppAssignment(
     prisma.workspace.findUnique({ where: { id: workspaceId } }),
   ]);
   if (!user || !workspace) return;
+  if (!(workspace as any).assignmentNotifyEnabled) return;
 
   const destination = (user.digestGroupJid && user.digestGroupJid.trim()) || (user.phone && user.phone.trim()) || '';
   if (!destination) return;
@@ -333,6 +334,24 @@ export async function notifyWhatsAppAssignment(
   }
 
   await sendWhatsAppToDestination(workspace, destination, message);
+}
+
+// Envia uma mensagem de exemplo de atribuição ao próprio utilizador (para testar a configuração).
+export async function testAssignmentNotifyForUser(workspaceId: string, userId: string): Promise<{ ok: boolean; reason?: string }> {
+  const [user, workspace] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true, digestGroupJid: true, phone: true } }),
+    prisma.workspace.findUnique({ where: { id: workspaceId } }),
+  ]);
+  if (!user || !workspace) return { ok: false, reason: 'Utilizador ou workspace não encontrado.' };
+
+  const destination = (user.digestGroupJid && user.digestGroupJid.trim()) || (user.phone && user.phone.trim()) || '';
+  if (!destination) return { ok: false, reason: 'Utilizador sem grupo WhatsApp nem telefone configurado no perfil.' };
+
+  const firstName = user.name.split(' ')[0];
+  const message = `🔔 *Teste de notificação de atribuição*\n\n🎯 *${firstName}*, foi-te atribuído um lead:\n*Proposta de Exemplo*\n👤 Cliente Teste\n📋 Pipeline Principal › Proposta Enviada`;
+
+  const ok = await sendWhatsAppToDestination(workspace, destination, message);
+  return ok ? { ok: true } : { ok: false, reason: 'Falha ao enviar via Evolution. Verifica se a instância está ligada.' };
 }
 
 // Permite disparar manualmente para um workspace (ex. via endpoint de teste)
