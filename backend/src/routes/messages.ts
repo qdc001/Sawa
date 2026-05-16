@@ -219,12 +219,22 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
 
     if (unreadOnly === 'true') conversations = conversations.filter((c: any) => c.unread > 0);
     if (search) {
-      const q = (search as string).toLowerCase();
+      const q = (search as string).toLowerCase().trim();
+      const qDigits = q.replace(/\D/g, '');
       conversations = conversations.filter((c: any) => {
         const name = c.contact ? `${c.contact.firstName || ''} ${c.contact.lastName || ''}`.toLowerCase() : '';
         const last = (c.lastMessage?.content || '').toLowerCase();
-        const phone = (c.contact?.phone || c.contact?.whatsapp || '').toLowerCase();
-        return name.includes(q) || last.includes(q) || phone.includes(q);
+        const phone = (c.contact?.phone || '').toLowerCase();
+        const whatsapp = (c.contact?.whatsapp || '').toLowerCase();
+        const email = (c.contact?.email || '').toLowerCase();
+        // Match texto OU dígitos do telefone normalizados
+        if (name.includes(q) || last.includes(q) || phone.includes(q) || whatsapp.includes(q) || email.includes(q)) return true;
+        if (qDigits.length >= 3) {
+          const phoneDigits = phone.replace(/\D/g, '');
+          const waDigits = whatsapp.replace(/\D/g, '');
+          if (phoneDigits.includes(qDigits) || waDigits.includes(qDigits)) return true;
+        }
+        return false;
       });
     }
 

@@ -46,16 +46,41 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
     }
 
     if (search) {
-      andFilters.push({
-        OR: [
-          { firstName: { contains: search as string, mode: 'insensitive' } },
-          { lastName: { contains: search as string, mode: 'insensitive' } },
-          { email: { contains: search as string, mode: 'insensitive' } },
-          { phone: { contains: search as string, mode: 'insensitive' } },
-          { whatsapp: { contains: search as string, mode: 'insensitive' } },
-          { company: { contains: search as string, mode: 'insensitive' } },
-        ],
-      });
+      const trimmed = (search as string).trim();
+      const digits = trimmed.replace(/\D/g, '');
+      const tokens = trimmed.split(/\s+/).filter((t) => t.length > 0);
+
+      const searchOr: any[] = [
+        { firstName: { contains: trimmed, mode: 'insensitive' } },
+        { lastName: { contains: trimmed, mode: 'insensitive' } },
+        { email: { contains: trimmed, mode: 'insensitive' } },
+        { company: { contains: trimmed, mode: 'insensitive' } },
+        { phone: { contains: trimmed, mode: 'insensitive' } },
+        { whatsapp: { contains: trimmed, mode: 'insensitive' } },
+      ];
+
+      // Pesquisa por telefone normalizado (só dígitos) — apanha contactos guardados
+      // como "+258 84 688 0921" mesmo que o utilizador escreva "846880921"
+      if (digits.length >= 3) {
+        searchOr.push({ whatsapp: { contains: digits } });
+        searchOr.push({ phone: { contains: digits } });
+      }
+
+      // Pesquisa por nome completo: "João Silva" — cada token deve aparecer em
+      // firstName OU lastName. Apanha contactos cujo firstName="João" e lastName="Silva".
+      if (tokens.length > 1) {
+        searchOr.push({
+          AND: tokens.map((tok) => ({
+            OR: [
+              { firstName: { contains: tok, mode: 'insensitive' } },
+              { lastName: { contains: tok, mode: 'insensitive' } },
+              { company: { contains: tok, mode: 'insensitive' } },
+            ],
+          })),
+        });
+      }
+
+      andFilters.push({ OR: searchOr });
     }
 
     const where = { AND: andFilters };

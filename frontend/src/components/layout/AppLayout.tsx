@@ -109,8 +109,8 @@ export default function AppLayout() {
       try {
         const q = encodeURIComponent(query.trim());
         const [leadsRes, contactsRes] = await Promise.all([
-          api.get(`/leads?search=${q}&limit=6`),
-          api.get(`/contacts?search=${q}&limit=6`),
+          api.get(`/leads?search=${q}&limit=15`),
+          api.get(`/contacts?search=${q}&limit=20`),
         ]);
         setResults({
           leads: leadsRes.data.leads || [],
