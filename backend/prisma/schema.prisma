@@ -101,6 +101,9 @@ model Workspace {
   // { header, overdueHeader, todayHeader, tomorrowHeader, taskLine, footer }
   // Vazio = usa defaults definidos no código.
   dailyDigestTemplate Json @default("{}")
+  // Dias da semana em que o digest é enviado. Array de ints 0-6 (0=Dom,1=Seg,...,6=Sáb).
+  // Default: todos os dias.
+  dailyDigestWeekdays Json @default("[0,1,2,3,4,5,6]")
   assignmentNotifyEnabled Boolean @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

@@ -80,6 +80,7 @@ export default function SettingsPage() {
   const [digestPreview, setDigestPreview] = useState<string>('');
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [testingDigest, setTestingDigest] = useState(false);
+  const [wsDigestWeekdays, setWsDigestWeekdays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [wsAssignmentNotifyEnabled, setWsAssignmentNotifyEnabled] = useState(true);
   const [testingAssignmentNotify, setTestingAssignmentNotify] = useState(false);
   const [savingWs, setSavingWs] = useState(false);
@@ -140,6 +141,7 @@ export default function SettingsPage() {
       setWsTaskTitles(ttt);
       setWsTaskFieldLabels((data.taskFieldLabels && typeof data.taskFieldLabels === 'object') ? data.taskFieldLabels : {});
       setWsDigestEnabled(!!data.dailyDigestEnabled);
+      setWsDigestWeekdays(Array.isArray(data.dailyDigestWeekdays) ? data.dailyDigestWeekdays : [0, 1, 2, 3, 4, 5, 6]);
       setWsAssignmentNotifyEnabled(data.assignmentNotifyEnabled !== false);
       setWsDigestHour(typeof data.dailyDigestHour === 'number' ? data.dailyDigestHour : 7);
       setWsDigestMinute(typeof data.dailyDigestMinute === 'number' ? data.dailyDigestMinute : 0);
@@ -319,6 +321,7 @@ export default function SettingsPage() {
         taskTitles: wsTaskTitles,
         taskFieldLabels: wsTaskFieldLabels,
         dailyDigestEnabled: wsDigestEnabled,
+        dailyDigestWeekdays: wsDigestWeekdays,
         assignmentNotifyEnabled: wsAssignmentNotifyEnabled,
         dailyDigestHour: wsDigestHour,
         dailyDigestMinute: wsDigestMinute,
@@ -815,6 +818,29 @@ export default function SettingsPage() {
               />
               <span className="text-sm">Activar digest diário</span>
             </label>
+            <div>
+              <p className="text-[11px] mb-1.5" style={{ color: 'var(--text-muted)' }}>Dias de envio:</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {([['Dom', 0], ['Seg', 1], ['Ter', 2], ['Qua', 3], ['Qui', 4], ['Sex', 5], ['Sáb', 6]] as [string, number][]).map(([label, day]) => {
+                  const active = wsDigestWeekdays.includes(day);
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => setWsDigestWeekdays(active ? wsDigestWeekdays.filter((d) => d !== day) : [...wsDigestWeekdays, day].sort())}
+                      className="btn py-1 px-2 text-[11px] font-medium"
+                      style={{
+                        background: active ? 'var(--primary)' : 'var(--surface-3)',
+                        color: active ? '#fff' : 'var(--text-muted)',
+                        border: active ? 'none' : '1px solid var(--border)',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               <label className="text-xs" style={{ color: 'var(--text-muted)' }}>Hora de envio (Maputo):</label>
               <select value={wsDigestHour} onChange={(e) => setWsDigestHour(Number(e.target.value))} className="input-base text-sm" style={{ width: 'auto' }}>

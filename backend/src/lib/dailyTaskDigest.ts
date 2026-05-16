@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-interface MaputoTime { hour: number; minute: number; ymd: string; }
+interface MaputoTime { hour: number; minute: number; ymd: string; weekday: number; }
 function nowInMaputo(): MaputoTime {
   // Africa/Maputo = UTC+2 (sem DST). Usamos Intl para extrair partes em qualquer timezone.
   const now = new Date();
@@ -19,11 +19,11 @@ function nowInMaputo(): MaputoTime {
   });
   const parts = fmt.formatToParts(now);
   const get = (t: string) => parts.find((p) => p.type === t)?.value || '00';
-  return {
-    hour: Number(get('hour')),
-    minute: Number(get('minute')),
-    ymd: `${get('year')}-${get('month')}-${get('day')}`,
-  };
+  const ymd = `${get('year')}-${get('month')}-${get('day')}`;
+  // Calcular o dia da semana a partir da data local Maputo (0=Dom...6=Sáb)
+  const [y, m, d] = ymd.split('-').map(Number);
+  const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getDay();
+  return { hour: Number(get('hour')), minute: Number(get('minute')), ymd, weekday };
 }
 
 // Range "início do dia" e "fim do dia" no fuso Maputo, devolve Date UTC equivalentes.
@@ -274,6 +274,12 @@ export async function runDailyDigests(): Promise<void> {
     });
 
     for (const ws of workspaces) {
+      // Verificar se hoje é um dos dias seleccionados (default: todos os dias)
+      const weekdays: number[] = Array.isArray(ws.dailyDigestWeekdays)
+        ? ws.dailyDigestWeekdays as number[]
+        : [0, 1, 2, 3, 4, 5, 6];
+      if (!weekdays.includes(t.weekday)) continue;
+
       // Idempotência: não correr 2x no mesmo dia
       if (ws.dailyDigestLastRunAt) {
         const lastRunYmd = new Intl.DateTimeFormat('en-CA', {
