@@ -37,16 +37,38 @@ function priorityLabel(p: string): string {
   return c[p] || p;
 }
 
-// Picker de contacto com pesquisa
+// Picker de contacto com pesquisa via backend (pesquisa profunda em TODA a BD).
+// `contacts` é só para resolver o nome do contacto seleccionado quando o id já vem definido;
+// a pesquisa real corre contra /contacts?search= que ignora acentos e procura nome completo.
 function ContactSearchPicker({ contacts, value, onChange }: { contacts: Contact[]; value: string; onChange: (id: string) => void }) {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
-  const selected = contacts.find((c) => c.id === value);
-  const filtered = search.trim()
-    ? contacts.filter((c) =>
-        `${c.firstName} ${c.lastName || ''} ${c.phone || ''} ${c.whatsapp || ''} ${c.email || ''}`.toLowerCase().includes(search.toLowerCase())
-      ).slice(0, 20)
-    : contacts.slice(0, 20);
+  const [results, setResults] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedCache, setSelectedCache] = useState<Contact | null>(null);
+
+  // Resolver nome do contacto seleccionado a partir do id (preferência: lista local, depois cache, depois API)
+  const selectedLocal = contacts.find((c) => c.id === value);
+  const selected = selectedLocal || selectedCache;
+  useEffect(() => {
+    if (!value || selectedLocal) return;
+    api.get(`/contacts/${value}`).then(({ data }) => setSelectedCache(data)).catch(() => {});
+  }, [value, selectedLocal]);
+
+  // Pesquisa via API com debounce
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const q = encodeURIComponent(search.trim());
+        const url = q ? `/contacts?search=${q}&limit=50` : '/contacts?limit=30';
+        const { data } = await api.get(url);
+        setResults(data.contacts || []);
+      } catch { setResults([]); } finally { setLoading(false); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [search, open]);
 
   if (selected && !open) {
     return (
@@ -72,10 +94,12 @@ function ContactSearchPicker({ contacts, value, onChange }: { contacts: Contact[
       />
       {open && (
         <div className="absolute z-20 mt-1 w-full card max-h-56 overflow-y-auto" style={{ background: 'var(--surface)' }}>
-          {filtered.length === 0 ? (
+          {loading ? (
+            <p className="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>A pesquisar...</p>
+          ) : results.length === 0 ? (
             <p className="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>Sem resultados</p>
           ) : (
-            filtered.map((c) => (
+            results.map((c) => (
               <button
                 key={c.id}
                 type="button"
