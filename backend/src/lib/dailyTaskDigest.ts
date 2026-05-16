@@ -89,42 +89,78 @@ async function buildBucketsForUser(userId: string, workspaceId: string): Promise
   return { overdue, today: todayTasks, tomorrow: tomorrowTasks };
 }
 
-function formatTaskLine(t: any): string {
+// Template default da mensagem do digest. Editável em Definições.
+// Placeholders disponíveis em cada parte:
+//   {firstName} {fullName} {date} — sempre
+//   {count} {list} — só em *Header
+//   {title} {contact} {contactDash} {due} {dueParen} {overdueDays} {overdueSuffix} — só em taskLine
+export const DEFAULT_DIGEST_TEMPLATE = {
+  header: 'Bom dia, {firstName}! ☀️',
+  overdueHeader: '📋 Atrasadas ({count}):\n{list}',
+  todayHeader: '📅 Hoje ({count}):\n{list}',
+  tomorrowHeader: '🔜 Amanhã ({count}):\n{list}',
+  taskLine: '• {title}{contactDash}{dueParen}{overdueSuffix}',
+  footer: 'Bom trabalho!',
+};
+export type DigestTemplate = typeof DEFAULT_DIGEST_TEMPLATE;
+
+function renderStr(tpl: string, vars: Record<string, string>): string {
+  return tpl.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? vars[k] : ''));
+}
+
+function formatTaskLine(tpl: string, t: any): string {
   const contactName = t.contact ? `${t.contact.firstName} ${t.contact.lastName || ''}`.trim() : '';
   const due = t.dueAt ? formatDueLocal(new Date(t.dueAt)) : '';
   const title = (t.title || '').trim() || 'Tarefa';
-  return `• ${title}${contactName ? ` — ${contactName}` : ''}${due ? ` (${due})` : ''}`;
+  let overdueDays = 0;
+  let overdueSuffix = '';
+  if (t.dueAt) {
+    const todayStart = maputoDayRange(0).from.getTime();
+    if (new Date(t.dueAt).getTime() < todayStart) {
+      overdueDays = daysOverdue(new Date(t.dueAt));
+      overdueSuffix = ` — atrasada ${overdueDays} ${overdueDays === 1 ? 'dia' : 'dias'}`;
+    }
+  }
+  return renderStr(tpl, {
+    title,
+    contact: contactName,
+    contactDash: contactName ? ` — ${contactName}` : '',
+    due,
+    dueParen: due ? ` (${due})` : '',
+    overdueDays: String(overdueDays),
+    overdueSuffix,
+  });
 }
 
-function buildMessage(userName: string, buckets: DigestBuckets): string | null {
+function buildMessage(userName: string, buckets: DigestBuckets, template?: Partial<DigestTemplate>): string | null {
   const total = buckets.overdue.length + buckets.today.length + buckets.tomorrow.length;
   if (total === 0) return null;
 
-  const parts: string[] = [`Bom dia, ${userName.split(' ')[0]}! ☀️`, ''];
+  const t: DigestTemplate = { ...DEFAULT_DIGEST_TEMPLATE, ...(template || {}) };
+  const firstName = userName.split(' ')[0] || userName;
+  const dateStr = new Intl.DateTimeFormat('pt-PT', { timeZone: 'Africa/Maputo', day: '2-digit', month: '2-digit' }).format(new Date());
+
+  const baseVars = { firstName, fullName: userName, date: dateStr };
+
+  const parts: string[] = [renderStr(t.header, baseVars), ''];
 
   if (buckets.overdue.length) {
-    parts.push(`📋 Atrasadas (${buckets.overdue.length}):`);
-    for (const t of buckets.overdue) {
-      const days = t.dueAt ? daysOverdue(new Date(t.dueAt)) : 0;
-      const suffix = days ? ` — atrasada ${days} ${days === 1 ? 'dia' : 'dias'}` : '';
-      parts.push(formatTaskLine(t) + suffix);
-    }
+    const list = buckets.overdue.map((task) => formatTaskLine(t.taskLine, task)).join('\n');
+    parts.push(renderStr(t.overdueHeader, { ...baseVars, count: String(buckets.overdue.length), list }));
     parts.push('');
   }
-
   if (buckets.today.length) {
-    parts.push(`📅 Hoje (${buckets.today.length}):`);
-    for (const t of buckets.today) parts.push(formatTaskLine(t));
+    const list = buckets.today.map((task) => formatTaskLine(t.taskLine, task)).join('\n');
+    parts.push(renderStr(t.todayHeader, { ...baseVars, count: String(buckets.today.length), list }));
     parts.push('');
   }
-
   if (buckets.tomorrow.length) {
-    parts.push(`🔜 Amanhã (${buckets.tomorrow.length}):`);
-    for (const t of buckets.tomorrow) parts.push(formatTaskLine(t));
+    const list = buckets.tomorrow.map((task) => formatTaskLine(t.taskLine, task)).join('\n');
+    parts.push(renderStr(t.tomorrowHeader, { ...baseVars, count: String(buckets.tomorrow.length), list }));
     parts.push('');
   }
 
-  parts.push('Bom trabalho!');
+  parts.push(renderStr(t.footer, baseVars));
   return parts.join('\n');
 }
 
@@ -165,13 +201,14 @@ async function processWorkspace(workspace: any): Promise<void> {
     select: { id: true, name: true, phone: true, digestGroupJid: true },
   });
 
+  const template = (workspace.dailyDigestTemplate as Partial<DigestTemplate>) || {};
   let sent = 0;
   for (const u of users) {
     try {
       const destination = (u.digestGroupJid && u.digestGroupJid.trim()) || (u.phone && u.phone.trim()) || '';
       if (!destination) continue;
       const buckets = await buildBucketsForUser(u.id, workspace.id);
-      const message = buildMessage(u.name, buckets);
+      const message = buildMessage(u.name, buckets, template);
       if (!message) continue;
       const ok = await sendWhatsAppToDestination(workspace, destination, message);
       if (ok) sent++;
@@ -220,6 +257,7 @@ export async function runDailyDigests(): Promise<void> {
 export async function runDigestForWorkspace(workspaceId: string): Promise<{ users: number; sent: number }> {
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   if (!workspace) return { users: 0, sent: 0 };
+  const template = (workspace.dailyDigestTemplate as Partial<DigestTemplate>) || {};
   const users = await prisma.user.findMany({
     where: { workspaceId, isActive: true },
     select: { id: true, name: true, phone: true, digestGroupJid: true },
@@ -229,10 +267,31 @@ export async function runDigestForWorkspace(workspaceId: string): Promise<{ user
     const destination = (u.digestGroupJid && u.digestGroupJid.trim()) || (u.phone && u.phone.trim()) || '';
     if (!destination) continue;
     const buckets = await buildBucketsForUser(u.id, workspaceId);
-    const message = buildMessage(u.name, buckets);
+    const message = buildMessage(u.name, buckets, template);
     if (!message) continue;
     const ok = await sendWhatsAppToDestination(workspace, destination, message);
     if (ok) sent++;
   }
   return { users: users.length, sent };
+}
+
+// Gera preview da mensagem (sem enviar) para mostrar nas Definições.
+// Usa dados reais do utilizador autenticado quando possível.
+export async function previewDigestForUser(workspaceId: string, userId: string, template?: Partial<DigestTemplate>): Promise<string> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return '';
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  const tpl = template !== undefined ? template : ((workspace?.dailyDigestTemplate as Partial<DigestTemplate>) || {});
+  const buckets = await buildBucketsForUser(userId, workspaceId);
+  // Se não há tarefas reais, criar exemplos fictícios para mostrar formato
+  if (buckets.overdue.length + buckets.today.length + buckets.tomorrow.length === 0) {
+    const fake = (title: string, when: Date, contact: string) => ({
+      title, dueAt: when, contact: { firstName: contact, lastName: '' },
+    });
+    const now = new Date();
+    buckets.overdue = [fake('Exemplo de tarefa atrasada', new Date(now.getTime() - 2 * 86400000), 'Cliente A')];
+    buckets.today = [fake('Exemplo de tarefa de hoje', now, 'Cliente B')];
+    buckets.tomorrow = [fake('Exemplo de tarefa de amanhã', new Date(now.getTime() + 86400000), 'Cliente C')];
+  }
+  return buildMessage(user.name, buckets, tpl) || '';
 }

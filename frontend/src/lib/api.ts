@@ -179,6 +179,16 @@ export interface Workspace {
   dailyDigestEnabled?: boolean;
   dailyDigestHour?: number;
   dailyDigestMinute?: number;
+  dailyDigestTemplate?: DigestTemplate;
+}
+
+export interface DigestTemplate {
+  header?: string;
+  overdueHeader?: string;
+  todayHeader?: string;
+  tomorrowHeader?: string;
+  taskLine?: string;
+  footer?: string;
 }
 
 export interface Pipeline {

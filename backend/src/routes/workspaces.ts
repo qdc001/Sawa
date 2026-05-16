@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
-import { runDigestForWorkspace } from '../lib/dailyTaskDigest';
+import { runDigestForWorkspace, previewDigestForUser, DEFAULT_DIGEST_TEMPLATE } from '../lib/dailyTaskDigest';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -25,7 +25,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -47,6 +47,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(dailyDigestEnabled !== undefined && { dailyDigestEnabled: !!dailyDigestEnabled }),
         ...(dailyDigestHour !== undefined && { dailyDigestHour: Math.max(0, Math.min(23, Number(dailyDigestHour) || 0)) }),
         ...(dailyDigestMinute !== undefined && { dailyDigestMinute: Math.max(0, Math.min(59, Number(dailyDigestMinute) || 0)) }),
+        ...(dailyDigestTemplate !== undefined && { dailyDigestTemplate }),
       },
     });
     await prisma.auditLog.create({
@@ -129,6 +130,22 @@ router.post('/me/daily-digest/test', async (req: AuthRequest, res: Response, nex
     const result = await runDigestForWorkspace(req.user!.workspaceId);
     res.json(result);
   } catch (e) { next(e); }
+});
+
+// POST /api/workspaces/me/daily-digest/preview
+// Gera o texto da mensagem (sem enviar) para mostrar na UI das Definições.
+// Body opcional: { template: { header, ... } } — usa esse template em vez do guardado.
+router.post('/me/daily-digest/preview', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const message = await previewDigestForUser(req.user!.workspaceId, req.user!.id, req.body?.template);
+    res.json({ message });
+  } catch (e) { next(e); }
+});
+
+// GET /api/workspaces/me/daily-digest/defaults
+// Devolve o template default (para o botão "Repor padrão").
+router.get('/me/daily-digest/defaults', async (_req: AuthRequest, res: Response) => {
+  res.json({ template: DEFAULT_DIGEST_TEMPLATE });
 });
 
 export default router;

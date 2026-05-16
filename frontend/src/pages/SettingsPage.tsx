@@ -75,6 +75,10 @@ export default function SettingsPage() {
   const [wsDigestEnabled, setWsDigestEnabled] = useState(false);
   const [wsDigestHour, setWsDigestHour] = useState(7);
   const [wsDigestMinute, setWsDigestMinute] = useState(0);
+  const [wsDigestTemplate, setWsDigestTemplate] = useState<any>({});
+  const [digestDefaults, setDigestDefaults] = useState<any>({});
+  const [digestPreview, setDigestPreview] = useState<string>('');
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const [testingDigest, setTestingDigest] = useState(false);
   const [savingWs, setSavingWs] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -136,6 +140,9 @@ export default function SettingsPage() {
       setWsDigestEnabled(!!data.dailyDigestEnabled);
       setWsDigestHour(typeof data.dailyDigestHour === 'number' ? data.dailyDigestHour : 7);
       setWsDigestMinute(typeof data.dailyDigestMinute === 'number' ? data.dailyDigestMinute : 0);
+      setWsDigestTemplate(data.dailyDigestTemplate && typeof data.dailyDigestTemplate === 'object' ? data.dailyDigestTemplate : {});
+      // Carregar template default (para botão "Repor padrão" e placeholders)
+      api.get('/workspaces/me/daily-digest/defaults').then(({ data: d }) => setDigestDefaults(d.template || {})).catch(() => {});
       // aplicar cor primaria persistida no servidor
       if (data.primaryColor) applyPrimaryColor(data.primaryColor);
     }).catch(() => {});
@@ -311,6 +318,7 @@ export default function SettingsPage() {
         dailyDigestEnabled: wsDigestEnabled,
         dailyDigestHour: wsDigestHour,
         dailyDigestMinute: wsDigestMinute,
+        dailyDigestTemplate: wsDigestTemplate,
       });
       updateWorkspace({
         name: data.name, logo: data.logo, timezone: data.timezone, currency: data.currency,
@@ -817,6 +825,65 @@ export default function SettingsPage() {
                 ))}
               </select>
             </div>
+            {/* Editor do template */}
+            <div className="border-t pt-3 mt-2 space-y-2" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-xs font-semibold">Estilo da mensagem</p>
+              <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                Edita cada parte. Usa placeholders entre chavetas. Disponíveis em todas as partes: <code>{'{firstName}'}</code>, <code>{'{fullName}'}</code>, <code>{'{date}'}</code>. Nas secções: <code>{'{count}'}</code>, <code>{'{list}'}</code>. No formato de cada linha: <code>{'{title}'}</code>, <code>{'{contact}'}</code>, <code>{'{contactDash}'}</code>, <code>{'{due}'}</code>, <code>{'{dueParen}'}</code>, <code>{'{overdueSuffix}'}</code>.
+              </p>
+              {([
+                ['header', 'Saudação'],
+                ['overdueHeader', 'Secção Atrasadas'],
+                ['todayHeader', 'Secção Hoje'],
+                ['tomorrowHeader', 'Secção Amanhã'],
+                ['taskLine', 'Formato de cada tarefa'],
+                ['footer', 'Rodapé'],
+              ] as const).map(([k, label]) => (
+                <div key={k}>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>{label} <span style={{ color: 'var(--text-muted)' }}>(default: {digestDefaults[k]})</span></label>
+                  <textarea
+                    value={wsDigestTemplate[k] ?? ''}
+                    onChange={(e) => setWsDigestTemplate({ ...wsDigestTemplate, [k]: e.target.value })}
+                    placeholder={digestDefaults[k] || ''}
+                    className="input-base text-xs font-mono"
+                    rows={k === 'overdueHeader' || k === 'todayHeader' || k === 'tomorrowHeader' ? 2 : 1}
+                  />
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWsDigestTemplate({})}
+                  className="btn py-1 px-2 text-[11px]"
+                  style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+                >
+                  Repor padrão
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLoadingPreview(true);
+                    try {
+                      const { data } = await api.post('/workspaces/me/daily-digest/preview', { template: wsDigestTemplate });
+                      setDigestPreview(data.message || '(sem tarefas para mostrar)');
+                    } catch (e: any) {
+                      toast.error(e.response?.data?.message || 'Erro');
+                    } finally { setLoadingPreview(false); }
+                  }}
+                  disabled={loadingPreview}
+                  className="btn py-1 px-2 text-[11px]"
+                  style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                >
+                  {loadingPreview ? <Loader2 size={11} className="animate-spin" /> : 'Pré-visualizar'}
+                </button>
+              </div>
+              {digestPreview && (
+                <div className="p-3 rounded text-xs whitespace-pre-wrap font-mono" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
+                  {digestPreview}
+                </div>
+              )}
+            </div>
+
             <button
               onClick={async () => {
                 setTestingDigest(true);
