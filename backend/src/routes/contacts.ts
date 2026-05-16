@@ -7,6 +7,23 @@ import { propagateAssignee } from '../lib/propagateAssignee';
 const prisma = new PrismaClient();
 const router = Router();
 
+// Tenta activar a extensão `unaccent` na BD para permitir pesquisas que ignorem
+// acentuação. É idempotente — só corre uma vez por arranque do servidor.
+let unaccentReady: boolean | null = null;
+async function ensureUnaccent(): Promise<boolean> {
+  if (unaccentReady !== null) return unaccentReady;
+  try {
+    await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS unaccent`);
+    unaccentReady = true;
+  } catch (e: any) {
+    console.error('Failed to enable unaccent extension:', e.message);
+    unaccentReady = false;
+  }
+  return unaccentReady;
+}
+// Tentar logo no arranque
+ensureUnaccent().catch(() => {});
+
 const contactInclude = {
   tags: { include: { tag: true } },
   customValues: { include: { field: true } },
@@ -50,37 +67,72 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
       const digits = trimmed.replace(/\D/g, '');
       const tokens = trimmed.split(/\s+/).filter((t) => t.length > 0);
 
-      const searchOr: any[] = [
-        { firstName: { contains: trimmed, mode: 'insensitive' } },
-        { lastName: { contains: trimmed, mode: 'insensitive' } },
-        { email: { contains: trimmed, mode: 'insensitive' } },
-        { company: { contains: trimmed, mode: 'insensitive' } },
-        { phone: { contains: trimmed, mode: 'insensitive' } },
-        { whatsapp: { contains: trimmed, mode: 'insensitive' } },
-      ];
-
-      // Pesquisa por telefone normalizado (só dígitos) — apanha contactos guardados
-      // como "+258 84 688 0921" mesmo que o utilizador escreva "846880921"
-      if (digits.length >= 3) {
-        searchOr.push({ whatsapp: { contains: digits } });
-        searchOr.push({ phone: { contains: digits } });
+      // Estratégia 1: usar extensão `unaccent` para ignorar acentos
+      // ("Joao" apanha "João"). Devolve IDs que batem; depois filtramos por AND.
+      const useUnaccent = await ensureUnaccent();
+      let unaccentIds: string[] | null = null;
+      if (useUnaccent) {
+        try {
+          const pat = `%${trimmed}%`;
+          const digitsPat = digits.length >= 3 ? `%${digits}%` : '___NEVER_MATCH___';
+          const rows: any[] = await prisma.$queryRawUnsafe(
+            `SELECT id FROM contacts
+             WHERE "workspaceId" = $1
+             AND (
+               unaccent(COALESCE("firstName", '')) ILIKE unaccent($2)
+               OR unaccent(COALESCE("lastName", '')) ILIKE unaccent($2)
+               OR unaccent(COALESCE(CONCAT_WS(' ', "firstName", "lastName"), '')) ILIKE unaccent($2)
+               OR unaccent(COALESCE("email", '')) ILIKE unaccent($2)
+               OR unaccent(COALESCE("company", '')) ILIKE unaccent($2)
+               OR COALESCE("phone", '') ILIKE $2
+               OR COALESCE("whatsapp", '') ILIKE $2
+               OR REGEXP_REPLACE(COALESCE("phone", ''), '[^0-9]', '', 'g') ILIKE $3
+               OR REGEXP_REPLACE(COALESCE("whatsapp", ''), '[^0-9]', '', 'g') ILIKE $3
+             )
+             LIMIT 2000`,
+            workspaceId, pat, digitsPat,
+          );
+          unaccentIds = rows.map((r: any) => r.id);
+        } catch (e: any) {
+          console.error('unaccent search failed:', e.message);
+        }
       }
 
-      // Pesquisa por nome completo: "João Silva" — cada token deve aparecer em
-      // firstName OU lastName. Apanha contactos cujo firstName="João" e lastName="Silva".
-      if (tokens.length > 1) {
-        searchOr.push({
-          AND: tokens.map((tok) => ({
-            OR: [
-              { firstName: { contains: tok, mode: 'insensitive' } },
-              { lastName: { contains: tok, mode: 'insensitive' } },
-              { company: { contains: tok, mode: 'insensitive' } },
-            ],
-          })),
-        });
+      if (unaccentIds !== null) {
+        // Filtragem foi feita via SQL raw — adicionar restricão por IDs
+        if (unaccentIds.length === 0) {
+          // Nenhum match; devolver vazio sem fazer findMany
+          res.json({ contacts: [], total: 0 });
+          return;
+        }
+        andFilters.push({ id: { in: unaccentIds } });
+      } else {
+        // Fallback (sem unaccent): pesquisa Prisma com tokens
+        const searchOr: any[] = [
+          { firstName: { contains: trimmed, mode: 'insensitive' } },
+          { lastName: { contains: trimmed, mode: 'insensitive' } },
+          { email: { contains: trimmed, mode: 'insensitive' } },
+          { company: { contains: trimmed, mode: 'insensitive' } },
+          { phone: { contains: trimmed, mode: 'insensitive' } },
+          { whatsapp: { contains: trimmed, mode: 'insensitive' } },
+        ];
+        if (digits.length >= 3) {
+          searchOr.push({ whatsapp: { contains: digits } });
+          searchOr.push({ phone: { contains: digits } });
+        }
+        if (tokens.length > 1) {
+          searchOr.push({
+            AND: tokens.map((tok) => ({
+              OR: [
+                { firstName: { contains: tok, mode: 'insensitive' } },
+                { lastName: { contains: tok, mode: 'insensitive' } },
+                { company: { contains: tok, mode: 'insensitive' } },
+              ],
+            })),
+          });
+        }
+        andFilters.push({ OR: searchOr });
       }
-
-      andFilters.push({ OR: searchOr });
     }
 
     const where = { AND: andFilters };
