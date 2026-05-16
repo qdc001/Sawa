@@ -132,7 +132,12 @@ function formatTaskLine(tpl: string, t: any): string {
   });
 }
 
-function buildMessage(userName: string, buckets: DigestBuckets, template?: Partial<DigestTemplate>): string | null {
+// Devolve um array de até 3 mensagens (fragmentadas para não ficarem grandes no WhatsApp):
+//   Parte 1: Saudação + Atrasadas (se houver)
+//   Parte 2: Hoje (omitida se vazio)
+//   Parte 3: Amanhã (se houver) + Rodapé
+// Se não houver tarefas em nenhum bucket, devolve null (não envia nada).
+function buildMessageParts(userName: string, buckets: DigestBuckets, template?: Partial<DigestTemplate>): string[] | null {
   const total = buckets.overdue.length + buckets.today.length + buckets.tomorrow.length;
   if (total === 0) return null;
 
@@ -142,26 +147,40 @@ function buildMessage(userName: string, buckets: DigestBuckets, template?: Parti
 
   const baseVars = { firstName, fullName: userName, date: dateStr };
 
-  const parts: string[] = [renderStr(t.header, baseVars), ''];
-
+  // Parte 1: saudação + atrasadas
+  const part1Lines: string[] = [renderStr(t.header, baseVars)];
   if (buckets.overdue.length) {
     const list = buckets.overdue.map((task) => formatTaskLine(t.taskLine, task)).join('\n');
-    parts.push(renderStr(t.overdueHeader, { ...baseVars, count: String(buckets.overdue.length), list }));
-    parts.push('');
-  }
-  if (buckets.today.length) {
-    const list = buckets.today.map((task) => formatTaskLine(t.taskLine, task)).join('\n');
-    parts.push(renderStr(t.todayHeader, { ...baseVars, count: String(buckets.today.length), list }));
-    parts.push('');
-  }
-  if (buckets.tomorrow.length) {
-    const list = buckets.tomorrow.map((task) => formatTaskLine(t.taskLine, task)).join('\n');
-    parts.push(renderStr(t.tomorrowHeader, { ...baseVars, count: String(buckets.tomorrow.length), list }));
-    parts.push('');
+    part1Lines.push('', renderStr(t.overdueHeader, { ...baseVars, count: String(buckets.overdue.length), list }));
   }
 
-  parts.push(renderStr(t.footer, baseVars));
-  return parts.join('\n');
+  // Parte 2: hoje
+  let part2: string | null = null;
+  if (buckets.today.length) {
+    const list = buckets.today.map((task) => formatTaskLine(t.taskLine, task)).join('\n');
+    part2 = renderStr(t.todayHeader, { ...baseVars, count: String(buckets.today.length), list });
+  }
+
+  // Parte 3: amanhã + rodapé
+  const part3Lines: string[] = [];
+  if (buckets.tomorrow.length) {
+    const list = buckets.tomorrow.map((task) => formatTaskLine(t.taskLine, task)).join('\n');
+    part3Lines.push(renderStr(t.tomorrowHeader, { ...baseVars, count: String(buckets.tomorrow.length), list }), '');
+  }
+  part3Lines.push(renderStr(t.footer, baseVars));
+
+  const out: string[] = [part1Lines.join('\n')];
+  if (part2) out.push(part2);
+  out.push(part3Lines.join('\n'));
+  return out;
+}
+
+// Compat: alguns sítios ainda esperam uma string única. Junta com separador legível.
+function buildMessage(userName: string, buckets: DigestBuckets, template?: Partial<DigestTemplate>): string | null {
+  const parts = buildMessageParts(userName, buckets, template);
+  if (!parts) return null;
+  if (parts.length === 1) return parts[0];
+  return parts.map((p, i) => `${p}\n\n─── parte ${i + 1}/${parts.length} ───`).join('\n\n').replace(/\n\n─── parte \d+\/\d+ ───$/, '');
 }
 
 // Envia mensagem WhatsApp para um destino (JID de grupo ou número individual).
@@ -194,6 +213,20 @@ async function sendWhatsAppToDestination(workspace: any, destination: string, bo
   }
 }
 
+// Envia múltiplas mensagens em sequência com pequeno atraso entre cada,
+// para o WhatsApp não as agrupar e a ordem ser respeitada.
+// Devolve true se pelo menos a 1ª parte foi entregue.
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+async function sendDigestParts(workspace: any, destination: string, parts: string[]): Promise<boolean> {
+  if (parts.length === 0) return false;
+  const firstOk = await sendWhatsAppToDestination(workspace, destination, parts[0]);
+  for (let i = 1; i < parts.length; i++) {
+    await sleep(900);
+    await sendWhatsAppToDestination(workspace, destination, parts[i]);
+  }
+  return firstOk;
+}
+
 async function processWorkspace(workspace: any): Promise<void> {
   // Carregar utilizadores activos. Prioridade: digestGroupJid (grupo) > phone.
   const users = await prisma.user.findMany({
@@ -208,9 +241,9 @@ async function processWorkspace(workspace: any): Promise<void> {
       const destination = (u.digestGroupJid && u.digestGroupJid.trim()) || (u.phone && u.phone.trim()) || '';
       if (!destination) continue;
       const buckets = await buildBucketsForUser(u.id, workspace.id);
-      const message = buildMessage(u.name, buckets, template);
-      if (!message) continue;
-      const ok = await sendWhatsAppToDestination(workspace, destination, message);
+      const parts = buildMessageParts(u.name, buckets, template);
+      if (!parts) continue;
+      const ok = await sendDigestParts(workspace, destination, parts);
       if (ok) sent++;
     } catch (e: any) {
       console.error(`digest user ${u.id} error:`, e.message);
@@ -267,9 +300,9 @@ export async function runDigestForWorkspace(workspaceId: string): Promise<{ user
     const destination = (u.digestGroupJid && u.digestGroupJid.trim()) || (u.phone && u.phone.trim()) || '';
     if (!destination) continue;
     const buckets = await buildBucketsForUser(u.id, workspaceId);
-    const message = buildMessage(u.name, buckets, template);
-    if (!message) continue;
-    const ok = await sendWhatsAppToDestination(workspace, destination, message);
+    const parts = buildMessageParts(u.name, buckets, template);
+    if (!parts) continue;
+    const ok = await sendDigestParts(workspace, destination, parts);
     if (ok) sent++;
   }
   return { users: users.length, sent };
