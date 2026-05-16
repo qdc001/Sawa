@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
@@ -376,6 +376,7 @@ function SnippetsModal({ snippets, onChange, onClose }: {
 // =============== Pagina principal ===============
 export default function InboxPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
   const { user, workspace } = useAuthStore();
 
@@ -676,27 +677,28 @@ export default function InboxPage() {
   useEffect(() => { setConvPage(1); }, [channelFilter, search, unreadOnly, combineByContact]);
 
   // Abrir conversa específica via URL (?contactId=X ou ?leadId=Y vindos de Tasks/Pipeline)
+  // Dispara sempre que o searchParams muda (ex. clique no botão chat de Contactos).
+  const targetContactId = searchParams.get('contactId');
+  const targetLeadId = searchParams.get('leadId');
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const targetContactId = params.get('contactId');
-    const targetLeadId = params.get('leadId');
     if (!targetContactId && !targetLeadId) return;
-    if (conversations.length === 0) return;
 
-    // Procurar conversa existente
-    let found = conversations.find((c) =>
+    // 1) Procurar primeiro nas conversas já carregadas
+    const found = conversations.find((c) =>
       (targetContactId && c.contact?.id === targetContactId) ||
-      (targetLeadId && c.leadId === targetLeadId)
+      (targetLeadId && c.leadId === targetLeadId),
     );
 
     if (found) {
       setSelectedKey(found.key);
-      // limpa URL para não voltar a despoletar
-      window.history.replaceState({}, '', '/inbox');
+      // Limpar param do URL para não re-despoletar em renders subsequentes
+      setSearchParams({}, { replace: true });
       return;
     }
 
-    // Não existe conversa: criar entrada virtual
+    // 2) Não está nas conversas carregadas. Pode ser que:
+    //    a) Existe noutra página da paginação → fetch directo do contacto + criar virtual
+    //    b) Contacto não tem mensagens ainda → criar virtual
     (async () => {
       try {
         let contactToUse: any = null;
@@ -707,7 +709,11 @@ export default function InboxPage() {
           const r = await api.get(`/leads/${targetLeadId}`);
           contactToUse = r.data.contact;
         }
-        if (!contactToUse) return;
+        if (!contactToUse) {
+          toast.error('Contacto não encontrado');
+          setSearchParams({}, { replace: true });
+          return;
+        }
 
         const virtualConv: Conversation = {
           key: `${contactToUse.id}:WHATSAPP`,
@@ -722,11 +728,14 @@ export default function InboxPage() {
         } as any;
         setConversations((prev) => [virtualConv, ...prev.filter((c) => c.key !== virtualConv.key)]);
         setSelectedKey(virtualConv.key);
-        window.history.replaceState({}, '', '/inbox');
-      } catch {}
+        setSearchParams({}, { replace: true });
+      } catch {
+        toast.error('Erro a abrir conversa');
+        setSearchParams({}, { replace: true });
+      }
     })();
     // eslint-disable-next-line
-  }, [conversations.length]);
+  }, [targetContactId, targetLeadId, conversations.length]);
 
   useEffect(() => {
     api.get('/contacts?limit=500').then(({ data }) => setContacts(data.contacts || [])).catch(() => {});
