@@ -1,10 +1,10 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 
+import prisma from '../lib/prisma';
+import { getCreds, encryptForStore } from '../lib/integrationCrypto';
 const router = Router();
-const prisma = new PrismaClient();
 
 // GET /api/broadcasts
 router.get('/', async (req: AuthRequest, res: Response, next) => {
@@ -116,7 +116,7 @@ router.post('/:id/send', async (req: AuthRequest, res: Response, next) => {
 });
 
 async function processBroadcast(broadcast: any, integration: any, workspaceId: string) {
-  const creds = integration.credentials as any;
+  const creds: any = getCreds(integration);
   let sent = 0, failed = 0;
   const DELAY_MS = 1000; // 1s entre mensagens (respeitar rate limits Meta)
 

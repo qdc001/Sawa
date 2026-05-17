@@ -1,9 +1,9 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { propagateAssignee } from '../lib/propagateAssignee';
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
+import { getCreds, encryptForStore } from '../lib/integrationCrypto';
 const router = Router();
 
 // Helper: envia via Meta Graph API (Instagram DM ou Facebook Messenger)
@@ -12,7 +12,7 @@ async function sendMetaOut(workspaceId: string, channel: 'INSTAGRAM' | 'FACEBOOK
     where: { workspaceId, type: channel as any, isActive: true },
   });
   if (!integration) return { ok: false, error: `Integração ${channel} não configurada` };
-  const creds: any = integration.credentials || {};
+  const creds: any = getCreds(integration);
   const accessToken = creds.accessToken || creds.pageAccessToken;
   const pageId = creds.pageId;
   if (!accessToken || !pageId) return { ok: false, error: 'accessToken ou pageId em falta' };
@@ -44,7 +44,7 @@ async function sendWhatsAppOut(workspaceId: string, phone: string, content: stri
     where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
   });
   if (evo) {
-    const creds: any = evo.credentials || {};
+    const creds: any = getCreds(evo);
     if (creds.baseUrl && creds.apiKey && creds.instanceName) {
       try {
         let path: string;
@@ -103,7 +103,7 @@ async function sendWhatsAppOut(workspaceId: string, phone: string, content: stri
     where: { workspaceId, type: 'WHATSAPP', isActive: true },
   });
   if (cloud) {
-    const creds: any = cloud.credentials || {};
+    const creds: any = getCreds(cloud);
     const token = creds.accessToken || creds.token;
     const phoneId = creds.phoneNumberId || creds.phoneId;
     if (token && phoneId) {
@@ -395,7 +395,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
         where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
       });
       if (evo) {
-        const creds: any = evo.credentials || {};
+        const creds: any = getCreds(evo);
         const phone = existing.contact?.whatsapp || existing.contact?.phone;
         if (creds.baseUrl && creds.apiKey && creds.instanceName && phone) {
           try {
@@ -449,7 +449,7 @@ async function evolutionMarkRead(workspaceId: string, messages: Array<{ external
     where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
   });
   if (!evo) return;
-  const creds: any = evo.credentials || {};
+  const creds: any = getCreds(evo);
   if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return;
 
   // Agrupar por contacto

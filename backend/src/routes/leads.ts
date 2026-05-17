@@ -1,5 +1,4 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
@@ -7,8 +6,8 @@ import { notifyNewLead } from '../lib/notify';
 import { propagateAssignee } from '../lib/propagateAssignee';
 import { notifyWhatsAppAssignment } from '../lib/dailyTaskDigest';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 const leadInclude = {
   stage: true,

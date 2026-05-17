@@ -1,11 +1,10 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { runDigestForWorkspace, previewDigestForUser, DEFAULT_DIGEST_TEMPLATE, notifyWhatsAppAssignment, testAssignmentNotifyForUser } from '../lib/dailyTaskDigest';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 // GET /api/workspaces/me
 router.get('/me', async (req: AuthRequest, res: Response, next) => {

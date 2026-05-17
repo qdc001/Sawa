@@ -20,9 +20,8 @@
  *   add_tag, set_priority, send_email, webhook, send_notification
  */
 
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from './prisma';
+import { getCreds, encryptForStore } from './integrationCrypto';
 
 interface TriggerEvent {
   type: string;
@@ -176,7 +175,7 @@ async function sendWhatsAppText(workspaceId: string, to: string, text: string): 
     where: { workspaceId, type: 'WHATSAPP', isActive: true },
   });
   if (!integration) return false;
-  const creds: any = integration.credentials;
+  const creds: any = getCreds(integration);
   if (!creds?.token || !creds?.phoneId) return false;
   try {
     const res = await fetch(`https://graph.facebook.com/v19.0/${creds.phoneId}/messages`, {

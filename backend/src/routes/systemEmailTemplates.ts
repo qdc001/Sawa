@@ -1,11 +1,10 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { DEFAULT_TEMPLATES } from '../lib/mailer';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 const TEMPLATE_TYPES = ['welcome', 'password_reset', 'invite', 'csat', 'lead_assigned', 'task_overdue'];
 

@@ -1,10 +1,9 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 // GET /api/tags
 router.get('/', async (req: AuthRequest, res: Response, next) => {

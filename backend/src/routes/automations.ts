@@ -1,11 +1,10 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { testAutomation } from '../lib/automationEngine';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 const automationInclude = {
   createdBy: { select: { id: true, name: true, avatar: true } },

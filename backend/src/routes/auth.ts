@@ -2,14 +2,13 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
 import { AppError } from '../middleware/errorHandler';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { verifyTotp } from '../lib/totp';
 import { sendSystemEmail } from '../lib/mailer';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 function parseDeviceInfo(ua?: string): string {
   if (!ua) return 'Desconhecido';

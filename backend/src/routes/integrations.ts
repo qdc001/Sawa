@@ -1,5 +1,4 @@
 import { Router, Response, Request } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import nodemailer from 'nodemailer';
@@ -9,8 +8,9 @@ import { notifyNewMessage } from '../lib/notify';
 import { analysePhone, nameFromPushOrPhone } from '../lib/phoneFormat';
 import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 
+import prisma from '../lib/prisma';
+import { getCreds, encryptForStore } from '../lib/integrationCrypto';
 const router = Router();
-const prisma = new PrismaClient();
 
 // ============= Helpers Evolution =============
 function evolutionUrl(baseUrl: string, path: string): string {
@@ -55,7 +55,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
     if (!integration) throw new AppError('Integracao nao encontrada', 404);
-    res.json(integration);
+    // Nunca devolver credenciais ao cliente
+    res.json({ ...integration, credentials: integration.credentials ? { configured: true } : null });
   } catch (e) { next(e); }
 });
 
@@ -67,13 +68,13 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     const integration = await prisma.integration.create({
       data: {
         type, name,
-        credentials: credentials || {},
+        credentials: encryptForStore(credentials || {}) as any,
         settings: settings || {},
         isActive: isActive ?? true,
         workspaceId: req.user!.workspaceId,
       },
     });
-    res.status(201).json(integration);
+    res.status(201).json({ ...integration, credentials: { configured: true } });
   } catch (e) { next(e); }
 });
 
@@ -85,12 +86,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       where: { id: req.params.id },
       data: {
         ...(name && { name }),
-        ...(credentials && { credentials }),
+        ...(credentials && { credentials: encryptForStore(credentials) as any }),
         ...(settings && { settings }),
         ...(isActive !== undefined && { isActive }),
       },
     });
-    res.json(integration);
+    res.json({ ...integration, credentials: { configured: true } });
   } catch (e) { next(e); }
 });
 
@@ -119,7 +120,7 @@ router.post('/whatsapp-cloud/send', async (req: AuthRequest, res: Response, next
     if (!to || !message) throw new AppError('to e message obrigatorios', 400);
 
     const integration = await findActiveIntegration(req.user!.workspaceId, 'WHATSAPP');
-    const creds: any = integration?.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.accessToken || !creds.phoneNumberId) {
       throw new AppError('Configura WhatsApp Cloud nas Integracoes (accessToken + phoneNumberId)', 400);
     }
@@ -164,10 +165,11 @@ async function getOrCreateEvolutionIntegration(workspaceId: string, fields?: { b
   });
   if (existing) {
     if (fields?.baseUrl || fields?.apiKey) {
-      const creds: any = existing.credentials || {};
+      const creds: any = getCreds(existing);
+      const merged = { ...creds, ...(fields.baseUrl && { baseUrl: fields.baseUrl }), ...(fields.apiKey && { apiKey: fields.apiKey }) };
       return prisma.integration.update({
         where: { id: existing.id },
-        data: { credentials: { ...creds, ...(fields.baseUrl && { baseUrl: fields.baseUrl }), ...(fields.apiKey && { apiKey: fields.apiKey }) } },
+        data: { credentials: encryptForStore(merged) as any },
       });
     }
     return existing;
@@ -175,7 +177,7 @@ async function getOrCreateEvolutionIntegration(workspaceId: string, fields?: { b
   return prisma.integration.create({
     data: {
       type: 'WEBHOOK', name: 'Evolution',
-      credentials: { baseUrl: fields?.baseUrl || '', apiKey: fields?.apiKey || '', instanceName: '' },
+      credentials: encryptForStore({ baseUrl: fields?.baseUrl || '', apiKey: fields?.apiKey || '', instanceName: '' }) as any,
       isActive: false,
       workspaceId,
     },
@@ -199,7 +201,7 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) throw new AppError('Configura primeiro o servidor Evolution (baseUrl + apiKey)', 400);
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.baseUrl || !creds.apiKey) throw new AppError('baseUrl e apiKey em falta', 400);
 
     const instanceName = creds.instanceName || `meta_${req.user!.workspaceId.substring(0, 8)}`;
@@ -279,7 +281,7 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
     // 5) Persistir instanceName + webhook
     await prisma.integration.update({
       where: { id: integration.id },
-      data: { credentials: { ...creds, instanceName, webhookUrl }, isActive: true },
+      data: { credentials: encryptForStore({ ...creds, instanceName, webhookUrl }) as any, isActive: true },
     });
 
     // 6) Extrair base64 do QR (formato Evolution v2: { pairingCode, code, base64, count })
@@ -297,7 +299,7 @@ router.get('/evolution/status', async (req: AuthRequest, res: Response, next) =>
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) return res.json({ configured: false });
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
       return res.json({ configured: !!(creds.baseUrl && creds.apiKey), instanceName: creds.instanceName || null, state: 'unknown' });
     }
@@ -319,7 +321,7 @@ router.get('/evolution/qr', async (req: AuthRequest, res: Response, next) => {
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) throw new AppError('Evolution não configurada', 400);
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.instanceName) throw new AppError('Sem instância criada', 400);
 
     let qr: any = null;
@@ -346,7 +348,7 @@ router.post('/evolution/presence', async (req: AuthRequest, res: Response, next)
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
     });
     if (!integration) return res.json({ ok: false, reason: 'sem integração' });
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return res.json({ ok: false, reason: 'incompleta' });
 
     try {
@@ -384,7 +386,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) throw new AppError('Evolution não configurada', 400);
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
       throw new AppError('Configuração Evolution incompleta', 400);
     }
@@ -699,12 +701,12 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
         await prisma.integration.update({
           where: { id: integration.id },
           data: {
-            credentials: {
+            credentials: encryptForStore({
               ...creds,
               lastSyncAt: new Date().toISOString(),
               lastSyncStats: stats,
               ...(ownerName ? { ownerName } : {}),
-            },
+            }) as any,
           },
         });
 
@@ -821,7 +823,7 @@ router.post('/evolution/sync-contact-names', async (req: AuthRequest, res: Respo
       where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) throw new AppError('Evolution não configurada', 400);
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
       throw new AppError('Configuração Evolution incompleta', 400);
     }
@@ -867,7 +869,7 @@ router.post('/evolution/fix-names', async (req: AuthRequest, res: Response, next
       where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) throw new AppError('Evolution não configurada', 400);
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
 
     // 1) Determinar ownerName (preferir o que está em creds, senão buscar)
     let ownerName: string | null = (creds.ownerName || '').trim() || null;
@@ -880,7 +882,7 @@ router.post('/evolution/fix-names', async (req: AuthRequest, res: Response, next
         ) || arr[0];
         ownerName = (inst?.instance?.profileName || inst?.profileName || inst?.owner?.pushName || '').trim() || null;
         if (ownerName) {
-          await prisma.integration.update({ where: { id: integration.id }, data: { credentials: { ...creds, ownerName } } });
+          await prisma.integration.update({ where: { id: integration.id }, data: { credentials: encryptForStore({ ...creds, ownerName }) as any } });
         }
       } catch { /* silent */ }
     }
@@ -947,7 +949,7 @@ router.get('/evolution/groups', async (req: AuthRequest, res: Response, next) =>
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) throw new AppError('Evolution não configurada', 400);
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
       throw new AppError('Configuração Evolution incompleta', 400);
     }
@@ -990,7 +992,7 @@ router.post('/evolution/disconnect', async (req: AuthRequest, res: Response, nex
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) return res.json({ message: 'Não havia ligação' });
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (creds.instanceName) {
       try { await evolutionFetch(creds, `/instance/logout/${creds.instanceName}`, { method: 'DELETE' }); } catch {}
     }
@@ -1006,7 +1008,7 @@ router.delete('/evolution', async (req: AuthRequest, res: Response, next) => {
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) return res.json({ message: 'Nada para apagar' });
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (creds.instanceName) {
       try { await evolutionFetch(creds, `/instance/delete/${creds.instanceName}`, { method: 'DELETE' }); } catch {}
     }
@@ -1025,7 +1027,7 @@ router.post('/evolution/send', async (req: AuthRequest, res: Response, next) => 
     const integration = await prisma.integration.findFirst({
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
     });
-    const creds: any = integration?.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
       throw new AppError('Configura Evolution nas Integracoes (baseUrl + apiKey + instanceName)', 400);
     }
@@ -1067,7 +1069,7 @@ router.post('/email/send', async (req: AuthRequest, res: Response, next) => {
       throw new AppError('to, subject e (html ou text) obrigatorios', 400);
     }
     const integration = await findActiveIntegration(req.user!.workspaceId, 'EMAIL_SMTP');
-    const creds: any = integration?.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.host || !creds.user || !creds.pass) {
       throw new AppError('Configura SMTP nas Integracoes (host + user + pass)', 400);
     }

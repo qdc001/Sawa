@@ -1,9 +1,8 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 // Helpers para parsear filtros comuns
 function getDateRange(req: AuthRequest): { from: Date; to: Date; prevFrom: Date; prevTo: Date } {

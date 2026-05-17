@@ -12,10 +12,9 @@
 //  - `source` indica qual a entidade que originou a mudança, para não voltar a actualizar essa.
 //  - Falhas individuais não bloqueiam (best-effort). Logs no console se algo correr mal.
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 
+import prisma from './prisma';
 export type AssigneeSource = 'contact' | 'conversation' | 'lead';
 
 export async function propagateAssignee(

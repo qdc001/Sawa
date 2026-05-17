@@ -1,8 +1,8 @@
 import nodemailer from 'nodemailer';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 
+import prisma from './prisma';
+import { getCreds, encryptForStore } from './integrationCrypto';
 interface SendArgs {
   workspaceId: string;
   to: string;
@@ -18,7 +18,7 @@ export async function sendEmail({ workspaceId, to, subject, html, text }: SendAr
     const integration = await prisma.integration.findFirst({
       where: { workspaceId, type: 'EMAIL_SMTP', isActive: true },
     });
-    const creds: any = integration?.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.host || !creds.user || !creds.pass) {
       return { sent: false, reason: 'SMTP nao configurado' };
     }

@@ -1,12 +1,11 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { runChatbotById } from '../lib/chatbotEngine';
 import { CHATBOT_TEMPLATES } from '../lib/chatbotTemplates';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 // ── GET /api/chatbots/templates ───────────────────────
 router.get('/templates', async (req: AuthRequest, res: Response, next) => {

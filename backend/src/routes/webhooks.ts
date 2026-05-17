@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
@@ -8,8 +7,9 @@ import { applyEvoContactToCrm } from './integrations';
 import fs from 'fs';
 import path from 'path';
 
+import prisma from '../lib/prisma';
+import { getCreds, encryptForStore } from '../lib/integrationCrypto';
 const router = Router();
-const prisma = new PrismaClient();
 
 const uploadsDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -203,12 +203,12 @@ router.post('/meta', async (req: Request, res: Response) => {
         where: { type: integrationType as any, isActive: true },
       });
       const matched = integrations.find((i: any) => {
-        const c = i.credentials as any;
+        const c: any = getCreds(i);
         return c?.pageId === pageId || c?.instagramBusinessId === pageId;
       }) || integrations[0]; // fallback
       if (!matched) continue;
       const workspaceId = matched.workspaceId;
-      const creds: any = matched.credentials || {};
+      const creds: any = getCreds(matched);
 
       const messagingItems = entry.messaging || entry.changes?.flatMap((c: any) => c.value?.messages || []) || [];
       for (const event of messagingItems) {
@@ -441,7 +441,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
     // Match pelo instanceName guardado nas credenciais
     let matched = null as any;
     if (integration) {
-      const creds: any = integration.credentials || {};
+      const creds: any = getCreds(integration);
       if (creds.instanceName === instanceName) matched = integration;
     }
     if (!matched) {
@@ -449,7 +449,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
       const all = await prisma.integration.findMany({
         where: { type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
       });
-      matched = all.find((i: any) => (i.credentials as any)?.instanceName === instanceName);
+      matched = all.find((i: any) => (getCreds(i) as any)?.instanceName === instanceName);
     }
     if (!matched) {
       return res.json({ ok: true, ignored: 'instance não associada a workspace' });
@@ -462,10 +462,10 @@ router.post('/evolution', async (req: Request, res: Response) => {
     if (event === 'connection.update' || event === 'CONNECTION_UPDATE') {
       const state = data?.state || data?.connection;
       if (state) {
-        const creds: any = matched.credentials || {};
+        const creds: any = getCreds(matched);
         await prisma.integration.update({
           where: { id: matched.id },
-          data: { credentials: { ...creds, lastState: state }, isActive: state === 'open' },
+          data: { credentials: encryptForStore({ ...creds, lastState: state }) as any, isActive: state === 'open' },
         });
         if (io) io.to(`workspace:${workspaceId}`).emit('evolution:state', { state });
       }
@@ -530,7 +530,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
         let mediaUrl: string | undefined;
         let interactiveId: string | null = null;
 
-        const creds: any = matched.credentials || {};
+        const creds: any = getCreds(matched);
 
         // Evolution v2 às vezes embrulha em ephemeralMessage / viewOnceMessage / etc
         const unwrapped =
@@ -589,7 +589,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
 
         // Encontrar/criar contacto (com formatação de número e detecção de LID)
         const phoneInfo = analysePhone(phone);
-        const ownerName: string | null = (matched.credentials as any)?.ownerName || null;
+        const ownerName: string | null = (getCreds(matched) as any)?.ownerName || null;
         const incomingPush =
           m.pushName && ownerName && String(m.pushName).trim().toLowerCase() === ownerName.toLowerCase()
             ? ''
@@ -766,7 +766,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
           ? data
           : Array.isArray(data?.contacts) ? data.contacts
           : [data];
-        const ownerName: string | null = (matched.credentials as any)?.ownerName || null;
+        const ownerName: string | null = (getCreds(matched) as any)?.ownerName || null;
         let updated = 0;
         for (const c of list) {
           try {

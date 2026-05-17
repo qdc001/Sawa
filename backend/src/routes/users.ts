@@ -1,6 +1,5 @@
 // users.ts
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import bcrypt from 'bcryptjs';
@@ -8,7 +7,7 @@ import crypto from 'crypto';
 import { generateSecret, otpauthUrl, verifyTotp } from '../lib/totp';
 import { sendSystemEmail } from '../lib/mailer';
 
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 const router = Router();
 
 const userSelect = {

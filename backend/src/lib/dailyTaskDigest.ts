@@ -4,10 +4,10 @@
 // O cron corre a cada minuto (em server.ts). Aqui filtra-se quais workspaces
 // devem disparar agora e processa-se cada um.
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 
+import prisma from './prisma';
+import { getCreds, encryptForStore } from './integrationCrypto';
 interface MaputoTime { hour: number; minute: number; ymd: string; weekday: number; }
 function nowInMaputo(): MaputoTime {
   // Africa/Maputo = UTC+2 (sem DST). Usamos Intl para extrair partes em qualquer timezone.
@@ -195,7 +195,7 @@ async function sendWhatsAppToDestination(workspace: any, destination: string, bo
     where: { workspaceId: workspace.id, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
   });
   if (!evo) return false;
-  const creds: any = evo.credentials || {};
+  const creds: any = getCreds(evo);
   if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return false;
 
   const isJid = destination.includes('@g.us') || destination.includes('@s.whatsapp.net');

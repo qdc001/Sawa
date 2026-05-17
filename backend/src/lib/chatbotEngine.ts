@@ -15,9 +15,8 @@
  *   end        -> marca sessão como terminada.
  */
 
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from './prisma';
+import { getCreds, encryptForStore } from './integrationCrypto';
 
 // ── Types ─────────────────────────────────────────────
 type NodeType = 'trigger' | 'message' | 'template' | 'media' | 'buttons' | 'list' | 'condition' | 'switch' | 'action' | 'handoff' | 'delay' | 'ai' | 'set_var' | 'fetch_data' | 'subflow' | 'end';
@@ -151,7 +150,7 @@ async function getWhatsAppCreds(workspaceId: string): Promise<{ token: string; p
     where: { workspaceId, type: 'WHATSAPP', isActive: true },
   });
   if (!integration) return null;
-  const creds: any = integration.credentials;
+  const creds: any = getCreds(integration);
   if (!creds?.token || !creds?.phoneId) return null;
   return creds;
 }

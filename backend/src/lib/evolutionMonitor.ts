@@ -7,9 +7,8 @@
  * - Mantém um Map em memória do último estado conhecido por instância
  */
 
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from './prisma';
+import { getCreds, encryptForStore } from './integrationCrypto';
 
 const lastStateMap = new Map<string, { state: string; since: number; warnedAt: number }>();
 
@@ -38,7 +37,7 @@ export async function checkEvolutionInstances(): Promise<void> {
   const io = (global as any).io;
 
   for (const integration of integrations) {
-    const creds: any = integration.credentials || {};
+    const creds: any = getCreds(integration);
     if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) continue;
 
     const key = integration.id;

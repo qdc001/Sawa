@@ -1,10 +1,9 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 const AI_MODEL = 'claude-sonnet-4-20250514';
 const AI_API = 'https://api.anthropic.com/v1/messages';

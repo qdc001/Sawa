@@ -5,10 +5,9 @@
  * Esta lib verifica preferências antes de enviar, e se SMTP não estiver configurado, salta silenciosamente.
  */
 
-import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './mailer';
+import prisma from './prisma';
 
-const prisma = new PrismaClient();
 
 type PrefKey = 'newLead' | 'taskOverdue' | 'newMessage' | 'mention';
 

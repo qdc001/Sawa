@@ -146,9 +146,18 @@ app.use('/api/system-email-templates', authMiddleware, systemEmailTemplatesRoute
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV}`);
+  // Migrar credenciais de integrações legadas (plaintext) para o formato encriptado.
+  // Idempotente: corre todos os arranques mas só toca nas que ainda não estão encriptadas.
+  try {
+    const { migrateAllCredentialsToEncrypted } = await import('./lib/integrationCrypto');
+    const prismaSingleton = (await import('./lib/prisma')).default;
+    await migrateAllCredentialsToEncrypted(prismaSingleton);
+  } catch (e: any) {
+    console.error('Falha a migrar credenciais para encriptado:', e.message);
+  }
 });
 
 // Processa delays de chatbots expirados a cada 30 segundos

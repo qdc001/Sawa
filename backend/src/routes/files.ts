@@ -1,13 +1,12 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 
+import prisma from '../lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 
 // Pasta uploads/
 const uploadsDir = path.join(__dirname, '../../uploads');

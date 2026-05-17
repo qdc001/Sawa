@@ -1,9 +1,8 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 const router = Router();
 
 const taskInclude = {

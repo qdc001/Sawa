@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
 
+import prisma from '../lib/prisma';
+import { getCreds, encryptForStore } from '../lib/integrationCrypto';
 const router = Router();
-const prisma = new PrismaClient();
 
 // ── Helpers ──────────────────────────────────────────
 async function sendWhatsAppMessage(to: string, body: string, token: string, phoneId: string) {
@@ -89,7 +89,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         if (!integration) continue;
 
         const workspaceId = integration.workspaceId;
-        const creds = integration.credentials as any;
+        const creds: any = getCreds(integration);
 
         // Process incoming messages
         for (const msg of value.messages || []) {
@@ -257,7 +257,7 @@ router.post('/send', authMiddleware, async (req: AuthRequest, res: Response, nex
     });
     if (!integration) return res.status(400).json({ message: 'Integração WhatsApp não configurada' });
 
-    const creds = integration.credentials as any;
+    const creds: any = getCreds(integration);
     let externalId: string | undefined;
 
     if (type === 'text') {
@@ -311,7 +311,7 @@ router.post('/configure', authMiddleware, async (req: AuthRequest, res: Response
       type: 'WHATSAPP' as const,
       name: 'WhatsApp Business',
       isActive: true,
-      credentials: { token, phoneId, businessAccountId, verifyToken },
+      credentials: encryptForStore({ token, phoneId, businessAccountId, verifyToken }) as any,
       workspaceId: req.user!.workspaceId,
     };
 
@@ -331,7 +331,7 @@ router.get('/phone-numbers', authMiddleware, async (req: AuthRequest, res: Respo
     });
     if (!integration) return res.status(404).json({ message: 'Integração não encontrada' });
 
-    const creds = integration.credentials as any;
+    const creds: any = getCreds(integration);
     const result = await fetch(
       `https://graph.facebook.com/v19.0/${creds.businessAccountId}/phone_numbers?access_token=${creds.token}`
     );

@@ -1,11 +1,10 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
 import { propagateAssignee } from '../lib/propagateAssignee';
 import { notifyWhatsAppAssignment } from '../lib/dailyTaskDigest';
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 const router = Router();
 
 // Tenta activar a extensão `unaccent` na BD para permitir pesquisas que ignorem
