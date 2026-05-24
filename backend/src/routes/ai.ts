@@ -20,6 +20,14 @@ function getAiKey(): string {
   return key;
 }
 
+// Truncar texto para evitar passar do limite de tokens do modelo.
+// Llama 3.3 70B aceita ~128k tokens contexto mas Groq tem limites por minuto (TPM)
+// no plano gratuito que cortam pedidos grandes. Limite seguro: ~12000 chars por prompt.
+function truncate(s: string, maxChars: number): string {
+  if (!s || s.length <= maxChars) return s;
+  return s.slice(0, maxChars) + '\n[…truncado…]';
+}
+
 // Chamada genérica ao Groq. Aceita systemPrompt + 1 mensagem user (caso simples)
 // ou systemPrompt + array completo de messages (caso com histórico).
 async function callGroq(
@@ -28,38 +36,69 @@ async function callGroq(
   apiKey: string,
   maxTokens = 1024,
 ): Promise<string> {
-  const messages: Array<{ role: string; content: string }> = [{ role: 'system', content: systemPrompt }];
+  const messages: Array<{ role: string; content: string }> = [
+    { role: 'system', content: truncate(systemPrompt, 6000) },
+  ];
   if (typeof userMessageOrMessages === 'string') {
-    messages.push({ role: 'user', content: userMessageOrMessages });
+    messages.push({ role: 'user', content: truncate(userMessageOrMessages, 12000) });
   } else {
-    messages.push(...userMessageOrMessages);
+    messages.push(...userMessageOrMessages.map((m) => ({ role: m.role, content: truncate(m.content, 6000) })));
   }
 
-  const res = await fetch(AI_API, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: AI_MODEL,
-      max_tokens: maxTokens,
-      temperature: 0.7,
-      messages,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(AI_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_tokens: maxTokens,
+        temperature: 0.7,
+        messages,
+      }),
+    });
+  } catch (e: any) {
+    console.error('[ai] erro de rede a chamar Groq:', e.message);
+    throw new AppError('Erro de rede ao chamar a Groq. Tenta de novo.', 502);
+  }
 
   if (!res.ok) {
+    let bodyText = '';
     let detail = `HTTP ${res.status}`;
     try {
-      const err: any = await res.json();
+      bodyText = await res.text();
+      const err: any = JSON.parse(bodyText);
       detail = err?.error?.message || err?.message || detail;
-    } catch {}
-    throw new Error(`Groq: ${detail}`);
+    } catch {
+      if (bodyText) detail = bodyText.slice(0, 300);
+    }
+    console.error(`[ai] Groq falhou (${res.status}) modelo=${AI_MODEL}:`, detail);
+
+    // Mensagens úteis por código
+    if (res.status === 401) throw new AppError('GROQ_API_KEY inválida ou revogada. Cria uma nova em console.groq.com.', 401);
+    if (res.status === 404) throw new AppError(`Modelo "${AI_MODEL}" não existe na Groq. Define GROQ_MODEL com um modelo válido (ex: llama-3.3-70b-versatile).`, 400);
+    if (res.status === 429) throw new AppError('Limite de pedidos da Groq atingido. Espera alguns segundos e tenta de novo.', 429);
+    if (res.status === 413) throw new AppError('O contexto é demasiado grande para o modelo. Reduz a quantidade de mensagens.', 413);
+    throw new AppError(`Groq: ${detail}`, 502);
   }
 
-  const data: any = await res.json();
-  return data.choices?.[0]?.message?.content || '';
+  let data: any;
+  try {
+    data = await res.json();
+  } catch (e: any) {
+    console.error('[ai] resposta da Groq não é JSON válido:', e.message);
+    throw new AppError('Resposta inválida da Groq.', 502);
+  }
+
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    console.error('[ai] Groq devolveu resposta vazia:', JSON.stringify(data).slice(0, 500));
+    throw new AppError('A Groq devolveu resposta vazia.', 502);
+  }
+  return content;
 }
 
 // ── GET lead context helper ───────────────────────────
