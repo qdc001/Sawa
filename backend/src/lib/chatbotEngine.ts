@@ -291,26 +291,22 @@ function isWithinBusinessHours(flow: any, now: Date = new Date()): boolean {
   return true;
 }
 
-// ── Chamada à API de IA (Groq, formato OpenAI) ────────
+// ── Chamada à API de IA (Groq, com rate limiter partilhado) ────────
+import { callGroqWithLimiter } from './groqLimiter';
 async function callAi(systemPrompt: string, history: { role: string; content: string }[]): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return '[IA não configurada]';
   const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
   try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        max_tokens: 400,
-        temperature: 0.7,
-        messages: [{ role: 'system', content: systemPrompt }, ...history],
-      }),
-    });
-    if (!res.ok) return '[Erro IA]';
-    const data: any = await res.json();
-    return data.choices?.[0]?.message?.content || '';
-  } catch {
+    return await callGroqWithLimiter(
+      apiKey,
+      model,
+      [{ role: 'system', content: systemPrompt }, ...history],
+      400,
+      0.7,
+    );
+  } catch (e: any) {
+    console.error('[chatbot ai] falhou:', e?.message || e);
     return '[Erro IA]';
   }
 }

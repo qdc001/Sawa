@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
+import { callGroqWithLimiter, getLimiterStats } from '../lib/groqLimiter';
 
 import prisma from '../lib/prisma';
 const router = Router();
@@ -30,6 +31,7 @@ function truncate(s: string, maxChars: number): string {
 
 // Chamada genérica ao Groq. Aceita systemPrompt + 1 mensagem user (caso simples)
 // ou systemPrompt + array completo de messages (caso com histórico).
+// Passa pelo groqLimiter (rate limit + retry com backoff + cache LRU).
 async function callGroq(
   systemPrompt: string,
   userMessageOrMessages: string | Array<{ role: 'user' | 'assistant'; content: string }>,
@@ -45,60 +47,18 @@ async function callGroq(
     messages.push(...userMessageOrMessages.map((m) => ({ role: m.role, content: truncate(m.content, 6000) })));
   }
 
-  let res: Response;
   try {
-    res = await fetch(AI_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_tokens: maxTokens,
-        temperature: 0.7,
-        messages,
-      }),
-    });
+    return await callGroqWithLimiter(apiKey, AI_MODEL, messages, maxTokens, 0.7);
   } catch (e: any) {
-    console.error('[ai] erro de rede a chamar Groq:', e.message);
-    throw new AppError('Erro de rede ao chamar a Groq. Tenta de novo.', 502);
-  }
-
-  if (!res.ok) {
-    let bodyText = '';
-    let detail = `HTTP ${res.status}`;
-    try {
-      bodyText = await res.text();
-      const err: any = JSON.parse(bodyText);
-      detail = err?.error?.message || err?.message || detail;
-    } catch {
-      if (bodyText) detail = bodyText.slice(0, 300);
-    }
-    console.error(`[ai] Groq falhou (${res.status}) modelo=${AI_MODEL}:`, detail);
-
-    // Mensagens úteis por código
-    if (res.status === 401) throw new AppError('GROQ_API_KEY inválida ou revogada. Cria uma nova em console.groq.com.', 401);
-    if (res.status === 404) throw new AppError(`Modelo "${AI_MODEL}" não existe na Groq. Define GROQ_MODEL com um modelo válido (ex: llama-3.3-70b-versatile).`, 400);
-    if (res.status === 429) throw new AppError('Limite de pedidos da Groq atingido. Espera alguns segundos e tenta de novo.', 429);
-    if (res.status === 413) throw new AppError('O contexto é demasiado grande para o modelo. Reduz a quantidade de mensagens.', 413);
+    const status = e?.status || 502;
+    const detail = e?.message || 'Erro desconhecido';
+    console.error(`[ai] Groq falhou (${status}) modelo=${AI_MODEL}:`, detail);
+    if (status === 401) throw new AppError('GROQ_API_KEY inválida ou revogada. Cria uma nova em console.groq.com.', 401);
+    if (status === 404) throw new AppError(`Modelo "${AI_MODEL}" não existe na Groq. Define GROQ_MODEL com um modelo válido.`, 400);
+    if (status === 429) throw new AppError('Servidor de IA muito ocupado. Espera ~30 segundos e tenta de novo.', 429);
+    if (status === 413) throw new AppError('Contexto demasiado grande. Reduz a quantidade de mensagens.', 413);
     throw new AppError(`Groq: ${detail}`, 502);
   }
-
-  let data: any;
-  try {
-    data = await res.json();
-  } catch (e: any) {
-    console.error('[ai] resposta da Groq não é JSON válido:', e.message);
-    throw new AppError('Resposta inválida da Groq.', 502);
-  }
-
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    console.error('[ai] Groq devolveu resposta vazia:', JSON.stringify(data).slice(0, 500));
-    throw new AppError('A Groq devolveu resposta vazia.', 502);
-  }
-  return content;
 }
 
 // ── GET lead context helper ───────────────────────────
@@ -419,7 +379,8 @@ router.post('/agent-reply', async (req: AuthRequest, res: Response, next) => {
 });
 
 // ── GET /api/ai/status ────────────────────────────────
-// Diagnóstico: confirma se a chave está configurada e qual o modelo activo.
+// Diagnóstico: confirma se a chave está configurada, qual o modelo activo
+// e o estado do rate limiter interno.
 router.get('/status', (_req: AuthRequest, res: Response) => {
   const hasKey = !!(process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY);
   res.json({
@@ -427,6 +388,7 @@ router.get('/status', (_req: AuthRequest, res: Response) => {
     model: AI_MODEL,
     configured: hasKey,
     usingFallbackKey: !process.env.GROQ_API_KEY && !!process.env.ANTHROPIC_API_KEY,
+    limiter: getLimiterStats(),
   });
 });
 
