@@ -2,6 +2,9 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+# openssl: o Prisma precisa dele para detectar a versao certa e gerar o motor
+RUN apk add --no-cache openssl
+
 # Instalar dependencias (inclui dev, necessarias para o tsc)
 COPY package*.json ./
 RUN npm ci
@@ -14,6 +17,9 @@ RUN npx prisma generate && npm run build
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+
+# openssl tambem em producao: o "prisma db push" e o motor de query precisam dele
+RUN apk add --no-cache openssl
 
 # Trazer node_modules (com cliente Prisma gerado), build e schema
 COPY --from=builder /app/node_modules ./node_modules
