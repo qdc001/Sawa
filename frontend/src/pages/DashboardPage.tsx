@@ -64,7 +64,7 @@ const GOAL_TYPE_LABELS: Record<GoalType, string> = {
 };
 
 const GOAL_TYPE_COLORS: Record<GoalType, string> = {
-  leads_created: '#6366F1',
+  leads_created: '#C8553D',
   leads_won: '#10B981',
   revenue: '#0EA5E9',
   tasks_completed: '#F59E0B',
@@ -330,7 +330,7 @@ function HeatmapView({ data }: { data: HeatmapDay[] }) {
     if (intensity < 0.25) return '#C7D2FE';
     if (intensity < 0.5) return '#A5B4FC';
     if (intensity < 0.75) return '#818CF8';
-    return '#6366F1';
+    return '#C8553D';
   };
 
   // Reorganizar por semanas: cada coluna e uma semana, 7 linhas (dom-sab)
@@ -374,7 +374,7 @@ function HeatmapView({ data }: { data: HeatmapDay[] }) {
         <div className="w-3 h-3 rounded-sm" style={{ background: '#C7D2FE' }} />
         <div className="w-3 h-3 rounded-sm" style={{ background: '#A5B4FC' }} />
         <div className="w-3 h-3 rounded-sm" style={{ background: '#818CF8' }} />
-        <div className="w-3 h-3 rounded-sm" style={{ background: '#6366F1' }} />
+        <div className="w-3 h-3 rounded-sm" style={{ background: '#C8553D' }} />
         <span>Mais</span>
       </div>
     </div>
@@ -496,7 +496,7 @@ export default function DashboardPage() {
   const m = dashboard.monthly;
 
   const statCards = [
-    { label: 'Leads Criados', value: m.leadsCreated, growth: m.leadsCreatedGrowth, icon: Users, color: '#6366F1', bg: '#EEF2FF' },
+    { label: 'Leads Criados', value: m.leadsCreated, growth: m.leadsCreatedGrowth, icon: Users, color: '#C8553D', bg: '#F6E3DC' },
     { label: 'Negocios Ganhos', value: m.leadsWon, growth: m.leadsWonGrowth, icon: Target, color: '#10B981', bg: '#ECFDF5' },
     { label: 'Receita', value: `MZN ${(m.revenue / 1000).toFixed(1)}k`, growth: m.revenueGrowth, icon: DollarSign, color: '#0EA5E9', bg: '#F0F9FF', isString: true },
     { label: 'Tarefas em atraso', value: o.tasksDue, growth: 0, icon: AlertCircle, color: '#F59E0B', bg: '#FFFBEB' },
@@ -523,7 +523,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div style={{ order: -100 }} className="flex items-start justify-between flex-wrap gap-3 print:gap-1">
         <div>
-          <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+          <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)', fontFamily: 'Manrope, sans-serif' }}>
             {greeting(user?.name)}
           </h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
@@ -600,7 +600,7 @@ export default function DashboardPage() {
       {visible('goals') && (
         <div style={{ order: order.indexOf('goals') }} className="card p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
               <Flag size={16} style={{ color: '#F59E0B' }} />
               Metas do mes
               <span className="text-xs font-normal capitalize" style={{ color: 'var(--text-muted)' }}>
@@ -659,7 +659,7 @@ export default function DashboardPage() {
                   </span>
                 )}
               </div>
-              <p className="text-2xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: 'var(--text-primary)' }}>
+              <p className="text-2xl font-bold" style={{ fontFamily: 'Manrope, sans-serif', color: 'var(--text-primary)' }}>
                 {card.isString ? card.value : card.value.toLocaleString()}
               </p>
               <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{card.label}</p>
@@ -715,7 +715,7 @@ export default function DashboardPage() {
       {/* Receita */}
       {visible('revenueChart') && (
         <div style={{ order: order.indexOf('revenueChart') }} className="card p-5">
-          <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+          <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
             <TrendingUp size={16} style={{ color: 'var(--primary)' }} />
             Receita dos ultimos 6 meses
           </h3>
@@ -728,7 +728,7 @@ export default function DashboardPage() {
                 <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                 <Tooltip formatter={(v: any) => [`MZN ${Number(v).toLocaleString()}`, 'Receita']} contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 13 }} />
-                <Bar dataKey="revenue" fill="#6366F1" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="revenue" fill="#C8553D" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -738,7 +738,7 @@ export default function DashboardPage() {
       {/* Estado leads (pizza) */}
       {visible('wonLostPie') && (
         <div style={{ order: order.indexOf('wonLostPie') }} className="card p-5">
-          <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Estado dos leads</h3>
+          <h3 className="font-semibold mb-4" style={{ fontFamily: 'Manrope, sans-serif' }}>Estado dos leads</h3>
           {wonLostData.length === 0 ? (
             <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem leads</p>
           ) : (
@@ -758,7 +758,7 @@ export default function DashboardPage() {
       {/* Funil */}
       {visible('funnel') && (
         <div style={{ order: order.indexOf('funnel') }} className="card p-5">
-          <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Funil de conversao</h3>
+          <h3 className="font-semibold mb-4" style={{ fontFamily: 'Manrope, sans-serif' }}>Funil de conversao</h3>
           {funnelData.length === 0 || funnelData.every((f) => f.value === 0) ? (
             <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem dados</p>
           ) : (
@@ -792,7 +792,7 @@ export default function DashboardPage() {
       {/* Origem leads */}
       {visible('sources') && (
         <div style={{ order: order.indexOf('sources') }} className="card p-5">
-          <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Origem dos leads</h3>
+          <h3 className="font-semibold mb-4" style={{ fontFamily: 'Manrope, sans-serif' }}>Origem dos leads</h3>
           {sources.length === 0 ? (
             <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem dados de origem</p>
           ) : (
@@ -819,7 +819,7 @@ export default function DashboardPage() {
       {/* Performance da equipa */}
       {visible('team') && (
       <div style={{ order: order.indexOf('team') }} className="card p-5">
-        <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+        <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
           <Trophy size={16} style={{ color: '#F59E0B' }} />
           Performance da equipa
         </h3>
@@ -878,7 +878,7 @@ export default function DashboardPage() {
       {/* Heatmap */}
       {visible('heatmap') && (
         <div style={{ order: order.indexOf('heatmap') }} className="card p-5">
-          <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+          <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
             <CalendarDays size={16} style={{ color: 'var(--primary)' }} />
             Mapa de actividade (ultimos 90 dias)
           </h3>
@@ -889,7 +889,7 @@ export default function DashboardPage() {
       {/* Distribuicao no Pipeline */}
       {visible('pipelineDist') && (
         <div style={{ order: order.indexOf('pipelineDist') }} className="card p-5">
-          <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Distribuicao no Pipeline</h3>
+          <h3 className="font-semibold mb-4" style={{ fontFamily: 'Manrope, sans-serif' }}>Distribuicao no Pipeline</h3>
           {dashboard.pipeline.length === 0 ? (
             <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>Sem etapas</p>
           ) : (
@@ -918,7 +918,7 @@ export default function DashboardPage() {
       {visible('topLeads') && (
         <div style={{ order: order.indexOf('topLeads') }} className="card p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
               <DollarSign size={16} style={{ color: 'var(--primary)' }} />
               Top leads abertos
             </h3>
@@ -953,7 +953,7 @@ export default function DashboardPage() {
       {/* Leads parados */}
       {visible('stagnant') && convStats && convStats.stagnantLeads.length > 0 && (
         <div className="card p-5" style={{ order: order.indexOf('stagnant'), borderLeft: '4px solid #EF4444' }}>
-          <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: '#991B1B' }}>
+          <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif', color: '#991B1B' }}>
             <AlertTriangle size={16} /> Leads parados (sem actividade ha mais de 14 dias)
           </h3>
           <div className="space-y-2">
@@ -977,7 +977,7 @@ export default function DashboardPage() {
       {visible('tasks') && (
         <div style={{ order: order.indexOf('tasks') }} className="card p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
               <Clock size={16} style={{ color: 'var(--primary)' }} />
               Proximas tarefas
             </h3>
@@ -1010,7 +1010,7 @@ export default function DashboardPage() {
       {/* Actividades */}
       {visible('activities') && (
         <div style={{ order: order.indexOf('activities') }} className="card p-5">
-          <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+          <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
             <ActivityIcon size={16} style={{ color: 'var(--primary)' }} />
             Actividades recentes
           </h3>
@@ -1043,7 +1043,7 @@ export default function DashboardPage() {
       {visible('overview') && (
       <div style={{ order: order.indexOf('overview') }} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
-          { label: 'Total Leads', value: o.totalLeads, color: '#6366F1' },
+          { label: 'Total Leads', value: o.totalLeads, color: '#C8553D' },
           { label: 'Leads Abertos', value: o.openLeads, color: '#0EA5E9' },
           { label: 'Leads Ganhos', value: o.wonLeads, color: '#10B981' },
           { label: 'Leads Perdidos', value: o.lostLeads, color: '#EF4444' },
@@ -1051,7 +1051,7 @@ export default function DashboardPage() {
           { label: 'Conversao', value: `${o.conversionRate}%`, color: '#F59E0B', isString: true },
         ].map((item) => (
           <div key={item.label} className="card p-4 text-center">
-            <p className="text-xl font-bold" style={{ color: item.color, fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <p className="text-xl font-bold" style={{ color: item.color, fontFamily: 'Manrope, sans-serif' }}>
               {item.isString ? item.value : item.value.toLocaleString()}
             </p>
             <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{item.label}</p>

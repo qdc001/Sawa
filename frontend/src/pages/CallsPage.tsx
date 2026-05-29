@@ -74,7 +74,7 @@ export default function CallsPage() {
     <div className="p-6 animate-fade-in">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Chamadas</h1>
+          <h1 className="text-xl font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>Chamadas</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Histórico de chamadas WhatsApp recebidas e perdidas.
           </p>
@@ -116,7 +116,7 @@ export default function CallsPage() {
           <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ background: 'var(--surface-3)' }}>
             <Phone size={28} style={{ color: 'var(--text-muted)' }} />
           </div>
-          <h3 className="font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Sem chamadas ainda</h3>
+          <h3 className="font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>Sem chamadas ainda</h3>
           <p className="text-sm max-w-md" style={{ color: 'var(--text-secondary)' }}>
             Quando alguém te ligar no WhatsApp ligado ao CRM, aparece aqui. Não podes atender via CRM; é só registo.
           </p>

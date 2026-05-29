@@ -507,7 +507,7 @@ function AutomationEditor({ automation, onClose, onSaved }: {
         <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={18} /></button>
         <input
           className="font-bold text-base outline-none border-b-2 border-transparent focus:border-indigo-500 px-1"
-          style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}
+          style={{ fontFamily: 'Manrope, sans-serif' }}
           value={draft.name}
           onChange={(e) => update({ name: e.target.value })}
         />
@@ -538,8 +538,8 @@ function AutomationEditor({ automation, onClose, onSaved }: {
           {/* TRIGGER */}
           <section className="card p-4">
             <div className="flex items-center gap-2 mb-3">
-              <Zap size={16} style={{ color: '#6366F1' }} />
-              <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>QUANDO</h3>
+              <Zap size={16} style={{ color: '#C8553D' }} />
+              <h3 className="font-bold text-sm" style={{ fontFamily: 'Manrope, sans-serif' }}>QUANDO</h3>
               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Trigger que dispara a automação</span>
             </div>
             <select
@@ -708,7 +708,7 @@ function AutomationEditor({ automation, onClose, onSaved }: {
           <section className="card p-4">
             <div className="flex items-center gap-2 mb-3">
               <Filter size={16} style={{ color: '#F59E0B' }} />
-              <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>SE</h3>
+              <h3 className="font-bold text-sm" style={{ fontFamily: 'Manrope, sans-serif' }}>SE</h3>
               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Condições. Vazio = executa sempre.</span>
               <div className="ml-auto flex items-center gap-1">
                 <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Combinar:</span>
@@ -758,7 +758,7 @@ function AutomationEditor({ automation, onClose, onSaved }: {
           <section className="card p-4">
             <div className="flex items-center gap-2 mb-3">
               <ChevronRight size={16} style={{ color: '#10B981' }} />
-              <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>ENTÃO</h3>
+              <h3 className="font-bold text-sm" style={{ fontFamily: 'Manrope, sans-serif' }}>ENTÃO</h3>
               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Acções executadas em sequência</span>
             </div>
             <div className="space-y-3">
@@ -783,7 +783,7 @@ function AutomationEditor({ automation, onClose, onSaved }: {
           <section className="card p-4">
             <div className="flex items-center gap-2 mb-3">
               <SettingsIcon size={16} style={{ color: '#64748B' }} />
-              <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>AVANÇADO</h3>
+              <h3 className="font-bold text-sm" style={{ fontFamily: 'Manrope, sans-serif' }}>AVANÇADO</h3>
               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Horário activo e limites</span>
             </div>
 
@@ -820,7 +820,7 @@ function AutomationEditor({ automation, onClose, onSaved }: {
                         }}
                         className="text-xs px-2 py-1 rounded"
                         style={{
-                          background: active ? '#EEF2FF' : 'var(--surface-3)',
+                          background: active ? '#F6E3DC' : 'var(--surface-3)',
                           color: active ? 'var(--primary)' : 'var(--text-muted)',
                           fontWeight: active ? 600 : 400,
                         }}
@@ -1084,7 +1084,7 @@ export default function AutomationsPage() {
     <div className="p-6 animate-fade-in">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Automatizações</h1>
+          <h1 className="text-xl font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>Automatizações</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Regras "quando isto acontece, faz aquilo"
           </p>
@@ -1101,7 +1101,7 @@ export default function AutomationsPage() {
           <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ background: 'var(--surface-3)' }}>
             <Zap size={28} style={{ color: 'var(--text-muted)' }} />
           </div>
-          <h3 className="font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Sem automatizações ainda</h3>
+          <h3 className="font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>Sem automatizações ainda</h3>
           <p className="text-sm max-w-md" style={{ color: 'var(--text-secondary)' }}>
             Cria regras automáticas que reagem a eventos no CRM. Exemplo: "quando lead é criado com origem 'WhatsApp', criar tarefa de seguimento".
           </p>
@@ -1114,7 +1114,7 @@ export default function AutomationsPage() {
           {automations.map((a) => (
             <div key={a.id} className="card p-5">
               <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg" style={{ background: a.isActive ? '#EEF2FF' : 'var(--surface-3)' }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg" style={{ background: a.isActive ? '#F6E3DC' : 'var(--surface-3)' }}>
                   {triggerIcon(a.trigger.type)}
                 </div>
                 <button
@@ -1126,7 +1126,7 @@ export default function AutomationsPage() {
                   {a.isActive ? 'Activa' : 'Inactiva'}
                 </button>
               </div>
-              <h3 className="font-bold text-sm mb-1" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>{a.name}</h3>
+              <h3 className="font-bold text-sm mb-1" style={{ fontFamily: 'Manrope, sans-serif' }}>{a.name}</h3>
               <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>{triggerLabel(a.trigger)}</p>
               {a.description && (
                 <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--text-muted)' }}>{a.description}</p>

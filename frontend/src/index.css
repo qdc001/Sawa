@@ -1,41 +1,41 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Manrope:wght@300..800&display=swap');
 
 :root {
-  --primary: #6366F1;
-  --primary-hover: #4F46E5;
-  --primary-light: #EEF2FF;
-  --success: #10B981;
-  --warning: #F59E0B;
+  --primary: #C8553D;
+  --primary-hover: #AD4632;
+  --primary-light: #F6E3DC;
+  --success: #2D4A3E;
+  --warning: #E58F65;
   --danger: #EF4444;
   --surface: #FFFFFF;
-  --surface-2: #F8FAFC;
-  --surface-3: #F1F5F9;
-  --border: #E2E8F0;
-  --text-primary: #0F172A;
-  --text-secondary: #64748B;
-  --text-muted: #94A3B8;
-  --sidebar-bg: #0F172A;
-  --sidebar-text: #94A3B8;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+  --surface-2: #FAF6EE;
+  --surface-3: #F1EADB;
+  --border: #E7E0D2;
+  --text-primary: #1A2E25;
+  --text-secondary: #5B6B61;
+  --text-muted: #8A9890;
+  --sidebar-bg: #1A2E25;
+  --sidebar-text: #9DB0A4;
+  --shadow-sm: 0 1px 2px 0 rgb(26 46 37 / 0.06);
+  --shadow: 0 1px 3px 0 rgb(26 46 37 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(26 46 37 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(26 46 37 / 0.12);
   --radius: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
 }
 
 html.dark {
-  --surface: #0F172A;
-  --surface-2: #1E293B;
-  --surface-3: #334155;
-  --border: #334155;
-  --text-primary: #F1F5F9;
-  --text-secondary: #CBD5E1;
-  --text-muted: #94A3B8;
-  --sidebar-bg: #020617;
-  --primary-light: rgba(99, 102, 241, 0.15);
+  --surface: #1A2E25;
+  --surface-2: #15241D;
+  --surface-3: #24382E;
+  --border: #2D4A3E;
+  --text-primary: #FAF6EE;
+  --text-secondary: #C5D2CA;
+  --text-muted: #8FA398;
+  --sidebar-bg: #12201A;
+  --primary-light: rgba(200, 85, 61, 0.16);
 }
 html.dark body { background: var(--surface-2); color: var(--text-primary); }
 html.dark .card { border-color: var(--border) !important; }
@@ -68,11 +68,11 @@ html.dark .hover\\:bg-slate-100:hover { background: rgba(255, 255, 255, 0.06) !i
 html.dark .hover\\:bg-gray-50:hover,
 html.dark .hover\\:bg-gray-100:hover { background: rgba(255, 255, 255, 0.06) !important; color: var(--text-primary) !important; }
 * { box-sizing: border-box; }
-body { font-family: 'Inter', sans-serif; background: var(--surface-2); color: var(--text-primary); -webkit-font-smoothing: antialiased; }
-h1,h2,h3,h4,h5 { font-family: 'Plus Jakarta Sans', sans-serif; }
+body { font-family: 'Manrope', sans-serif; background: var(--surface-2); color: var(--text-primary); -webkit-font-smoothing: antialiased; }
+h1,h2,h3,h4,h5 { font-family: 'Manrope', sans-serif; }
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #D8CFBE; border-radius: 3px; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideRight { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
 .animate-fade-in { animation: fadeIn 0.2s ease forwards; }
@@ -126,7 +126,7 @@ h1,h2,h3,h4,h5 { font-family: 'Plus Jakarta Sans', sans-serif; }
 }
 .input-base:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 3px rgba(200, 85, 61, 0.18);
 }
 .input-base::placeholder { color: var(--text-muted); }
 
@@ -134,6 +134,6 @@ h1,h2,h3,h4,h5 { font-family: 'Plus Jakarta Sans', sans-serif; }
 @media print {
   body { background: #fff !important; }
   aside, header { display: none !important; }
-  .card { break-inside: avoid; box-shadow: none !important; border: 1px solid #E2E8F0 !important; }
+  .card { break-inside: avoid; box-shadow: none !important; border: 1px solid #E7E0D2 !important; }
   main { overflow: visible !important; }
 }

@@ -1,0 +1,27 @@
+# Dependencias
+node_modules/
+
+# Variaveis de ambiente (NUNCA commitar segredos)
+.env
+.env.*
+!.env.example
+
+# Build
+dist/
+build/
+
+# Prisma cliente gerado
+generated/
+.prisma/
+
+# Uploads e dados locais
+uploads/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Logs
+logs/
+*.log

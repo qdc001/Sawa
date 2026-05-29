@@ -106,7 +106,7 @@ export interface TaskOption { value: string; label: string; color?: string }
 
 export const DEFAULT_TASK_TYPES: TaskOption[] = [
   { value: 'CALL', label: 'Chamada', color: '#3B82F6' },
-  { value: 'EMAIL', label: 'Email', color: '#6366F1' },
+  { value: 'EMAIL', label: 'Email', color: '#C8553D' },
   { value: 'MEETING', label: 'Reunião', color: '#10B981' },
   { value: 'FOLLOW_UP', label: 'Seguimento', color: '#F59E0B' },
   { value: 'DEMO', label: 'Demo', color: '#EC4899' },
@@ -133,7 +133,7 @@ export const DEFAULT_TASK_RECURRENCES: TaskOption[] = [
 // Títulos pré-definidos para tarefa — configuráveis em Definições → Workspace.
 // Valor = label (são iguais para títulos: a string é o título da tarefa).
 export const DEFAULT_TASK_TITLES: TaskOption[] = [
-  { value: 'Seguimento', label: 'Seguimento', color: '#6366F1' },
+  { value: 'Seguimento', label: 'Seguimento', color: '#C8553D' },
   { value: 'Chamada', label: 'Chamada', color: '#10B981' },
   { value: 'Reunião', label: 'Reunião', color: '#3B82F6' },
 ];

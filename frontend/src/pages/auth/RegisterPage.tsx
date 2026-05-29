@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, GitBranch } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store';
+import { SawaMark } from '../../components/SawaLogo';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 
@@ -30,13 +31,11 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center p-8" style={{ background: 'var(--surface-2)' }}>
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2 mb-8">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary)' }}>
-            <GitBranch size={18} className="text-white" />
-          </div>
-          <span className="font-bold text-lg" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>M.E.T.A</span>
+          <SawaMark size={30} ringColor="#1A2E25" dotColor="#C8553D" />
+          <span className="text-lg" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Sawa</span>
         </div>
 
-        <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Criar conta gratuita</h1>
+        <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'Manrope, sans-serif' }}>Criar conta gratuita</h1>
         <p className="text-sm mb-8" style={{ color: 'var(--text-secondary)' }}>Configure o seu workspace em menos de 2 minutos</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">

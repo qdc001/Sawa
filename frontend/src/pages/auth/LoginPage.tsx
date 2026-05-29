@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, GitBranch } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store';
+import { SawaMark } from '../../components/SawaLogo';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 
@@ -42,15 +43,15 @@ export default function LoginPage() {
       {/* Left - Branding */}
       <div className="hidden lg:flex flex-col justify-between w-1/2 p-12" style={{ background: 'var(--sidebar-bg)' }}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary)' }}>
-            <GitBranch size={20} className="text-white" />
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(250,246,238,0.08)' }}>
+            <SawaMark size={26} ringColor="#FAF6EE" dotColor="#C8553D" />
           </div>
-          <span className="text-white text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>M.E.T.A</span>
+          <span className="text-white text-2xl" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, letterSpacing: '-0.02em' }}>Sawa</span>
         </div>
 
         <div>
-          <h2 className="text-4xl font-bold text-white mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', lineHeight: 1.2 }}>
-            Gerir clientes<br />nunca foi tão fácil
+          <h2 className="text-4xl text-white mb-4" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, lineHeight: 1.15 }}>
+            Onde nasce<br />o sim.
           </h2>
           <p className="text-gray-400 text-lg mb-8">CRM completo com pipeline de vendas, caixa de entrada unificada e automações inteligentes.</p>
 
@@ -62,27 +63,25 @@ export default function LoginPage() {
               { label: 'Uptime', value: '99.9%' },
             ].map((stat) => (
               <div key={stat.label} className="p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.05)' }}>
-                <p className="text-2xl font-bold text-white" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>{stat.value}</p>
+                <p className="text-2xl font-bold text-white" style={{ fontFamily: 'Manrope, sans-serif' }}>{stat.value}</p>
                 <p className="text-sm text-gray-400">{stat.label}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-gray-600 text-sm">© 2025 M.E.T.A. Todos os direitos reservados.</p>
+        <p className="text-gray-600 text-sm">© 2026 Sawa. Todos os direitos reservados.</p>
       </div>
 
       {/* Right - Form */}
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--primary)' }}>
-              <GitBranch size={16} className="text-white" />
-            </div>
-            <span className="font-bold text-lg" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>M.E.T.A</span>
+            <SawaMark size={28} ringColor="#1A2E25" dotColor="#C8553D" />
+            <span className="text-lg" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Sawa</span>
           </div>
 
-          <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: 'var(--text-primary)' }}>Iniciar sessão</h1>
+          <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'Manrope, sans-serif', color: 'var(--text-primary)' }}>Iniciar sessão</h1>
           <p className="text-sm mb-8" style={{ color: 'var(--text-secondary)' }}>Entre na sua conta para continuar</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">

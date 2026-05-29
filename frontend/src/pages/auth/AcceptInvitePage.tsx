@@ -81,7 +81,7 @@ export default function AcceptInvitePage() {
           </div>
         </div>
         <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-          Foste convidado para o M.E.T.A. Define a tua password para acederes a conta.
+          Foste convidado para o Sawa. Define a tua password para acederes a conta.
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <input type="password" placeholder="Nova password" value={pwd} onChange={(e) => setPwd(e.target.value)} className="input-base" required minLength={6} />

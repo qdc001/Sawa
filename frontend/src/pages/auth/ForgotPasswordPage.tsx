@@ -27,7 +27,7 @@ export default function ForgotPasswordPage() {
         <Link to="/login" className="text-xs flex items-center gap-1 mb-4 hover:underline" style={{ color: 'var(--primary)' }}>
           <ArrowLeft size={12} /> Voltar ao login
         </Link>
-        <h1 className="text-xl font-bold mb-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Recuperar password</h1>
+        <h1 className="text-xl font-bold mb-2" style={{ fontFamily: 'Manrope, sans-serif' }}>Recuperar password</h1>
         <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
           Indica o teu email. Vamos enviar um link para definires uma nova password.
         </p>

@@ -59,7 +59,7 @@ function ManageTagsModal({
 }) {
   const [list, setList] = useState<TagType[]>(tags);
   const [newName, setNewName] = useState('');
-  const [newColor, setNewColor] = useState('#6366F1');
+  const [newColor, setNewColor] = useState('#C8553D');
   useEffect(() => setList(tags), [tags]);
 
   const handleAdd = async () => {
@@ -68,7 +68,7 @@ function ManageTagsModal({
       const { data } = await api.post('/tags', { name: newName.trim(), color: newColor });
       setList((prev) => [...prev, data]);
       setNewName('');
-      setNewColor('#6366F1');
+      setNewColor('#C8553D');
       toast.success('Tag criada');
       onChanged();
     } catch (err: any) {

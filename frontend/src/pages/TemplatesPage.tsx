@@ -207,7 +207,7 @@ export default function TemplatesPage() {
             {filtered.map((t) => (
               <div key={t.id} className="card p-4 flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>{t.name}</h3>
+                  <h3 className="font-semibold text-sm" style={{ fontFamily: 'Manrope, sans-serif' }}>{t.name}</h3>
                   <span className="text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0"
                     style={{ background: CATEGORY_COLORS[t.category]?.bg, color: CATEGORY_COLORS[t.category]?.fg }}>
                     {t.category}

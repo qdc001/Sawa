@@ -959,7 +959,7 @@ function KanbanView({ tasks, onEdit }: { tasks: Task[]; onEdit: (t: Task) => voi
 function ManageTagsModal({ tags, onClose, onChanged }: { tags: TagType[]; onClose: () => void; onChanged: () => void }) {
   const [list, setList] = useState<TagType[]>(tags);
   const [newName, setNewName] = useState('');
-  const [newColor, setNewColor] = useState('#6366F1');
+  const [newColor, setNewColor] = useState('#C8553D');
   useEffect(() => setList(tags), [tags]);
 
   const handleAdd = async () => {
@@ -967,7 +967,7 @@ function ManageTagsModal({ tags, onClose, onChanged }: { tags: TagType[]; onClos
     try {
       const { data } = await api.post('/tags', { name: newName.trim(), color: newColor });
       setList((p) => [...p, data]);
-      setNewName(''); setNewColor('#6366F1');
+      setNewName(''); setNewColor('#C8553D');
       toast.success('Tag criada'); onChanged();
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro'); }
   };

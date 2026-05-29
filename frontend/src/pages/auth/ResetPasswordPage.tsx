@@ -41,7 +41,7 @@ export default function ResetPasswordPage() {
           </div>
         ) : (
           <>
-            <h1 className="text-xl font-bold mb-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Definir nova password</h1>
+            <h1 className="text-xl font-bold mb-2" style={{ fontFamily: 'Manrope, sans-serif' }}>Definir nova password</h1>
             <form onSubmit={handleSubmit} className="space-y-3 mt-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Nova password</label>

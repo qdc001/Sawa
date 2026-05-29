@@ -708,7 +708,7 @@ export default function IntegrationsPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Integrações</h1>
+        <h1 className="text-xl font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>Integrações</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
           Liga o CRM a canais externos para enviar mensagens reais.
         </p>
@@ -730,7 +730,7 @@ export default function IntegrationsPage() {
                     <Icon size={20} style={{ color: def.color }} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>{def.name}</p>
+                    <p className="font-semibold text-sm" style={{ fontFamily: 'Manrope, sans-serif' }}>{def.name}</p>
                     {configured ? (
                       <span className="flex items-center gap-1 text-xs" style={{ color: active ? '#10B981' : 'var(--text-muted)' }}>
                         <CheckCircle2 size={11} /> {active ? 'Activa' : 'Desactivada'}

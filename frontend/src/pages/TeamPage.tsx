@@ -13,7 +13,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 const ROLE_COLORS: Record<string, { bg: string; fg: string; icon: any }> = {
   OWNER: { bg: '#FEF3C7', fg: '#92400E', icon: Crown },
-  ADMIN: { bg: '#EEF2FF', fg: '#4338CA', icon: ShieldCheck },
+  ADMIN: { bg: '#F6E3DC', fg: '#4338CA', icon: ShieldCheck },
   MANAGER: { bg: '#D1FAE5', fg: '#065F46', icon: UserCog },
   AGENT: { bg: '#F3F4F6', fg: '#374151', icon: UserIcon },
 };
@@ -243,7 +243,7 @@ function TeamsModal({ teams, onClose, onChanged }: {
 }) {
   const [list, setList] = useState<Team[]>(teams);
   const [newName, setNewName] = useState('');
-  const [newColor, setNewColor] = useState('#6366F1');
+  const [newColor, setNewColor] = useState('#C8553D');
 
   useEffect(() => setList(teams), [teams]);
 
@@ -252,7 +252,7 @@ function TeamsModal({ teams, onClose, onChanged }: {
     try {
       const { data } = await api.post('/teams', { name: newName.trim(), color: newColor });
       setList((p) => [...p, data]);
-      setNewName(''); setNewColor('#6366F1');
+      setNewName(''); setNewColor('#C8553D');
       toast.success('Equipa criada');
       onChanged();
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro'); }
@@ -416,7 +416,7 @@ export default function TeamPage() {
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Equipa</h1>
+          <h1 className="text-xl font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>Equipa</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             {users.length} membro{users.length !== 1 ? 's' : ''} na workspace
           </p>

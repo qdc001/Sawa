@@ -23,7 +23,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   SMS: 'SMS', INTERNAL: 'Interno',
 };
 const CHANNEL_COLORS: Record<string, string> = {
-  WHATSAPP: '#25D366', EMAIL: '#6366F1', INSTAGRAM: '#E1306C',
+  WHATSAPP: '#25D366', EMAIL: '#C8553D', INSTAGRAM: '#E1306C',
   FACEBOOK: '#1877F2', TELEGRAM: '#0088CC', WEBCHAT: '#0EA5E9',
   SMS: '#F59E0B', INTERNAL: '#94A3B8',
 };
@@ -2321,9 +2321,9 @@ function ContactProfileModal({ contactId, users, onClose, onSaved }: {
                         <button key={t.id} type="button" onClick={() => toggleTag(t.id)}
                           className="text-[11px] px-2 py-0.5 rounded font-medium"
                           style={{
-                            background: on ? (t.color || '#6366F1') : 'var(--surface-3)',
+                            background: on ? (t.color || '#C8553D') : 'var(--surface-3)',
                             color: on ? 'white' : 'var(--text-secondary)',
-                            border: `1px solid ${on ? (t.color || '#6366F1') : 'var(--border)'}`,
+                            border: `1px solid ${on ? (t.color || '#C8553D') : 'var(--border)'}`,
                           }}>{t.name}</button>
                       );
                     })}

@@ -20,7 +20,7 @@ const TIMEZONES = [
 ];
 const CURRENCIES = ['MZN', 'USD', 'EUR', 'ZAR', 'BRL'];
 const DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'];
-const PRIMARY_PRESETS = ['#6366F1', '#10B981', '#0EA5E9', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6'];
+const PRIMARY_PRESETS = ['#C8553D', '#10B981', '#0EA5E9', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6'];
 const STATUS_OPTIONS = [
   { v: 'ONLINE', label: 'Online', color: '#10B981' },
   { v: 'AWAY', label: 'Ausente', color: '#F59E0B' },
@@ -62,7 +62,7 @@ export default function SettingsPage() {
   const [wsLogo, setWsLogo] = useState('');
   const [wsTimezone, setWsTimezone] = useState('Africa/Maputo');
   const [wsCurrency, setWsCurrency] = useState('MZN');
-  const [wsPrimaryColor, setWsPrimaryColor] = useState('#6366F1');
+  const [wsPrimaryColor, setWsPrimaryColor] = useState('#C8553D');
   const [wsDateFormat, setWsDateFormat] = useState('DD/MM/YYYY');
   const [wsFiscalMonth, setWsFiscalMonth] = useState(1);
   const [wsAutoAssign, setWsAutoAssign] = useState(false);
@@ -125,7 +125,7 @@ export default function SettingsPage() {
       setWsLogo(data.logo || '');
       setWsTimezone(data.timezone || 'Africa/Maputo');
       setWsCurrency(data.currency || 'MZN');
-      setWsPrimaryColor(data.primaryColor || '#6366F1');
+      setWsPrimaryColor(data.primaryColor || '#C8553D');
       setWsDateFormat(data.dateFormat || 'DD/MM/YYYY');
       setWsFiscalMonth(data.fiscalYearStartMonth || 1);
       setWsAutoAssign(!!data.autoAssignEnabled);
@@ -370,7 +370,7 @@ export default function SettingsPage() {
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-xl font-bold mb-6" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Definições</h1>
+      <h1 className="text-xl font-bold mb-6" style={{ fontFamily: 'Manrope, sans-serif' }}>Definições</h1>
 
       <div className="flex gap-1 mb-6 border-b flex-wrap" style={{ borderColor: 'var(--border)' }}>
         {tabs.map((t) => {

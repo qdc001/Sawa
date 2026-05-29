@@ -71,7 +71,7 @@ export default function CsatPublicPage() {
           <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: '#D1FAE5' }}>
             <Check size={28} style={{ color: '#10B981' }} />
           </div>
-          <h2 className="text-xl font-bold mb-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Obrigado!</h2>
+          <h2 className="text-xl font-bold mb-2" style={{ fontFamily: 'Manrope, sans-serif' }}>Obrigado!</h2>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>A tua avaliacao foi recebida.</p>
         </div>
       </div>
@@ -83,7 +83,7 @@ export default function CsatPublicPage() {
   return (
     <div className="flex items-center justify-center min-h-screen p-4" style={{ background: 'var(--surface-2)' }}>
       <div className="card p-8 max-w-md w-full">
-        <h1 className="text-xl font-bold mb-4 text-center" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+        <h1 className="text-xl font-bold mb-4 text-center" style={{ fontFamily: 'Manrope, sans-serif' }}>
           {request.question}
         </h1>
         <div className="flex justify-center gap-2 mb-6">

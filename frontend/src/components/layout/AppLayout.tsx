@@ -6,6 +6,7 @@ import {
   Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2, Check, Phone
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
+import { SawaMark } from '../SawaLogo';
 import CopilotPanel from '../ai/CopilotPanel';
 import DesktopNotifications from '../DesktopNotifications';
 import toast from 'react-hot-toast';
@@ -180,15 +181,15 @@ export default function AppLayout() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 p-4 mb-2" style={{ minHeight: 64 }}>
-          <div className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm" style={{ background: 'var(--primary)' }}>
-            {workspace?.name?.[0]?.toUpperCase() || 'K'}
+          <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'rgba(250,246,238,0.06)' }}>
+            <SawaMark size={24} ringColor="#FAF6EE" dotColor="#C8553D" />
           </div>
           {sidebarOpen && (
             <div className="overflow-hidden">
-              <p className="font-semibold text-sm text-white truncate" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
-                {workspace?.name || 'M.E.T.A'}
+              <p className="font-semibold text-sm text-white truncate" style={{ fontFamily: 'Fraunces, serif', fontSize: 17 }}>
+                {workspace?.name || 'Sawa'}
               </p>
-              <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>CRM Platform</p>
+              <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>Onde nasce o sim.</p>
             </div>
           )}
           <button
@@ -215,7 +216,7 @@ export default function AppLayout() {
                 }`
               }
               style={({ isActive }) => ({
-                background: isActive ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                background: isActive ? 'rgba(200, 85, 61, 0.18)' : 'transparent',
                 color: isActive ? '#fff' : undefined,
               })}
               title={!sidebarOpen ? label : undefined}

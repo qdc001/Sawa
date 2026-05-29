@@ -54,7 +54,7 @@ export default function CopilotPanel({ leadId, onClose }: CopilotPanelProps) {
           <Bot size={16} className="text-white" />
         </div>
         <div className="flex-1">
-          <p className="text-sm font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Copilot IA</p>
+          <p className="text-sm font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>Copilot IA</p>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Assistente inteligente</p>
         </div>
         <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X size={16} /></button>

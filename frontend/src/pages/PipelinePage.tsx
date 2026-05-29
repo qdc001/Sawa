@@ -1321,7 +1321,7 @@ function ManagePipelinesModal({
   const [list, setList] = useState<Pipeline[]>(pipelines);
   const [loading, setLoading] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newColor, setNewColor] = useState('#6366F1');
+  const [newColor, setNewColor] = useState('#C8553D');
 
   useEffect(() => {
     setList(pipelines);
@@ -1396,7 +1396,7 @@ function ManagePipelinesModal({
       });
       setList((prev) => [...prev, data]);
       setNewName('');
-      setNewColor('#6366F1');
+      setNewColor('#C8553D');
       toast.success('Pipeline criado');
       await onChanged();
     } catch (err: any) {

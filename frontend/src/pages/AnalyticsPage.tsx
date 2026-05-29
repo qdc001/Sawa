@@ -58,14 +58,14 @@ export default function AnalyticsPage() {
 
   // Pizza de origens
   const sourcesPie = sources.slice(0, 5).map((s) => ({ name: s.source, value: s.total }));
-  const PIE_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#0EA5E9'];
+  const PIE_COLORS = ['#C8553D', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#0EA5E9'];
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+          <h1 className="text-xl font-bold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
             <BarChart3 size={20} /> Análises
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Relatorios detalhados do teu negocio</p>
@@ -114,7 +114,7 @@ export default function AnalyticsPage() {
                   <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line yAxisId="left" type="monotone" dataKey="revenue" name="Receita (MZN)" stroke="#6366F1" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line yAxisId="left" type="monotone" dataKey="revenue" name="Receita (MZN)" stroke="#C8553D" strokeWidth={2} dot={{ r: 4 }} />
                   <Line yAxisId="right" type="monotone" dataKey="deals" name="Negocios" stroke="#10B981" strokeWidth={2} dot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
@@ -125,7 +125,7 @@ export default function AnalyticsPage() {
           {dashboard && conv && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
-                { label: 'Leads criados', value: dashboard.monthly.leadsCreated, growth: dashboard.monthly.leadsCreatedGrowth, color: '#6366F1' },
+                { label: 'Leads criados', value: dashboard.monthly.leadsCreated, growth: dashboard.monthly.leadsCreatedGrowth, color: '#C8553D' },
                 { label: 'Negocios ganhos', value: dashboard.monthly.leadsWon, growth: dashboard.monthly.leadsWonGrowth, color: '#10B981' },
                 { label: 'Tempo medio fecho', value: `${conv.avgConversionDays} dias`, color: '#8B5CF6' },
                 { label: 'Win-rate global', value: `${conv.winRateGlobal}%`, color: '#F59E0B' },
@@ -145,7 +145,7 @@ export default function AnalyticsPage() {
 
           {/* Forecast */}
           {conv && (
-            <div className="card p-5" style={{ background: 'linear-gradient(135deg, #EEF2FF, #F0F9FF)' }}>
+            <div className="card p-5" style={{ background: 'linear-gradient(135deg, #F6E3DC, #F0F9FF)' }}>
               <h3 className="font-semibold mb-2 flex items-center gap-2">
                 <Target size={16} style={{ color: 'var(--primary)' }} /> Forecast (proximos meses)
               </h3>
@@ -185,7 +185,7 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                   <Tooltip formatter={(v: any) => `MZN ${Number(v).toLocaleString()}`} />
-                  <Bar dataKey="revenue" fill="#6366F1" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="revenue" fill="#C8553D" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -294,8 +294,8 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                   <Tooltip />
-                  <Bar dataKey="count" fill="#6366F1" radius={[4, 4, 0, 0]}>
-                    {dashboard.pipeline.map((stage: any, i) => <Cell key={i} fill={stage.color || '#6366F1'} />)}
+                  <Bar dataKey="count" fill="#C8553D" radius={[4, 4, 0, 0]}>
+                    {dashboard.pipeline.map((stage: any, i) => <Cell key={i} fill={stage.color || '#C8553D'} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -321,7 +321,7 @@ export default function AnalyticsPage() {
                       </span>
                     </div>
                     <div className="h-8 rounded relative overflow-hidden" style={{ background: 'var(--surface-3)' }}>
-                      <div className="h-full rounded transition-all" style={{ width: `${pct}%`, background: stage.color || '#6366F1' }} />
+                      <div className="h-full rounded transition-all" style={{ width: `${pct}%`, background: stage.color || '#C8553D' }} />
                     </div>
                   </div>
                 );

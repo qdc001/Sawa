@@ -36,7 +36,7 @@ function Public({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <Toaster position="top-right" toastOptions={{ style: { fontFamily: 'Inter,sans-serif', fontSize: 14, borderRadius: 10, border: '1px solid #E2E8F0', boxShadow: '0 4px 6px -1px rgb(0 0 0/0.1)' }, success: { iconTheme: { primary: '#10B981', secondary: '#fff' } }, error: { iconTheme: { primary: '#EF4444', secondary: '#fff' } } }} />
+      <Toaster position="top-right" toastOptions={{ style: { fontFamily: 'Manrope, sans-serif', fontSize: 14, borderRadius: 10, border: '1px solid #E2E8F0', boxShadow: '0 4px 6px -1px rgb(0 0 0/0.1)' }, success: { iconTheme: { primary: '#10B981', secondary: '#fff' } }, error: { iconTheme: { primary: '#EF4444', secondary: '#fff' } } }} />
       <Routes>
         <Route path="/login" element={<Public><LoginPage /></Public>} />
         <Route path="/register" element={<Public><RegisterPage /></Public>} />
