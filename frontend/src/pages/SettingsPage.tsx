@@ -512,7 +512,7 @@ export default function SettingsPage() {
               <div>
                 <label className="block text-sm font-medium mb-1">Password actual</label>
                 <div className="relative">
-                  <input type={showPwd ? 'text' : 'password'} value={curPwd} onChange={(e) => setCurPwd(e.target.value)} className="input-base" />
+                  <input type={showPwd ? 'text' : 'password'} value={curPwd} onChange={(e) => setCurPwd(e.target.value)} className="input-base" autoComplete="new-password" />
                   <button onClick={() => setShowPwd(!showPwd)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1">
                     {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
@@ -520,11 +520,11 @@ export default function SettingsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Nova password</label>
-                <input type={showPwd ? 'text' : 'password'} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="input-base" />
+                <input type={showPwd ? 'text' : 'password'} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="input-base" autoComplete="new-password" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Confirmar</label>
-                <input type={showPwd ? 'text' : 'password'} value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} className="input-base" />
+                <input type={showPwd ? 'text' : 'password'} value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} className="input-base" autoComplete="new-password" />
               </div>
               <button onClick={savePassword} disabled={savingPwd || !curPwd || !newPwd} className="btn btn-primary py-2 px-4">
                 {savingPwd ? <Loader2 size={16} className="animate-spin" /> : <Lock size={14} />} Alterar password
@@ -543,7 +543,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-2 max-w-md">
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Para desactivar, indica a tua password.</p>
-                  <input type="password" value={disablePwd} onChange={(e) => setDisablePwd(e.target.value)} placeholder="Password actual" className="input-base" />
+                  <input type="password" value={disablePwd} onChange={(e) => setDisablePwd(e.target.value)} placeholder="Password actual" className="input-base" autoComplete="new-password" />
                   <button onClick={disable2FA} disabled={!disablePwd} className="btn py-2 px-3" style={{ background: '#FEF2F2', color: '#EF4444' }}>
                     Desactivar 2FA
                   </button>
