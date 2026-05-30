@@ -296,6 +296,7 @@ model Message {
   readAt      DateTime?
   editedAt    DateTime?
   isInternal  Boolean       @default(false)
+  transcription String?     // transcricao de audio via Groq Whisper (preenchida on-demand)
   createdAt   DateTime      @default(now())
 
   lead        Lead?    @relation(fields: [leadId], references: [id])

@@ -1,4 +1,6 @@
 import { Router, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { propagateAssignee } from '../lib/propagateAssignee';
@@ -620,6 +622,89 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     }
     await prisma.message.delete({ where: { id: req.params.id } });
     res.json({ message: 'Mensagem eliminada' });
+  } catch (e) { next(e); }
+});
+
+// ── Transcrição de áudio (Groq Whisper) ───────────────────────────
+function guessAudioMime(p: string): string {
+  const ext = p.split('.').pop()?.toLowerCase();
+  const m: Record<string, string> = {
+    ogg: 'audio/ogg', opus: 'audio/ogg', mp3: 'audio/mpeg', mpeg: 'audio/mpeg',
+    m4a: 'audio/mp4', mp4: 'audio/mp4', wav: 'audio/wav', webm: 'audio/webm', flac: 'audio/flac',
+  };
+  return (ext && m[ext]) || 'audio/ogg';
+}
+
+async function fetchAudio(mediaUrl: string): Promise<{ buffer: Buffer; filename: string; mime: string }> {
+  // Ficheiros servidos em /uploads vivem no disco local — leitura directa (mesmo se o URL for absoluto).
+  const idx = mediaUrl.indexOf('/uploads/');
+  if (idx !== -1) {
+    const rel = mediaUrl.slice(idx + '/uploads/'.length);
+    const filePath = path.join(__dirname, '../../uploads', path.basename(rel));
+    const buffer = await fs.promises.readFile(filePath);
+    return { buffer, filename: path.basename(filePath), mime: guessAudioMime(filePath) };
+  }
+  const r = await fetch(mediaUrl);
+  if (!r.ok) throw new AppError('Nao foi possivel obter o ficheiro de audio', 502);
+  const ab = await r.arrayBuffer();
+  return { buffer: Buffer.from(ab), filename: 'audio.ogg', mime: r.headers.get('content-type') || 'audio/ogg' };
+}
+
+async function transcribeWithGroq(buffer: Buffer, filename: string, mime: string, apiKey: string): Promise<string> {
+  const model = process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3';
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(buffer)], { type: mime }), filename);
+  form.append('model', model);
+  form.append('language', 'pt');
+  form.append('response_format', 'json');
+  const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form as any,
+  });
+  if (!r.ok) {
+    let detail = `HTTP ${r.status}`;
+    try { const j: any = await r.json(); detail = j?.error?.message || detail; } catch {}
+    if (r.status === 401) throw new AppError('GROQ_API_KEY invalida ou revogada.', 401);
+    if (r.status === 429) throw new AppError('Servidor de IA ocupado. Tenta de novo em ~30 segundos.', 429);
+    if (r.status === 413) throw new AppError('Audio demasiado grande para transcrever.', 413);
+    throw new AppError(`Groq transcricao: ${detail}`, 502);
+  }
+  const data: any = await r.json();
+  return (data.text || '').trim();
+}
+
+// POST /api/messages/:id/transcribe — transcreve o áudio da mensagem
+router.post('/:id/transcribe', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const message = await prisma.message.findFirst({
+      where: {
+        id: req.params.id,
+        OR: [
+          { contact: { workspaceId: req.user!.workspaceId } },
+          { lead: { workspaceId: req.user!.workspaceId } },
+        ],
+      },
+    });
+    if (!message) throw new AppError('Mensagem nao encontrada', 404);
+    const isAudio = message.type === 'AUDIO' || (message.mediaType || '').startsWith('audio/');
+    if (!message.mediaUrl || !isAudio) throw new AppError('Esta mensagem nao tem audio para transcrever', 400);
+
+    // Cache: se já foi transcrita, devolve logo
+    if (message.transcription) return res.json({ transcription: message.transcription });
+
+    const apiKey = process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('GROQ_API_KEY nao configurada no backend', 500);
+
+    const audio = await fetchAudio(message.mediaUrl);
+    const text = await transcribeWithGroq(audio.buffer, audio.filename, audio.mime, apiKey);
+    if (!text) throw new AppError('Nao foi possivel transcrever (audio vazio ou inaudivel)', 422);
+
+    const updated = await prisma.message.update({
+      where: { id: message.id },
+      data: { transcription: text },
+    });
+    res.json({ transcription: updated.transcription });
   } catch (e) { next(e); }
 });
 

@@ -268,6 +268,7 @@ export interface Message {
   readAt?: string | null;
   editedAt?: string | null;
   isInternal?: boolean;
+  transcription?: string | null;
   createdAt: string;
   sentBy?: User;
   leadId?: string;
