@@ -3,7 +3,7 @@ import {
   User as UserIcon, Lock, Building2, Save, Loader2, Eye, EyeOff,
   Sun, Moon, Upload, Palette, FileDown, History, Download, Activity,
   Shield, Bell, Globe, Mail, Smartphone, KeyRound, Trash2, X, Check, Plus, RotateCcw,
-  FileText as FileTextIcon, Package, LayoutTemplate, CreditCard,
+  FileText as FileTextIcon, Package, LayoutTemplate, CreditCard, Settings,
 } from 'lucide-react';
 import api, {
   WorkspaceFull, AuditLog, TaskOption,
@@ -380,9 +380,14 @@ export default function SettingsPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ fontFamily: 'Fraunces, serif', color: 'var(--text-primary)' }}>{t('settings.title')}</h1>
-        <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>Faz a gestão da tua conta, da equipa e das preferências do workspace.</p>
+      <div className="mb-6 pb-4 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--primary-light)' }}>
+          <Settings size={22} style={{ color: 'var(--primary)' }} />
+        </div>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold leading-tight" style={{ fontFamily: 'Fraunces, serif', color: 'var(--text-primary)' }}>{t('settings.title')}</h1>
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{tabs.find((x) => x.v === tab)?.label}</p>
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row gap-6 items-start">
