@@ -6,6 +6,7 @@ import {
   Filter as FilterIcon, RotateCcw, RefreshCw,
 } from 'lucide-react';
 import api, { Lead, Pipeline, User } from '../lib/api';
+import { LeadScoreBadge } from '../lib/leadScore';
 import toast from 'react-hot-toast';
 import { LeadDetailModal } from './PipelinePage';
 import { useUIStore } from '../store';
@@ -602,13 +603,16 @@ export default function LeadsPage() {
                     />
                   </td>
                   <td className="px-3 py-2">
-                    <button
-                      onClick={() => setEditing(lead)}
-                      className="font-medium hover:underline text-left"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      {lead.title}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setEditing(lead)}
+                        className="font-medium hover:underline text-left"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        {lead.title}
+                      </button>
+                      <LeadScoreBadge lead={lead} compact />
+                    </div>
                   </td>
                   <td className="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>
                     {lead.contact ? `${lead.contact.firstName} ${lead.contact.lastName || ''}`.trim() : '—'}

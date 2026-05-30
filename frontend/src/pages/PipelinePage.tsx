@@ -22,6 +22,7 @@ import {
   User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse, Layers, SlidersHorizontal,
 } from 'lucide-react';
 import api, { Lead, Pipeline, Stage, CustomField, CustomFieldType, User } from '../lib/api';
+import { LeadScoreBadge } from '../lib/leadScore';
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 
@@ -136,6 +137,10 @@ function LeadCard({ lead, onClick, external = false, dimmed = false }: { lead: L
           style={{ background: priorityColors[lead.priority] }}
           title={lead.priority}
         />
+      </div>
+
+      <div className="mb-2">
+        <LeadScoreBadge lead={lead} />
       </div>
 
       {lead.value !== undefined && lead.value !== null && (
