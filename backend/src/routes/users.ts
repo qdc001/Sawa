@@ -8,6 +8,7 @@ import { generateSecret, otpauthUrl, verifyTotp } from '../lib/totp';
 import { sendSystemEmail } from '../lib/mailer';
 
 import prisma from '../lib/prisma';
+import { checkLimit } from '../lib/planLimits';
 const router = Router();
 
 const userSelect = {
@@ -154,6 +155,7 @@ router.post('/invite-by-email', async (req: AuthRequest, res: Response, next) =>
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
+    await checkLimit(req.user!.workspaceId, 'users');
     const { name, email, role } = req.body;
     if (!name || !email) throw new AppError('Nome e email obrigatorios', 400);
     const existing = await prisma.user.findUnique({ where: { email } });
@@ -214,6 +216,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN podem convidar', 403);
     }
+    await checkLimit(req.user!.workspaceId, 'users');
     const { name, email, role, password } = req.body;
     if (!name || !email || !password) throw new AppError('Nome, email e password obrigatorios', 400);
     if (password.length < 6) throw new AppError('Password tem de ter pelo menos 6 caracteres', 400);

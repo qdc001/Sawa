@@ -39,6 +39,7 @@ router.get('/me', async (req: AuthRequest, res: Response, next) => {
       features: plan.features,
       trialEndsAt: ws?.trialEndsAt || null,
       trialActive,
+      isPlatformAdmin: !!(process.env.PLATFORM_ADMIN_EMAIL && req.user!.email.toLowerCase() === process.env.PLATFORM_ADMIN_EMAIL.toLowerCase()),
       usage: { users, contacts, automations, whatsapp },
     });
   } catch (e) { next(e); }

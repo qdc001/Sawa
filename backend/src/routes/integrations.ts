@@ -10,6 +10,7 @@ import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 
 import prisma from '../lib/prisma';
 import { getCreds, encryptForStore } from '../lib/integrationCrypto';
+import { checkLimit } from '../lib/planLimits';
 const router = Router();
 
 // ============= Helpers Evolution =============
@@ -65,6 +66,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { type, name, credentials, settings, isActive } = req.body;
     if (!type || !name) throw new AppError('Tipo e nome obrigatorios', 400);
+    if (type === 'WHATSAPP') await checkLimit(req.user!.workspaceId, 'whatsapp');
     const integration = await prisma.integration.create({
       data: {
         type, name,

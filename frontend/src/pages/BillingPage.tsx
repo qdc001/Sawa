@@ -8,6 +8,7 @@ interface Billing {
   plan: string; planLabel: string; priceUsd: number | null;
   limits: Limits; features: string[];
   trialEndsAt: string | null; trialActive: boolean;
+  isPlatformAdmin?: boolean;
   usage: { users: number; contacts: number; automations: number; whatsapp: number };
 }
 interface PlanDef { key: string; label: string; priceUsd: number | null; limits: Limits; features: string[] }
@@ -43,7 +44,18 @@ export default function BillingPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const upgrade = (p: PlanDef) => {
+  const upgrade = async (p: PlanDef) => {
+    if (data?.isPlatformAdmin) {
+      try {
+        await api.post('/billing/set-plan', { plan: p.key });
+        toast.success(`Plano definido: ${p.label}`);
+        const { data: fresh } = await api.get('/billing/me');
+        setData(fresh);
+      } catch (e: any) {
+        toast.error(e.response?.data?.message || 'Erro ao definir o plano');
+      }
+      return;
+    }
     toast('Para mudar de plano, fala connosco. Pagamento por M-Pesa e cartão chega em breve.', { icon: 'ℹ️' });
   };
 
@@ -114,7 +126,7 @@ export default function BillingPage() {
                 disabled={current}
                 onClick={() => upgrade(p)}
               >
-                {current ? 'Plano actual' : 'Fazer upgrade'}
+                {current ? 'Plano actual' : data.isPlatformAdmin ? 'Definir este plano' : 'Fazer upgrade'}
               </button>
             </div>
           );

@@ -5,6 +5,7 @@ import { triggerAutomations } from '../lib/automationEngine';
 import { propagateAssignee } from '../lib/propagateAssignee';
 import { notifyWhatsAppAssignment } from '../lib/dailyTaskDigest';
 import prisma from '../lib/prisma';
+import { checkLimit } from '../lib/planLimits';
 const router = Router();
 
 // Tenta activar a extensão `unaccent` na BD para permitir pesquisas que ignorem
@@ -167,6 +168,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
 // POST /api/contacts
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
+    await checkLimit(req.user!.workspaceId, 'contacts');
     const { tags, customValues, ...rest } = req.body;
     const cleanCV = Array.isArray(customValues)
       ? customValues

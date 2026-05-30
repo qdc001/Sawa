@@ -4,6 +4,7 @@ import { AppError } from '../middleware/errorHandler';
 import { testAutomation } from '../lib/automationEngine';
 
 import prisma from '../lib/prisma';
+import { checkLimit } from '../lib/planLimits';
 const router = Router();
 
 const automationInclude = {
@@ -39,6 +40,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { name, description, trigger, conditions, actions, isActive } = req.body;
     if (!name) throw new AppError('Nome obrigatório', 400);
+    if (isActive) await checkLimit(req.user!.workspaceId, 'automations');
 
     const automation = await prisma.automation.create({
       data: {
