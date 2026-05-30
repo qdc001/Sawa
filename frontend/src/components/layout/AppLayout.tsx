@@ -197,25 +197,37 @@ export default function AppLayout() {
         }}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 p-4 mb-2" style={{ minHeight: 64 }}>
-          <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'rgba(250,246,238,0.06)' }}>
-            <SawaMark size={24} ringColor="#FAF6EE" dotColor="#C8553D" />
-          </div>
-          {sidebarOpen && (
-            <div className="overflow-hidden">
-              <p className="font-semibold text-sm text-white truncate" style={{ fontFamily: 'Fraunces, serif', fontSize: 17 }}>
-                {workspace?.name || 'Sawa'}
-              </p>
-              <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>Onde nasce o sim.</p>
-            </div>
+        <div className="flex items-center gap-3 px-3 mb-2" style={{ minHeight: 64 }}>
+          {sidebarOpen ? (
+            <>
+              <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'rgba(250,246,238,0.06)' }}>
+                <SawaMark size={24} ringColor="#FAF6EE" dotColor="#C8553D" />
+              </div>
+              <div className="overflow-hidden flex-1 min-w-0">
+                <p className="font-semibold text-sm text-white truncate" style={{ fontFamily: 'Fraunces, serif', fontSize: 17 }}>
+                  {workspace?.name || 'Sawa'}
+                </p>
+                <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>Onde nasce o sim.</p>
+              </div>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="p-1.5 rounded-md transition-colors flex-shrink-0 hover:bg-white/10"
+                style={{ color: 'var(--sidebar-text)' }}
+                title="Recolher menu"
+              >
+                <X size={16} />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="mx-auto p-2 rounded-md transition-colors hover:bg-white/10"
+              style={{ color: 'var(--sidebar-text)' }}
+              title="Expandir menu"
+            >
+              <Menu size={18} />
+            </button>
           )}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="ml-auto p-1 rounded-md transition-colors flex-shrink-0"
-            style={{ color: 'var(--sidebar-text)' }}
-          >
-            {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
-          </button>
         </div>
 
         {/* Nav */}
