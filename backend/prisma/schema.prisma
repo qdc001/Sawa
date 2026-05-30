@@ -59,6 +59,7 @@ model User {
   goals            Goal[]
   assignedConversations ConversationMeta[]
   csatRequests     CsatRequest[]
+  quotes           Quote[]
 
   @@map("users")
 }
@@ -126,6 +127,8 @@ model Workspace {
   teams        Team[]
   auditLogs    AuditLog[]
   systemEmailTemplates SystemEmailTemplate[]
+  products     Product[]
+  quotes       Quote[]
 
   @@map("workspaces")
 }
@@ -211,6 +214,7 @@ model Lead {
   customValues CustomFieldValue[]
   files        File[]
   csatRequests CsatRequest[]
+  quotes       Quote[]
 
   @@map("leads")
 }
@@ -266,6 +270,7 @@ model Contact {
   conversationMetas ConversationMeta[]
   csatRequests CsatRequest[]
   tasks        Task[]
+  quotes       Quote[]
 
   @@index([assignedToId])
   @@map("contacts")
@@ -985,4 +990,84 @@ model Goal {
 
   @@unique([workspaceId, type, month, year, userId])
   @@map("goals")
+}
+
+// ==================== PRODUTOS & PROPOSTAS ====================
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  sku         String?
+  unitPrice   Float    @default(0)
+  currency    String   @default("MZN")
+  taxRate     Float    @default(0) // percentagem, ex: 16 = 16%
+  unit        String?  // ex: "hora", "unidade", "mes"
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  quoteItems  QuoteItem[]
+
+  @@index([workspaceId])
+  @@map("products")
+}
+
+model Quote {
+  id            String      @id @default(cuid())
+  number        String // ex: PROP-2026-0001
+  title         String
+  status        QuoteStatus @default(DRAFT)
+  currency      String      @default("MZN")
+  notes         String? // termos e condicoes / observacoes
+  discountType  String      @default("none") // none | percent | amount
+  discountValue Float       @default(0)
+  taxRate       Float       @default(0) // imposto global % (fallback se a linha nao tiver)
+  validUntil    DateTime?
+  sentAt        DateTime?
+  acceptedAt    DateTime?
+  rejectedAt    DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  contact     Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId   String?
+  lead        Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  leadId      String?
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdById String
+
+  items       QuoteItem[]
+
+  @@index([workspaceId])
+  @@map("quotes")
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+}
+
+model QuoteItem {
+  id          String   @id @default(cuid())
+  description String
+  quantity    Float    @default(1)
+  unitPrice   Float    @default(0)
+  taxRate     Float    @default(0) // % por linha
+  position    Int      @default(0)
+
+  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId   String
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId String?
+
+  @@index([quoteId])
+  @@map("quote_items")
 }

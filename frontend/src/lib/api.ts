@@ -712,3 +712,62 @@ export interface AutomationRun {
   createdAt: string;
   automation?: { id: string; name: string; trigger: AutomationTrigger };
 }
+
+// ==================== PRODUTOS & PROPOSTAS ====================
+
+export interface Product {
+  id: string;
+  name: string;
+  description?: string | null;
+  sku?: string | null;
+  unitPrice: number;
+  currency: string;
+  taxRate: number;
+  unit?: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export type QuoteStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED';
+
+export interface QuoteItem {
+  id?: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+  position?: number;
+  productId?: string | null;
+  product?: { id: string; name: string } | null;
+}
+
+export interface QuoteTotals {
+  subtotal: number;
+  discountAmount: number;
+  tax: number;
+  total: number;
+}
+
+export interface Quote {
+  id: string;
+  number: string;
+  title: string;
+  status: QuoteStatus;
+  currency: string;
+  notes?: string | null;
+  discountType: 'none' | 'percent' | 'amount';
+  discountValue: number;
+  taxRate: number;
+  validUntil?: string | null;
+  sentAt?: string | null;
+  acceptedAt?: string | null;
+  rejectedAt?: string | null;
+  createdAt: string;
+  contactId?: string | null;
+  leadId?: string | null;
+  contact?: { id: string; firstName: string; lastName?: string; company?: string; email?: string; phone?: string; whatsapp?: string } | null;
+  lead?: { id: string; title: string } | null;
+  createdBy?: { id: string; name: string };
+  items: QuoteItem[];
+  totals: QuoteTotals;
+}

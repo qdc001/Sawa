@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   LayoutDashboard, GitBranch, Users, MessageSquare, CheckSquare,
   Zap, Bot, BarChart3, FileText, Plug, Settings, LogOut,
-  Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2, Check, Phone
+  Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2, Check, Phone,
+  Package, ScrollText
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
 import { SawaMark } from '../SawaLogo';
@@ -19,6 +20,8 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
   { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline' },
   { path: '/leads', icon: Users, key: 'nav.leads' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
+  { path: '/products', icon: Package, key: 'nav.products' },
+  { path: '/quotes', icon: ScrollText, key: 'nav.quotes' },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/calls', icon: Phone, key: 'nav.calls' },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },

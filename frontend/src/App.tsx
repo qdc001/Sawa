@@ -19,6 +19,8 @@ import SettingsPage from './pages/SettingsPage';
 import TeamPage from './pages/TeamPage';
 import BroadcastsPage from './pages/BroadcastsPage';
 import CallsPage from './pages/CallsPage';
+import ProductsPage from './pages/ProductsPage';
+import QuotesPage from './pages/QuotesPage';
 import CsatPublicPage from './pages/CsatPublicPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
@@ -49,6 +51,8 @@ export default function App() {
           <Route path="pipeline" element={<PipelinePage />} />
           <Route path="leads" element={<LeadsPage />} />
           <Route path="contacts" element={<ContactsPage />} />
+          <Route path="products" element={<ProductsPage />} />
+          <Route path="quotes" element={<QuotesPage />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="tasks" element={<TasksPage />} />
           <Route path="automations" element={<AutomationsPage />} />

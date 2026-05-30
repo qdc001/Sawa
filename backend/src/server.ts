@@ -36,6 +36,8 @@ import goalsRoutes from './routes/goals';
 import csatRoutes, { publicRouter as csatPublicRoutes } from './routes/csat';
 import teamsRoutes from './routes/teams';
 import systemEmailTemplatesRoutes from './routes/systemEmailTemplates';
+import productRoutes from './routes/products';
+import quoteRoutes from './routes/quotes';
 
 
 // Middleware
@@ -140,6 +142,8 @@ app.use('/api/goals', authMiddleware, goalsRoutes);
 app.use('/api/csat', authMiddleware, csatRoutes);
 app.use('/api/teams', authMiddleware, teamsRoutes);
 app.use('/api/system-email-templates', authMiddleware, systemEmailTemplatesRoutes);
+app.use('/api/products', authMiddleware, productRoutes);
+app.use('/api/quotes', authMiddleware, quoteRoutes);
 
 
 // Error handler (must be last)
