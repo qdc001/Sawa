@@ -590,6 +590,9 @@ router.post('/meta', async (req: AuthRequest, res: Response, next) => {
 // IMPORTANTE: definido ANTES de /:id para não ser interpretado como ID
 router.delete('/conversation', async (req: AuthRequest, res: Response, next) => {
   try {
+    if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
+      throw new AppError('Apenas o administrador pode eliminar conversas', 403);
+    }
     const { contactId, channel } = req.body;
     if (!contactId) throw new AppError('contactId obrigatório', 400);
 

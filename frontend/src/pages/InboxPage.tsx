@@ -5,7 +5,7 @@ import {
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
   Inbox, Building2, User as UserIcon, Users as UsersIcon, Star, Archive, Edit3, Trash2,
   Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, Calendar,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Smile,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -16,6 +16,8 @@ import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
 import { useTaskOptions } from '../lib/taskOptions';
 import { AddLeadModal } from './PipelinePage';
+
+const EMOJIS = ['😀','😅','😂','🙂','😉','😍','😘','😎','🤔','😴','😢','😡','👍','👎','🙏','👏','🙌','💪','👌','🤝','❤️','🔥','✨','🎉','✅','❌','⚠️','📌','📎','📅','⏰','💰','📞','📧','💬','🚀','⭐','💯','🤙','👋'];
 
 const CHANNEL_LABELS: Record<string, string> = {
   WHATSAPP: 'WhatsApp', EMAIL: 'Email', INSTAGRAM: 'Instagram',
@@ -403,6 +405,7 @@ export default function InboxPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
   const { user, workspace } = useAuthStore();
+  const isAdmin = user?.role === 'OWNER' || user?.role === 'ADMIN';
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [convPage, setConvPage] = useState(1);
@@ -444,6 +447,7 @@ export default function InboxPage() {
 
   // Composer
   const [draft, setDraft] = useState('');
+  const [showEmoji, setShowEmoji] = useState(false);
   const [sending, setSending] = useState(false);
   const [isInternalNote, setIsInternalNote] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -1562,10 +1566,14 @@ export default function InboxPage() {
                     <button onClick={() => setSoundEnabled(!soundEnabled)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       {soundEnabled ? '🔊' : '🔇'} Som: {soundEnabled ? 'ON' : 'OFF'}
                     </button>
-                    <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
-                    <button onClick={() => { handleDeleteConversation(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-left" style={{ color: '#EF4444' }}>
-                      <Trash2 size={14} /> Eliminar conversa
-                    </button>
+                    {isAdmin && (
+                      <>
+                        <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
+                        <button onClick={() => { handleDeleteConversation(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-left" style={{ color: '#EF4444' }}>
+                          <Trash2 size={14} /> Eliminar conversa
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1891,6 +1899,18 @@ export default function InboxPage() {
                   <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" title="Anexar ficheiro">
                     {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} style={{ color: 'var(--text-muted)' }} />}
                   </button>
+                  <div className="relative flex-shrink-0">
+                    <button type="button" onClick={() => setShowEmoji(!showEmoji)} className="p-1 rounded-lg hover:bg-slate-100" title="Emojis">
+                      <Smile size={18} style={{ color: showEmoji ? 'var(--primary)' : 'var(--text-muted)' }} />
+                    </button>
+                    {showEmoji && (
+                      <div className="absolute bottom-full mb-2 left-0 z-30 p-2 rounded-lg grid grid-cols-8 gap-0.5" style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)', width: 296 }}>
+                        {EMOJIS.map((e) => (
+                          <button key={e} type="button" onClick={() => { setDraft(draft + e); setShowEmoji(false); draftRef.current?.focus(); }} className="text-lg rounded p-0.5 hover:bg-black/5">{e}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <textarea
                     ref={draftRef}
                     className="flex-1 text-sm resize-none outline-none min-h-[36px] max-h-32"
