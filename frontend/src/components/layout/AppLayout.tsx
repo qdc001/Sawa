@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import {
   LayoutDashboard, GitBranch, Users, MessageSquare, CheckSquare,
@@ -43,7 +43,22 @@ const STATUS_LABELS: Record<string, string> = {
 export default function AppLayout() {
   const { user, workspace, logout, updateUser, updateWorkspace } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Nas Definicoes recolhe a barra lateral automaticamente (mais espaco); ao sair,
+  // devolve o estado anterior. O botao de menu no topo expande/recolhe a qualquer momento.
+  const wasSettingsRef = useRef(false);
+  const beforeSettingsOpenRef = useRef(true);
+  useEffect(() => {
+    const isSettings = location.pathname === '/settings';
+    if (isSettings && !wasSettingsRef.current) {
+      beforeSettingsOpenRef.current = sidebarOpen;
+      setSidebarOpen(false);
+    } else if (!isSettings && wasSettingsRef.current) {
+      setSidebarOpen(beforeSettingsOpenRef.current);
+    }
+    wasSettingsRef.current = isSettings;
+  }, [location.pathname]);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [t] = useT();
