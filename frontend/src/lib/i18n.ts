@@ -58,6 +58,7 @@ const dict: Record<string, Record<Lang, string>> = {
   'nav.integrations': { pt: 'Integrações', en: 'Integrations' },
   'nav.team': { pt: 'Equipa', en: 'Team' },
   'nav.settings': { pt: 'Definições', en: 'Settings' },
+  'nav.config': { pt: 'Configuração', en: 'Configuration' },
   // Common extra
   'common.add': { pt: 'Adicionar', en: 'Add' },
   'common.remove': { pt: 'Remover', en: 'Remove' },

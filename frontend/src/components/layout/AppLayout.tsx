@@ -20,7 +20,6 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
   { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline' },
   { path: '/leads', icon: Users, key: 'nav.leads' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
-  { path: '/products', icon: Package, key: 'nav.products' },
   { path: '/quotes', icon: ScrollText, key: 'nav.quotes' },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/calls', icon: Phone, key: 'nav.calls' },
@@ -32,6 +31,11 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
   { path: '/templates', icon: FileText, key: 'nav.templates' },
   { path: '/integrations', icon: Plug, key: 'nav.integrations' },
   { path: '/team', icon: Users, key: 'nav.team' },
+];
+
+// Zona de configuração, separada do menu operacional do dia-a-dia.
+const configNav: { path: string; icon: any; key: string }[] = [
+  { path: '/products', icon: Package, key: 'nav.products' },
   { path: '/modelos', icon: LayoutTemplate, key: 'nav.sectorTemplates' },
   { path: '/plano', icon: CreditCard, key: 'nav.billing' },
 ];
@@ -51,6 +55,7 @@ export default function AppLayout() {
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [t] = useT();
   const navItems = navConfig.map((n) => ({ ...n, label: t(n.key) }));
+  const configItems = configNav.map((n) => ({ ...n, label: t(n.key) }));
 
   const changeStatus = async (status: string) => {
     try {
@@ -234,6 +239,19 @@ export default function AppLayout() {
 
         {/* Bottom */}
         <div className="p-2 space-y-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          {sidebarOpen && <p className="px-3 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--sidebar-text)' }}>{t('nav.config')}</p>}
+          {configItems.map(({ path, icon: Icon, label }) => (
+            <NavLink
+              key={path}
+              to={path}
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive ? 'text-white' : 'text-gray-400 hover:text-white'}`}
+              style={({ isActive }) => ({ background: isActive ? 'rgba(200, 85, 61, 0.18)' : 'transparent', color: isActive ? '#fff' : undefined })}
+              title={!sidebarOpen ? label : undefined}
+            >
+              <Icon size={18} className="flex-shrink-0" />
+              {sidebarOpen && <span>{label}</span>}
+            </NavLink>
+          ))}
           <NavLink
             to="/settings"
             className={({ isActive }) =>
