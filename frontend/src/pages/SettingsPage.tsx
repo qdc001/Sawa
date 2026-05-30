@@ -36,6 +36,7 @@ export default function SettingsPage() {
   const [theme, setTheme] = useTheme();
   const useTResult = useT();
   const currentLang = useTResult[1];
+  const t = useTResult[0];
 
   // Perfil
   const [name, setName] = useState(user?.name || '');
@@ -362,19 +363,19 @@ export default function SettingsPage() {
   };
 
   const tabs = [
-    { v: 'profile' as const, label: 'Perfil', icon: UserIcon },
-    { v: 'preferences' as const, label: 'Preferencias', icon: Palette },
-    { v: 'security' as const, label: 'Seguranca', icon: Shield },
-    { v: 'notifications' as const, label: 'Notificacoes', icon: Bell },
-    ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: 'Workspace', icon: Building2 }] : []),
-    ...(isAdminOrOwner ? [{ v: 'emailTemplates' as const, label: 'Templates email', icon: FileTextIcon }] : []),
-    ...(isAdminOrOwner ? [{ v: 'audit' as const, label: 'Auditoria', icon: History }] : []),
+    { v: 'profile' as const, label: t('settings.profile'), icon: UserIcon },
+    { v: 'preferences' as const, label: t('settings.preferences'), icon: Palette },
+    { v: 'security' as const, label: t('settings.security'), icon: Shield },
+    { v: 'notifications' as const, label: t('settings.notifications'), icon: Bell },
+    ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: t('settings.workspace'), icon: Building2 }] : []),
+    ...(isAdminOrOwner ? [{ v: 'emailTemplates' as const, label: t('settings.emailTemplates'), icon: FileTextIcon }] : []),
+    ...(isAdminOrOwner ? [{ v: 'audit' as const, label: t('settings.audit'), icon: History }] : []),
   ];
 
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ fontFamily: 'Fraunces, serif', color: 'var(--text-primary)' }}>Definições</h1>
+        <h1 className="text-2xl font-bold" style={{ fontFamily: 'Fraunces, serif', color: 'var(--text-primary)' }}>{t('settings.title')}</h1>
         <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>Faz a gestão da tua conta, da equipa e das preferências do workspace.</p>
       </div>
 
