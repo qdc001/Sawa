@@ -1081,12 +1081,26 @@ export function LeadDetailModal({
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [builtinConfig] = useBuiltinConfig();
+  const [nextAction, setNextAction] = useState<{ action: string; why?: string } | null>(null);
+  const [loadingAction, setLoadingAction] = useState(false);
 
   useEffect(() => {
     api.get('/users')
       .then(({ data }) => setUsers(Array.isArray(data) ? data : []))
       .catch(() => setUsers([]));
   }, []);
+
+  const getNextAction = async () => {
+    setLoadingAction(true);
+    try {
+      const { data } = await api.post('/ai/next-action', { leadId: lead.id });
+      setNextAction({ action: data.action, why: data.why });
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao sugerir acção');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
 
   const handleUpdate = async () => {
     setLoading(true);
@@ -1140,6 +1154,21 @@ export function LeadDetailModal({
           <button onClick={onClose}>
             <X size={20} style={{ color: 'var(--text-muted)' }} />
           </button>
+        </div>
+
+        <div className="mb-4 p-3 rounded-lg" style={{ background: 'var(--surface-2)' }}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>✨ Próxima melhor acção</span>
+            <button onClick={getNextAction} disabled={loadingAction} className="btn text-xs py-1 px-2" style={{ background: 'var(--primary)', color: 'white' }}>
+              {loadingAction ? 'A pensar...' : 'Sugerir'}
+            </button>
+          </div>
+          {nextAction && (
+            <div className="mt-2 text-sm" style={{ color: 'var(--text-primary)' }}>
+              <p className="font-medium">{nextAction.action}</p>
+              {nextAction.why && <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{nextAction.why}</p>}
+            </div>
+          )}
         </div>
 
         <div className="space-y-3">

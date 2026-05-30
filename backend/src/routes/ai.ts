@@ -396,6 +396,47 @@ router.post('/agent-reply', async (req: AuthRequest, res: Response, next) => {
 // ── GET /api/ai/status ────────────────────────────────
 // Diagnóstico: confirma se a chave está configurada, qual o modelo activo
 // e o estado do rate limiter interno.
+// ── POST /api/ai/next-action ──────────────────────────
+// Sugere a próxima melhor acção concreta para um lead
+router.post('/next-action', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { leadId } = req.body;
+    if (!leadId) throw new AppError('leadId é obrigatório', 400);
+    const apiKey = getAiKey();
+    const lead = await getLeadContext(leadId, req.user!.workspaceId);
+    if (!lead) throw new AppError('Lead não encontrado', 404);
+
+    const recentMessages = lead.messages.slice(0, 8)
+      .map((m) => `[${m.direction === 'INBOUND' ? 'Cliente' : 'Agente'}]: ${m.content}`).join('\n');
+    const tasks = lead.tasks.map((t) => `- ${t.title} (${t.status})`).join('\n');
+
+    const result = await callGroq(
+      `És um coach de vendas. Indicas UMA próxima acção concreta e accionável por lead, em Português de Moçambique. Responde APENAS em JSON.`,
+      `Qual é a próxima melhor acção para este lead?
+
+LEAD: ${lead.title}
+ETAPA: ${lead.stage.name} (pipeline ${lead.pipeline.name})
+PRIORIDADE: ${lead.priority}
+VALOR: ${lead.value ? `MZN ${lead.value}` : 'não definido'}
+CONTACTO: ${lead.contact?.firstName || ''} ${lead.contact?.lastName || ''}
+ÚLTIMAS MENSAGENS:
+${recentMessages || 'sem mensagens'}
+TAREFAS ABERTAS:
+${tasks || 'sem tarefas'}
+
+Responde APENAS em JSON: {"action":"a próxima acção concreta numa frase","why":"porquê, numa frase curta","type":"call|message|meeting|proposal|wait|other"}`,
+      apiKey,
+      220
+    );
+    try {
+      const parsed = JSON.parse(result.replace(/```json|```/g, '').trim());
+      res.json(parsed);
+    } catch {
+      res.json({ action: result.trim(), why: '', type: 'other' });
+    }
+  } catch (e) { next(e); }
+});
+
 router.get('/status', (_req: AuthRequest, res: Response) => {
   const hasKey = !!(process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY);
   res.json({
