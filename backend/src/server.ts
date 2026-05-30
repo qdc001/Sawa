@@ -38,6 +38,7 @@ import teamsRoutes from './routes/teams';
 import systemEmailTemplatesRoutes from './routes/systemEmailTemplates';
 import productRoutes from './routes/products';
 import quoteRoutes from './routes/quotes';
+import sectorTemplateRoutes from './routes/sectorTemplates';
 
 
 // Middleware
@@ -144,6 +145,7 @@ app.use('/api/teams', authMiddleware, teamsRoutes);
 app.use('/api/system-email-templates', authMiddleware, systemEmailTemplatesRoutes);
 app.use('/api/products', authMiddleware, productRoutes);
 app.use('/api/quotes', authMiddleware, quoteRoutes);
+app.use('/api/sector-templates', authMiddleware, sectorTemplateRoutes);
 
 
 // Error handler (must be last)
