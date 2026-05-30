@@ -63,6 +63,9 @@ router.post('/register', async (req: Request, res: Response, next) => {
       data: {
         name: workspaceName,
         slug,
+        // Trial de 7 dias com acesso ao plano Growth
+        plan: 'GROWTH',
+        trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         users: {
           create: {
             name,

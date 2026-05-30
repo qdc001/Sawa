@@ -22,6 +22,7 @@ import CallsPage from './pages/CallsPage';
 import ProductsPage from './pages/ProductsPage';
 import QuotesPage from './pages/QuotesPage';
 import SectorTemplatesPage from './pages/SectorTemplatesPage';
+import BillingPage from './pages/BillingPage';
 import CsatPublicPage from './pages/CsatPublicPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="products" element={<ProductsPage />} />
           <Route path="quotes" element={<QuotesPage />} />
           <Route path="modelos" element={<SectorTemplatesPage />} />
+          <Route path="plano" element={<BillingPage />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="tasks" element={<TasksPage />} />
           <Route path="automations" element={<AutomationsPage />} />

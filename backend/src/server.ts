@@ -39,6 +39,7 @@ import systemEmailTemplatesRoutes from './routes/systemEmailTemplates';
 import productRoutes from './routes/products';
 import quoteRoutes from './routes/quotes';
 import sectorTemplateRoutes from './routes/sectorTemplates';
+import billingRoutes from './routes/billing';
 
 
 // Middleware
@@ -146,6 +147,7 @@ app.use('/api/system-email-templates', authMiddleware, systemEmailTemplatesRoute
 app.use('/api/products', authMiddleware, productRoutes);
 app.use('/api/quotes', authMiddleware, quoteRoutes);
 app.use('/api/sector-templates', authMiddleware, sectorTemplateRoutes);
+app.use('/api/billing', authMiddleware, billingRoutes);
 
 
 // Error handler (must be last)

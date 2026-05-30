@@ -78,6 +78,9 @@ model Workspace {
   logo        String?
   timezone    String   @default("Africa/Maputo")
   currency    String   @default("MZN")
+  // Subscrição/plano: STARTER | GROWTH | BUSINESS | ENTERPRISE
+  plan        String   @default("STARTER")
+  trialEndsAt DateTime?
   primaryColor String  @default("#6366F1")
   dateFormat   String  @default("DD/MM/YYYY")
   fiscalYearStartMonth Int @default(1) // 1 = Janeiro

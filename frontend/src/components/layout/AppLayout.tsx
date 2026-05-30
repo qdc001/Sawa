@@ -4,7 +4,7 @@ import {
   LayoutDashboard, GitBranch, Users, MessageSquare, CheckSquare,
   Zap, Bot, BarChart3, FileText, Plug, Settings, LogOut,
   Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2, Check, Phone,
-  Package, ScrollText, LayoutTemplate
+  Package, ScrollText, LayoutTemplate, CreditCard
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
 import { SawaMark } from '../SawaLogo';
@@ -33,6 +33,7 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
   { path: '/integrations', icon: Plug, key: 'nav.integrations' },
   { path: '/team', icon: Users, key: 'nav.team' },
   { path: '/modelos', icon: LayoutTemplate, key: 'nav.sectorTemplates' },
+  { path: '/plano', icon: CreditCard, key: 'nav.billing' },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
