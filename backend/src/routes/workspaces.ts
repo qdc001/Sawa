@@ -160,4 +160,91 @@ router.post('/me/assignment-notify/test', async (req: AuthRequest, res: Response
   } catch (e) { next(e); }
 });
 
+// POST /api/workspaces/reset/messages
+// Apaga TODAS as conversas e mensagens do workspace (mantém leads, contactos e tudo o resto).
+// OWNER/ADMIN. Exige { confirm: true } no body para evitar chamadas acidentais.
+router.post('/reset/messages', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
+      throw new AppError('Apenas OWNER/ADMIN', 403);
+    }
+    if (req.body?.confirm !== true) {
+      throw new AppError('Confirmacao em falta', 400);
+    }
+    const wsId = req.user!.workspaceId;
+    const msgWhere = { OR: [{ contact: { workspaceId: wsId } }, { lead: { workspaceId: wsId } }] };
+    const deleted = await prisma.$transaction(async (tx) => {
+      // Limpa as auto-referencias (replyTo) antes de eliminar em massa.
+      await tx.message.updateMany({ where: msgWhere, data: { replyToId: null } });
+      const del = await tx.message.deleteMany({ where: msgWhere });
+      await tx.conversationMeta.deleteMany({ where: { workspaceId: wsId } });
+      return del.count;
+    }, { timeout: 60000 });
+
+    await prisma.auditLog.create({
+      data: {
+        workspaceId: wsId, userId: req.user!.id,
+        action: 'DELETE', entity: 'message',
+        description: `Reset de conversas e mensagens (${deleted}) por ${req.user!.email}`,
+      },
+    });
+    const io = (global as any).io;
+    if (io) io.to(`workspace:${wsId}`).emit('workspace:reset', { scope: 'messages' });
+    res.json({ messages: deleted });
+  } catch (e) { next(e); }
+});
+
+// POST /api/workspaces/reset/data
+// Repoe TODOS os dados operacionais do workspace (mensagens, conversas, leads, contactos,
+// tarefas, propostas, broadcasts, metas, CSAT, notas, ficheiros, actividades e historicos
+// de automacao/chatbot). Preserva conta/equipa, integracoes, definicoes e a estrutura
+// (pipelines, etapas, tags, campos personalizados, produtos, automacoes e chatbots).
+// Apenas OWNER. Exige { confirmation: <nome exacto do workspace> }.
+router.post('/reset/data', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (req.user!.role !== 'OWNER') {
+      throw new AppError('Apenas o OWNER pode repor todos os dados', 403);
+    }
+    const wsId = req.user!.workspaceId;
+    const ws = await prisma.workspace.findUnique({ where: { id: wsId }, select: { name: true } });
+    if (!ws) throw new AppError('Workspace nao encontrada', 404);
+    if (String(req.body?.confirmation || '').trim() !== ws.name) {
+      throw new AppError('Confirmacao invalida: escreve o nome exacto do workspace', 400);
+    }
+
+    const counts: Record<string, number> = {};
+    await prisma.$transaction(async (tx) => {
+      const msgWhere = { OR: [{ contact: { workspaceId: wsId } }, { lead: { workspaceId: wsId } }] };
+      await tx.message.updateMany({ where: msgWhere, data: { replyToId: null } });
+      counts.messages = (await tx.message.deleteMany({ where: msgWhere })).count;
+      counts.conversations = (await tx.conversationMeta.deleteMany({ where: { workspaceId: wsId } })).count;
+      counts.csat = (await tx.csatRequest.deleteMany({ where: { workspaceId: wsId } })).count;
+      counts.quotes = (await tx.quote.deleteMany({ where: { workspaceId: wsId } })).count;
+      counts.broadcasts = (await tx.broadcast.deleteMany({ where: { workspaceId: wsId } })).count;
+      counts.automationRuns = (await tx.automationRun.deleteMany({ where: { workspaceId: wsId } })).count;
+      counts.chatbotSessions = (await tx.chatbotSession.deleteMany({ where: { workspaceId: wsId } })).count;
+      counts.goals = (await tx.goal.deleteMany({ where: { workspaceId: wsId } })).count;
+      counts.notifications = (await tx.notification.deleteMany({ where: { user: { workspaceId: wsId } } })).count;
+      counts.files = (await tx.file.deleteMany({ where: { lead: { workspaceId: wsId } } })).count;
+      counts.notes = (await tx.note.deleteMany({ where: { lead: { workspaceId: wsId } } })).count;
+      counts.activities = (await tx.activity.deleteMany({ where: { OR: [{ lead: { workspaceId: wsId } }, { user: { workspaceId: wsId } }] } })).count;
+      counts.tasks = (await tx.task.deleteMany({ where: { assignedTo: { workspaceId: wsId } } })).count;
+      counts.leads = (await tx.lead.deleteMany({ where: { workspaceId: wsId } })).count;
+      counts.contacts = (await tx.contact.deleteMany({ where: { workspaceId: wsId } })).count;
+    }, { timeout: 60000 });
+
+    await prisma.auditLog.create({
+      data: {
+        workspaceId: wsId, userId: req.user!.id,
+        action: 'DELETE', entity: 'workspace',
+        description: `Reset total dos dados por ${req.user!.email}`,
+        metadata: counts as any,
+      },
+    });
+    const io = (global as any).io;
+    if (io) io.to(`workspace:${wsId}`).emit('workspace:reset', { scope: 'data' });
+    res.json({ ok: true, counts });
+  } catch (e) { next(e); }
+});
+
 export default router;

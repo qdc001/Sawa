@@ -89,6 +89,11 @@ export default function SettingsPage() {
   const [wsAssignmentNotifyEnabled, setWsAssignmentNotifyEnabled] = useState(true);
   const [testingAssignmentNotify, setTestingAssignmentNotify] = useState(false);
   const [savingWs, setSavingWs] = useState(false);
+  // Zona de perigo (reset de dados)
+  const [resetMsgsLoading, setResetMsgsLoading] = useState(false);
+  const [resetDataLoading, setResetDataLoading] = useState(false);
+  const [showResetDataModal, setShowResetDataModal] = useState(false);
+  const [resetDataConfirm, setResetDataConfirm] = useState('');
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -363,6 +368,31 @@ export default function SettingsPage() {
       URL.revokeObjectURL(url);
       toast.success('Exportado');
     } catch { toast.error('Erro a exportar'); }
+  };
+
+  const handleResetMessages = async () => {
+    if (!window.confirm('Apagar TODAS as conversas e mensagens deste workspace? Esta accao e irreversivel.')) return;
+    setResetMsgsLoading(true);
+    try {
+      const { data } = await api.post('/workspaces/reset/messages', { confirm: true });
+      toast.success(`${data.messages} mensagens eliminadas.`);
+      setTimeout(() => window.location.reload(), 900);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao limpar mensagens');
+    } finally { setResetMsgsLoading(false); }
+  };
+
+  const handleResetData = async () => {
+    setResetDataLoading(true);
+    try {
+      await api.post('/workspaces/reset/data', { confirmation: resetDataConfirm });
+      toast.success('Dados repostos. O workspace foi limpo.');
+      setShowResetDataModal(false);
+      setResetDataConfirm('');
+      setTimeout(() => window.location.reload(), 900);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao repor dados');
+    } finally { setResetDataLoading(false); }
   };
 
   const tabs = [
@@ -1024,6 +1054,82 @@ export default function SettingsPage() {
               <FileDown size={14} /> Exportar tudo (JSON)
             </button>
           </div>
+
+          {/* Zona de perigo */}
+          <div className="border-t pt-4 mt-2" style={{ borderColor: 'var(--border)' }}>
+            <p className="text-sm font-semibold flex items-center gap-2" style={{ color: '#C8553D' }}>
+              <Trash2 size={15} /> Zona de perigo
+            </p>
+            <p className="text-xs mt-1 mb-3" style={{ color: 'var(--text-muted)' }}>
+              Accoes irreversiveis. Usa com cuidado, sobretudo num workspace com dados reais.
+            </p>
+
+            <div className="rounded-lg p-3 mb-3" style={{ border: '1px solid var(--border)' }}>
+              <p className="text-sm font-medium">Apagar conversas e mensagens</p>
+              <p className="text-xs mt-0.5 mb-2" style={{ color: 'var(--text-muted)' }}>
+                Elimina todas as conversas e mensagens da Caixa de Entrada. Leads, contactos e tudo o resto ficam intactos.
+              </p>
+              <button
+                onClick={handleResetMessages}
+                disabled={resetMsgsLoading}
+                className="btn py-1.5 px-3 text-xs"
+                style={{ background: 'var(--surface-3)', color: '#C8553D', border: '1px solid #C8553D' }}
+              >
+                {resetMsgsLoading ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Apagar conversas e mensagens
+              </button>
+            </div>
+
+            {user?.role === 'OWNER' && (
+              <div className="rounded-lg p-3" style={{ border: '1px solid #C8553D' }}>
+                <p className="text-sm font-medium">Repor todos os dados (reset)</p>
+                <p className="text-xs mt-0.5 mb-2" style={{ color: 'var(--text-muted)' }}>
+                  Apaga mensagens, conversas, leads, contactos, tarefas, propostas, broadcasts, metas e CSAT. Mantem a tua conta, a equipa, as integracoes, as definicoes e a estrutura (pipelines, etapas, tags, campos e produtos).
+                </p>
+                <button
+                  onClick={() => { setResetDataConfirm(''); setShowResetDataModal(true); }}
+                  className="btn py-1.5 px-3 text-xs"
+                  style={{ background: '#C8553D', color: '#fff' }}
+                >
+                  <Trash2 size={12} /> Repor todos os dados...
+                </button>
+              </div>
+            )}
+          </div>
+
+          {showResetDataModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={() => !resetDataLoading && setShowResetDataModal(false)}>
+              <div className="rounded-xl p-5 w-full max-w-md" style={{ background: 'var(--surface)', boxShadow: 'var(--shadow-lg)' }} onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-2 mb-2" style={{ color: '#C8553D' }}>
+                  <Trash2 size={18} />
+                  <h3 className="font-semibold">Repor todos os dados</h3>
+                </div>
+                <p className="text-sm mb-3" style={{ color: 'var(--text-muted)' }}>
+                  Esta accao e <strong>irreversivel</strong>. Vais apagar todas as mensagens, conversas, leads, contactos, tarefas, propostas, broadcasts, metas e CSAT deste workspace. A conta, a equipa, as integracoes, as definicoes e a estrutura mantem-se.
+                </p>
+                <p className="text-sm mb-2">Para confirmar, escreve o nome do workspace: <strong>{ws?.name}</strong></p>
+                <input
+                  autoFocus
+                  value={resetDataConfirm}
+                  onChange={(e) => setResetDataConfirm(e.target.value)}
+                  placeholder={ws?.name || 'Nome do workspace'}
+                  className="input-base w-full mb-3"
+                />
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setShowResetDataModal(false)} disabled={resetDataLoading} className="btn py-2 px-3 text-sm" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleResetData}
+                    disabled={resetDataLoading || resetDataConfirm.trim() !== (ws?.name || '')}
+                    className="btn py-2 px-3 text-sm"
+                    style={{ background: '#C8553D', color: '#fff', opacity: (resetDataLoading || resetDataConfirm.trim() !== (ws?.name || '')) ? 0.6 : 1 }}
+                  >
+                    {resetDataLoading ? <Loader2 size={14} className="animate-spin" /> : 'Apagar tudo'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
