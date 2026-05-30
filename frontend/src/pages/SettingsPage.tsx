@@ -372,24 +372,36 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-xl font-bold mb-6" style={{ fontFamily: 'Manrope, sans-serif' }}>Definições</h1>
-
-      <div className="flex gap-1 mb-6 border-b flex-wrap" style={{ borderColor: 'var(--border)' }}>
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button key={t.v} onClick={() => setTab(t.v)} className="px-4 py-2 text-sm font-medium flex items-center gap-2"
-              style={{
-                borderBottom: tab === t.v ? '2px solid var(--primary)' : '2px solid transparent',
-                color: tab === t.v ? 'var(--primary)' : 'var(--text-secondary)',
-                marginBottom: -1,
-              }}>
-              <Icon size={14} /> {t.label}
-            </button>
-          );
-        })}
+    <div className="p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold" style={{ fontFamily: 'Fraunces, serif', color: 'var(--text-primary)' }}>Definições</h1>
+        <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>Faz a gestão da tua conta, da equipa e das preferências do workspace.</p>
       </div>
+
+      <div className="flex flex-col md:flex-row gap-6 items-start">
+        {/* Navegação lateral */}
+        <nav className="w-full md:w-56 flex-shrink-0 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-1 md:pb-0 md:sticky md:top-6">
+          {tabs.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.v;
+            return (
+              <button
+                key={t.v}
+                onClick={() => setTab(t.v)}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap text-left flex-shrink-0 transition-colors hover:bg-black/5"
+                style={{
+                  background: active ? 'var(--primary-light)' : undefined,
+                  color: active ? 'var(--primary)' : 'var(--text-secondary)',
+                }}
+              >
+                <Icon size={16} className="flex-shrink-0" /> {t.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Conteúdo da secção activa */}
+        <div className="flex-1 min-w-0 w-full max-w-2xl">
 
       {tab === 'profile' && (
         <div className="card p-6 space-y-4">
@@ -1032,6 +1044,8 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }
