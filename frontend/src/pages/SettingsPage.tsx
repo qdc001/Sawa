@@ -3,7 +3,7 @@ import {
   User as UserIcon, Lock, Building2, Save, Loader2, Eye, EyeOff,
   Sun, Moon, Upload, Palette, FileDown, History, Download, Activity,
   Shield, Bell, Globe, Mail, Smartphone, KeyRound, Trash2, X, Check, Plus, RotateCcw,
-  FileText as FileTextIcon,
+  FileText as FileTextIcon, Package, LayoutTemplate, CreditCard,
 } from 'lucide-react';
 import api, {
   WorkspaceFull, AuditLog, TaskOption,
@@ -13,6 +13,9 @@ import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
 import { useTheme, applyPrimaryColor, setDateFormatPref, getDateFormatPref } from '../lib/theme';
 import { useT, setLang } from '../lib/i18n';
+import ProductsPage from './ProductsPage';
+import SectorTemplatesPage from './SectorTemplatesPage';
+import BillingPage from './BillingPage';
 
 const TIMEZONES = [
   'Africa/Maputo', 'Europe/Lisbon', 'Africa/Johannesburg', 'Africa/Nairobi',
@@ -32,7 +35,7 @@ const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', '
 
 export default function SettingsPage() {
   const { user, updateUser, updateWorkspace } = useAuthStore();
-  const [tab, setTab] = useState<'profile' | 'preferences' | 'security' | 'notifications' | 'workspace' | 'emailTemplates' | 'audit'>('profile');
+  const [tab, setTab] = useState<'profile' | 'preferences' | 'security' | 'notifications' | 'products' | 'sectors' | 'billing' | 'workspace' | 'emailTemplates' | 'audit'>('profile');
   const [theme, setTheme] = useTheme();
   const useTResult = useT();
   const currentLang = useTResult[1];
@@ -367,6 +370,9 @@ export default function SettingsPage() {
     { v: 'preferences' as const, label: t('settings.preferences'), icon: Palette },
     { v: 'security' as const, label: t('settings.security'), icon: Shield },
     { v: 'notifications' as const, label: t('settings.notifications'), icon: Bell },
+    { v: 'products' as const, label: t('nav.products'), icon: Package },
+    { v: 'sectors' as const, label: t('nav.sectorTemplates'), icon: LayoutTemplate },
+    { v: 'billing' as const, label: t('nav.billing'), icon: CreditCard },
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: t('settings.workspace'), icon: Building2 }] : []),
     ...(isAdminOrOwner ? [{ v: 'emailTemplates' as const, label: t('settings.emailTemplates'), icon: FileTextIcon }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: t('settings.audit'), icon: History }] : []),
@@ -402,7 +408,7 @@ export default function SettingsPage() {
         </nav>
 
         {/* Conteúdo da secção activa */}
-        <div className="flex-1 min-w-0 w-full max-w-2xl">
+        <div className={`flex-1 min-w-0 w-full ${tab === 'products' || tab === 'sectors' || tab === 'billing' ? '' : 'max-w-2xl'}`}>
 
       {tab === 'profile' && (
         <div className="card p-6 space-y-4">
@@ -1045,6 +1051,9 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+      {tab === 'products' && <ProductsPage />}
+      {tab === 'sectors' && <SectorTemplatesPage />}
+      {tab === 'billing' && <BillingPage />}
         </div>
       </div>
     </div>
