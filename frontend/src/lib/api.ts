@@ -180,6 +180,7 @@ export interface Workspace {
   dailyDigestHour?: number;
   dailyDigestMinute?: number;
   dailyDigestTemplate?: DigestTemplate;
+  aiBrandVoice?: string | null;
 }
 
 export interface DigestTemplate {

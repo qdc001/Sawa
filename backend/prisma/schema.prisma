@@ -107,6 +107,8 @@ model Workspace {
   // Default: todos os dias.
   dailyDigestWeekdays Json @default("[0,1,2,3,4,5,6]")
   assignmentNotifyEnabled Boolean @default(true)
+  // Voz/tom da marca que a IA usa ao redigir mensagens (suggest-reply, agent-reply, improve-text)
+  aiBrandVoice String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

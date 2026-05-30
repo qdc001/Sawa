@@ -21,6 +21,19 @@ function getAiKey(): string {
   return key;
 }
 
+// Voz/tom da marca do workspace, para a IA escrever de forma consistente.
+async function brandVoiceClause(workspaceId: string): Promise<string> {
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { name: true, aiBrandVoice: true },
+  });
+  let clause = ws?.name ? `\n\nEmpresa/marca: ${ws.name}.` : '';
+  if (ws?.aiBrandVoice && ws.aiBrandVoice.trim()) {
+    clause += `\nEscreve SEMPRE nesta voz da marca: ${ws.aiBrandVoice.trim()}`;
+  }
+  return clause;
+}
+
 // Truncar texto para evitar passar do limite de tokens do modelo.
 // Llama 3.3 70B aceita ~128k tokens contexto mas Groq tem limites por minuto (TPM)
 // no plano gratuito que cortam pedidos grandes. Limite seguro: ~12000 chars por prompt.
@@ -142,8 +155,9 @@ router.post('/suggest-reply', async (req: AuthRequest, res: Response, next) => {
       ? `Lead: ${lead.title}, Etapa: ${lead.stage.name}, Contacto: ${lead.contact?.firstName || 'Cliente'}`
       : 'Contexto do lead não disponível';
 
+    const voice = await brandVoiceClause(req.user!.workspaceId);
     const suggestions = await callGroq(
-      `Você é um assistente de vendas experiente. Sugere respostas para mensagens de clientes. Responde em Português de Moçambique. Tom: ${tone}.`,
+      `Você é um assistente de vendas experiente. Sugere respostas para mensagens de clientes. Responde em Português de Moçambique. Tom: ${tone}.${voice}`,
       `${context}
 
 Mensagem do cliente: "${lastMessage}"
@@ -259,8 +273,9 @@ router.post('/improve-text', async (req: AuthRequest, res: Response, next) => {
 
     const instruction = actions[action] || actions.improve;
 
+    const voice = await brandVoiceClause(req.user!.workspaceId);
     const result = await callGroq(
-      `Você é um editor de texto profissional. Reescreve textos em Português de Moçambique. Responde APENAS com o texto melhorado, sem explicações.`,
+      `Você é um editor de texto profissional. Reescreve textos em Português de Moçambique. Responde APENAS com o texto melhorado, sem explicações.${voice}`,
       `${instruction}\n\nTexto original: "${text}"`,
       apiKey,
       300
@@ -369,7 +384,7 @@ router.post('/agent-reply', async (req: AuthRequest, res: Response, next) => {
     const messages = [...history, { role: 'user' as const, content: incomingMessage }];
 
     const reply = await callGroq(
-      `Você é o assistente virtual de ${workspace?.name}. Responde a clientes potenciais de forma profissional, amigável e concisa. Qualifica leads e agenda reuniões quando adequado. Responde em Português de Moçambique. Não revelar que é IA a menos que perguntado directamente.`,
+      `Você é o assistente virtual de ${workspace?.name}. Responde a clientes potenciais de forma profissional, amigável e concisa. Qualifica leads e agenda reuniões quando adequado. Responde em Português de Moçambique. Não revelar que é IA a menos que perguntado directamente.${workspace?.aiBrandVoice ? ` Voz da marca: ${workspace.aiBrandVoice}` : ''}`,
       messages,
       apiKey,
       300,

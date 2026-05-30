@@ -24,7 +24,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled, aiBrandVoice } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -49,6 +49,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(dailyDigestTemplate !== undefined && { dailyDigestTemplate }),
         ...(dailyDigestWeekdays !== undefined && { dailyDigestWeekdays }),
         ...(assignmentNotifyEnabled !== undefined && { assignmentNotifyEnabled: !!assignmentNotifyEnabled }),
+        ...(aiBrandVoice !== undefined && { aiBrandVoice: aiBrandVoice || null }),
       },
     });
     await prisma.auditLog.create({

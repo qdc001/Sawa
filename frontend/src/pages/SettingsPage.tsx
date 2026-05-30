@@ -65,6 +65,7 @@ export default function SettingsPage() {
   const [wsPrimaryColor, setWsPrimaryColor] = useState('#C8553D');
   const [wsDateFormat, setWsDateFormat] = useState('DD/MM/YYYY');
   const [wsFiscalMonth, setWsFiscalMonth] = useState(1);
+  const [wsAiBrandVoice, setWsAiBrandVoice] = useState('');
   const [wsAutoAssign, setWsAutoAssign] = useState(false);
   const [wsTaskTypes, setWsTaskTypes] = useState<TaskOption[]>([]);
   const [wsTaskPriorities, setWsTaskPriorities] = useState<TaskOption[]>([]);
@@ -128,6 +129,7 @@ export default function SettingsPage() {
       setWsPrimaryColor(data.primaryColor || '#C8553D');
       setWsDateFormat(data.dateFormat || 'DD/MM/YYYY');
       setWsFiscalMonth(data.fiscalYearStartMonth || 1);
+      setWsAiBrandVoice(data.aiBrandVoice || '');
       setWsAutoAssign(!!data.autoAssignEnabled);
       const tt = Array.isArray(data.taskTypes) && data.taskTypes.length > 0 ? data.taskTypes : DEFAULT_TASK_TYPES;
       const tp = Array.isArray(data.taskPriorities) && data.taskPriorities.length > 0 ? data.taskPriorities : DEFAULT_TASK_PRIORITIES;
@@ -314,6 +316,7 @@ export default function SettingsPage() {
         name: wsName, logo: wsLogo, timezone: wsTimezone, currency: wsCurrency,
         primaryColor: wsPrimaryColor, dateFormat: wsDateFormat, fiscalYearStartMonth: wsFiscalMonth,
         autoAssignEnabled: wsAutoAssign,
+        aiBrandVoice: wsAiBrandVoice,
         taskTypes: wsTaskTypes,
         taskPriorities: wsTaskPriorities,
         taskStatuses: wsTaskStatuses,
@@ -743,6 +746,20 @@ export default function SettingsPage() {
                 {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
               </select>
             </div>
+          </div>
+
+          <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+            <label className="block text-sm font-medium mb-1">Voz da marca (IA)</label>
+            <textarea
+              value={wsAiBrandVoice}
+              onChange={(e) => setWsAiBrandVoice(e.target.value)}
+              rows={4}
+              className="input-base w-full"
+              placeholder="Descreve o tom e a personalidade que a IA deve usar ao redigir mensagens. Ex: tom caloroso mas profissional, tratamento por 'você', frases curtas e directas, sem gíria nem travessões. Assina como Equipa Sawa."
+            />
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              Usada pelo Copilot e pelas sugestões de resposta para escrever no tom da tua marca.
+            </p>
           </div>
 
           <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
