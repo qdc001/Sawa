@@ -97,7 +97,10 @@ router.get('/dashboard', async (req: AuthRequest, res: Response, next) => {
         where: {
           pipeline: { workspaceId, ...(filters.pipelineId && { id: filters.pipelineId }) },
         },
-        include: { _count: { select: { leads: { where: { status: 'OPEN' } } } } },
+        // Conta TODOS os leads de cada etapa (nao so os OPEN), para a distribuicao
+        // bater com o Pipeline: as etapas Ganho/Perdido tem leads WON/LOST e antes
+        // apareciam a zero nas Analises.
+        include: { _count: { select: { leads: true } } },
         orderBy: { position: 'asc' },
       }),
       prisma.activity.findMany({
@@ -148,9 +151,12 @@ router.get('/revenue', async (req: AuthRequest, res: Response, next) => {
     for (let i = months - 1; i >= 0; i--) {
       const date = new Date();
       const start = new Date(date.getFullYear(), date.getMonth() - i, 1);
-      const end = new Date(date.getFullYear(), date.getMonth() - i + 1, 0);
+      // Primeiro dia do mes seguinte; usamos `lt` para apanhar o mes inteiro,
+      // incluindo negocios fechados no ultimo dia. O antigo `new Date(y, m, 0)`
+      // era a meia-noite do ultimo dia e deixava de fora o que fechasse nesse dia.
+      const end = new Date(date.getFullYear(), date.getMonth() - i + 1, 1);
 
-      const where: any = { workspaceId, status: 'WON', closedAt: { gte: start, lte: end } };
+      const where: any = { workspaceId, status: 'WON', closedAt: { gte: start, lt: end } };
       if (filters.pipelineId) where.pipelineId = filters.pipelineId;
       if (filters.assignedToId) where.assignedToId = filters.assignedToId;
 
