@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Loader2, Check, Layers, Tag as TagIcon, ListChecks,
+  Loader2, Check, Layers, Tag as TagIcon, ListChecks, ChevronRight,
   Building2, HeartPulse, GraduationCap, Briefcase, LayoutTemplate,
 } from 'lucide-react';
 import api from '../lib/api';
@@ -67,29 +67,59 @@ export default function SectorTemplatesPage() {
           {items.map((t) => {
             const Icon = ICONS[t.key] || LayoutTemplate;
             return (
-              <div key={t.key} className="card p-5 flex flex-col">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(200,85,61,0.12)' }}>
-                    <Icon size={20} style={{ color: 'var(--primary)' }} />
+              <div key={t.key} className="card p-5 flex flex-col transition-shadow hover:shadow-lg">
+                <div className="flex items-start gap-3.5 mb-4">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--primary-light)' }}>
+                    <Icon size={22} style={{ color: 'var(--primary)' }} />
                   </div>
-                  <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{t.label}</h3>
-                </div>
-                <p className="text-sm mb-3" style={{ color: 'var(--text-muted)' }}>{t.description}</p>
-                <div className="space-y-2 text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
-                  <div className="flex items-start gap-2">
-                    <Layers size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
-                    <span><b>Pipeline {t.pipeline}:</b> {t.stages.join(' → ')}</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <ListChecks size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
-                    <span><b>Campos:</b> {t.fields.join(', ')}</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <TagIcon size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
-                    <span><b>Etiquetas:</b> {t.tags.join(', ')}</span>
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-bold leading-tight" style={{ color: 'var(--text-primary)', fontFamily: 'Fraunces, serif' }}>{t.label}</h3>
+                    <p className="text-xs mt-1 leading-snug" style={{ color: 'var(--text-muted)' }}>{t.description}</p>
                   </div>
                 </div>
-                <button className="btn btn-primary mt-auto flex items-center justify-center gap-2" onClick={() => apply(t)} disabled={applying === t.key}>
+
+                <div className="space-y-3.5 mb-5 flex-1">
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Layers size={13} style={{ color: 'var(--primary)' }} />
+                      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Pipeline {t.pipeline}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-y-1">
+                      {t.stages.map((s, i) => (
+                        <span key={i} className="inline-flex items-center">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-medium" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>{s}</span>
+                          {i < t.stages.length - 1 && <ChevronRight size={12} className="mx-0.5 flex-shrink-0" style={{ color: 'var(--text-muted)', opacity: 0.5 }} />}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <ListChecks size={13} style={{ color: 'var(--primary)' }} />
+                      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Campos</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {t.fields.map((f, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-md text-[11px]" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>{f}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <TagIcon size={13} style={{ color: 'var(--primary)' }} />
+                      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Etiquetas</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {t.tags.map((tg, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-full text-[11px] font-medium" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>{tg}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <button className="btn btn-primary mt-auto w-full flex items-center justify-center gap-2" onClick={() => apply(t)} disabled={applying === t.key}>
                   {applying === t.key ? <Loader2 size={16} className="animate-spin" /> : <><Check size={16} /> Aplicar modelo</>}
                 </button>
               </div>
