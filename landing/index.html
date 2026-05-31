@@ -3,8 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sawa. Onde nasce o sim.</title>
-<meta name="description" content="O CRM com WhatsApp no centro. Organize conversas, automatize follow-ups e feche mais negócios. Nascido em África, pensado para o mundo lusófono.">
+<title>Klaru — o CRM simples para gerir clientes e vender mais.</title>
+<meta name="description" content="O CRM com WhatsApp no centro. Capte leads, qualifique com IA e faça follow-up automático, sem perder nenhuma venda. Nascido em Maputo, para o mundo lusófono.">
+
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' stroke='%231A2E25' stroke-width='2.5' fill='none'/%3E%3Ccircle cx='20' cy='19' r='3' fill='%231A2E25'/%3E%3C/svg%3E">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -111,38 +113,10 @@
     transform: translateY(-6px);
   }
 
-  .underline-grow {
-    background-image: linear-gradient(to right, #C8553D, #C8553D);
-    background-position: 0 100%;
-    background-repeat: no-repeat;
-    background-size: 0 3px;
-    transition: background-size 0.4s ease;
-  }
-  .underline-grow:hover {
-    background-size: 100% 3px;
-  }
-
   details summary { cursor: pointer; list-style: none; }
   details summary::-webkit-details-marker { display: none; }
   details[open] .faq-icon { transform: rotate(45deg); }
   .faq-icon { transition: transform 0.3s ease; }
-
-  .marquee {
-    display: flex;
-    overflow: hidden;
-    user-select: none;
-  }
-  .marquee-track {
-    display: flex;
-    gap: 4rem;
-    animation: scroll 30s linear infinite;
-    flex-shrink: 0;
-    padding-right: 4rem;
-  }
-  @keyframes scroll {
-    from { transform: translateX(0); }
-    to { transform: translateX(-100%); }
-  }
 
   .number-display {
     font-feature-settings: "ss01", "tnum";
@@ -155,7 +129,6 @@
     color: transparent;
   }
 
-  /* Chat preview */
   .chat-bubble {
     border-radius: 18px;
     padding: 10px 14px;
@@ -166,7 +139,6 @@
   .chat-in { background: #F5F0E8; align-self: flex-start; border-bottom-left-radius: 4px; }
   .chat-out { background: #2D4A3E; color: #FAF6EE; align-self: flex-end; border-bottom-right-radius: 4px; }
 
-  /* Kanban preview */
   .kanban-card {
     background: white;
     border-radius: 12px;
@@ -175,9 +147,7 @@
     font-size: 12px;
   }
 
-  .nav-link {
-    position: relative;
-  }
+  .nav-link { position: relative; }
   .nav-link::after {
     content: '';
     position: absolute;
@@ -196,11 +166,12 @@
 <!-- ============ NAV ============ -->
 <nav class="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-cream/80 border-b border-ink/5">
   <div class="max-w-7xl mx-auto px-6 lg:px-10 h-16 flex items-center justify-between">
-    <a href="#" class="flex items-center gap-2">
-      <div class="w-7 h-7 bg-ink rounded-full flex items-center justify-center">
-        <div class="w-2 h-2 bg-terra rounded-full"></div>
-      </div>
-      <span class="font-display text-2xl font-medium tracking-tight">Sawa</span>
+    <a href="#" class="flex items-center gap-2.5">
+      <svg width="30" height="30" viewBox="0 0 80 80" class="text-ink">
+        <circle cx="40" cy="40" r="32" stroke="currentColor" stroke-width="4.5" fill="none"/>
+        <circle cx="50" cy="48" r="7" fill="currentColor"/>
+      </svg>
+      <span class="font-display text-2xl font-medium tracking-tight">Klaru</span>
     </a>
     <div class="hidden md:flex items-center gap-8 text-sm">
       <a href="#funcionalidades" class="nav-link text-ink/80 hover:text-ink">Funcionalidades</a>
@@ -209,42 +180,37 @@
       <a href="#faq" class="nav-link text-ink/80 hover:text-ink">FAQ</a>
     </div>
     <div class="flex items-center gap-3">
-      <a href="https://sawa-frontend.yq6lij.easypanel.host/login" class="hidden sm:block text-sm text-ink/80 hover:text-ink">Entrar</a>
-      <a href="https://sawa-frontend.yq6lij.easypanel.host/register" class="btn-primary px-4 py-2 rounded-full text-sm font-medium">Trial grátis</a>
+      <a href="https://sawa-frontend.yq6lij.easypanel.host/login" target="_blank" rel="noopener" class="hidden sm:block text-sm text-ink/80 hover:text-ink">Entrar</a>
+      <a href="https://sawa-frontend.yq6lij.easypanel.host/register" target="_blank" rel="noopener" class="btn-primary px-4 py-2 rounded-full text-sm font-medium">Trial grátis</a>
     </div>
   </div>
 </nav>
 
 <!-- ============ HERO ============ -->
 <section class="relative pt-32 pb-20 lg:pt-40 lg:pb-32 grain overflow-hidden">
-  <!-- Decorative arch -->
   <div class="absolute top-20 right-0 w-[500px] h-[700px] bg-terra/10 arch -z-10 hidden lg:block"></div>
   <div class="absolute bottom-0 left-0 w-[300px] h-[400px] bg-moss/5 arch -z-10 hidden lg:block"></div>
 
   <div class="max-w-7xl mx-auto px-6 lg:px-10 relative">
     <div class="grid lg:grid-cols-12 gap-12 items-center">
       <div class="lg:col-span-7">
-        <div class="fade-up d-1 inline-flex items-center gap-2 px-3 py-1.5 bg-ink/5 rounded-full text-xs font-medium text-ink/70 mb-8">
-          <span class="w-1.5 h-1.5 bg-terra rounded-full pulse-dot"></span>
-          Nascido em África, para o mundo lusófono
-        </div>
 
         <h1 class="fade-up d-2 font-display text-6xl sm:text-7xl lg:text-8xl font-light leading-[0.95] tracking-tight mb-6">
-          Onde<br>
-          nasce o<br>
-          <em class="italic font-normal text-terra">sim.</em>
+          Organize clientes,<br>
+          acompanhe vendas,<br>
+          e <em class="italic font-normal text-terra">venda mais.</em>
         </h1>
 
         <p class="fade-up d-3 text-lg lg:text-xl text-ink/70 max-w-xl mb-10 leading-relaxed">
-          O CRM com WhatsApp no centro. Organize conversas, automatize follow-ups e feche mais negócios. Tudo num só lugar.
+          O CRM com WhatsApp no centro, simples e inteligente. Ajuda a sua equipa a gerir contactos, conversas e oportunidades num único lugar, sem perder nenhuma venda.
         </p>
 
         <div class="fade-up d-4 flex flex-col sm:flex-row gap-3 mb-10">
-          <a href="https://sawa-frontend.yq6lij.easypanel.host/register" class="btn-primary px-7 py-4 rounded-full font-medium inline-flex items-center justify-center gap-2 group">
+          <a href="https://sawa-frontend.yq6lij.easypanel.host/register" target="_blank" rel="noopener" class="btn-primary px-7 py-4 rounded-full font-medium inline-flex items-center justify-center gap-2 group">
             Começar gratuitamente
             <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
           </a>
-          <a href="https://wa.me/258833937628?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20o%20Sawa" target="_blank" rel="noopener" class="btn-secondary px-7 py-4 rounded-full font-medium inline-flex items-center justify-center">
+          <a href="https://wa.me/258833937628" target="_blank" rel="noopener" class="btn-secondary px-7 py-4 rounded-full font-medium inline-flex items-center justify-center">
             Agendar demonstração
           </a>
         </div>
@@ -265,10 +231,8 @@
         </div>
       </div>
 
-      <!-- Visual mockup -->
       <div class="lg:col-span-5 fade-up d-4">
         <div class="relative">
-          <!-- Chat preview card -->
           <div class="bg-white rounded-3xl shadow-2xl shadow-ink/10 p-5 relative z-10 rotate-[-2deg]">
             <div class="flex items-center gap-3 pb-3 border-b border-ink/5">
               <div class="w-10 h-10 bg-gradient-to-br from-terra to-rust rounded-full flex items-center justify-center text-white text-sm font-medium">AM</div>
@@ -295,21 +259,20 @@
             </div>
           </div>
 
-          <!-- Mini pipeline card behind -->
           <div class="absolute -bottom-8 -right-4 bg-ink rounded-2xl p-4 shadow-xl text-cream w-56 rotate-[3deg] hidden sm:block">
-            <div class="text-xs text-cream/60 mb-2 uppercase tracking-wider">Pipeline · Hoje</div>
-            <div class="space-y-2">
+            <div class="text-xs text-cream/60 mb-3 uppercase tracking-wider">Pipeline · Hoje</div>
+            <div class="space-y-2.5">
               <div class="flex items-center justify-between text-sm">
                 <span>Novos leads</span>
-                <span class="font-display text-lg">24</span>
+                <span class="text-ember font-medium number-display">14</span>
               </div>
               <div class="flex items-center justify-between text-sm">
                 <span>Em negociação</span>
-                <span class="font-display text-lg">11</span>
+                <span class="text-ember font-medium number-display">8</span>
               </div>
-              <div class="flex items-center justify-between text-sm text-ember">
-                <span>Fechados</span>
-                <span class="font-display text-lg">7</span>
+              <div class="flex items-center justify-between text-sm">
+                <span>Fechados hoje</span>
+                <span class="text-cream font-medium number-display">5</span>
               </div>
             </div>
           </div>
@@ -319,198 +282,213 @@
   </div>
 </section>
 
-<!-- ============ MARQUEE CANAIS ============ -->
-<section class="py-12 bg-ink text-cream overflow-hidden">
-  <div class="max-w-7xl mx-auto px-6 lg:px-10 mb-8">
-    <p class="text-xs uppercase tracking-[0.2em] text-cream/50 text-center">Todos os canais. Uma só caixa de entrada.</p>
-  </div>
-  <div class="marquee">
-    <div class="marquee-track">
-      <span class="font-display text-4xl text-cream/70">WhatsApp</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
-      <span class="font-display text-4xl italic text-ember">Instagram</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
-      <span class="font-display text-4xl text-cream/70">Facebook Messenger</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
-      <span class="font-display text-4xl italic text-cream/70">Email</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
-      <span class="font-display text-4xl text-cream/70">TikTok Leads</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
+
+<!-- ============ CONFIANÇA ============ -->
+<section class="py-14 border-y border-ink/10 bg-bone/60">
+  <div class="max-w-7xl mx-auto px-6 lg:px-10">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-8 lg:gap-12 text-center">
+      <div>
+        <div class="font-display text-5xl font-light number-display mb-2">2.400<span class="text-terra">+</span></div>
+        <div class="text-sm text-ink/60 tracking-wide">empresas activas</div>
+      </div>
+      <div>
+        <div class="font-display text-5xl font-light number-display mb-2">1,2M</div>
+        <div class="text-sm text-ink/60 tracking-wide">leads captados</div>
+      </div>
+      <div>
+        <div class="font-display text-5xl font-light number-display mb-2">98<span class="text-terra">%</span></div>
+        <div class="text-sm text-ink/60 tracking-wide">satisfação de clientes</div>
+      </div>
+      <div>
+        <div class="font-display text-5xl font-light number-display mb-2">10<span class="text-2xl text-ink/50 font-sans font-normal"> min</span></div>
+        <div class="text-sm text-ink/60 tracking-wide">para o primeiro lead</div>
+      </div>
     </div>
-    <div class="marquee-track" aria-hidden="true">
-      <span class="font-display text-4xl text-cream/70">WhatsApp</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
-      <span class="font-display text-4xl italic text-ember">Instagram</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
-      <span class="font-display text-4xl text-cream/70">Facebook Messenger</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
-      <span class="font-display text-4xl italic text-cream/70">Email</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
-      <span class="font-display text-4xl text-cream/70">TikTok Leads</span>
-      <span class="font-display text-4xl text-cream/30">·</span>
-    </div>
+    <p class="text-center text-xs text-ink/35 mt-8">Números de exemplo · serão substituídos por dados reais</p>
   </div>
 </section>
 
+
 <!-- ============ PROBLEMA ============ -->
-<section class="py-24 lg:py-32 relative grain">
-  <div class="max-w-5xl mx-auto px-6 lg:px-10">
-    <div class="text-center max-w-3xl mx-auto">
-      <p class="text-xs uppercase tracking-[0.2em] text-terra mb-6">O problema</p>
-      <h2 class="font-display text-4xl sm:text-5xl lg:text-6xl font-light leading-[1.05] mb-8">
-        Está a perder vendas <em class="italic text-terra">no caos</em> do WhatsApp?
+<section id="problema" class="py-24 lg:py-32 bg-ink text-cream relative overflow-hidden grain">
+  <div class="absolute top-0 left-0 w-[400px] h-[500px] bg-terra/10 arch hidden lg:block"></div>
+
+  <div class="max-w-6xl mx-auto px-6 lg:px-10 relative">
+    <div class="max-w-3xl mb-16">
+      <p class="text-xs uppercase tracking-[0.2em] text-ember mb-6">O problema</p>
+      <h2 class="font-display text-3xl sm:text-4xl lg:text-5xl font-light leading-[1.1] mb-8">
+        Ainda gere clientes em Excel,<br>
+        WhatsApp e <em class="italic text-terra">blocos de notas?</em>
       </h2>
-      <p class="text-lg text-ink/70 leading-relaxed">
-        Mensagens espalhadas por vários números. Leads que esquecem porque ninguém deu seguimento. Vendedores a copiar contactos para folhas de Excel. Conversas perdidas quando alguém sai da empresa.
+      <p class="text-cream/70 leading-relaxed text-lg">
+        Quando as informações ficam espalhadas, perdem-se oportunidades, esquecem-se tarefas e deixam de acontecer vendas. O Klaru centraliza tudo num único sistema, para que a sua equipa trabalhe com mais organização e eficiência.
       </p>
     </div>
 
-    <div class="grid sm:grid-cols-3 gap-6 mt-16">
-      <div class="text-center">
-        <div class="font-display text-6xl font-light text-terra number-display mb-2">62%</div>
-        <p class="text-sm text-ink/60">dos leads são perdidos por falta de follow-up no momento certo</p>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
+      <div class="bg-cream/5 border border-cream/10 rounded-2xl p-6">
+        <div class="w-11 h-11 bg-terra/20 rounded-xl flex items-center justify-center mb-5">
+          <svg class="w-5 h-5 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197"/></svg>
+        </div>
+        <h3 class="font-display text-lg font-medium leading-snug">Clientes desorganizados</h3>
       </div>
-      <div class="text-center">
-        <div class="font-display text-6xl font-light text-terra number-display mb-2">4h</div>
-        <p class="text-sm text-ink/60">por dia gastas a procurar conversas e contactos antigos</p>
-      </div>
-      <div class="text-center">
-        <div class="font-display text-6xl font-light text-terra number-display mb-2">3×</div>
-        <p class="text-sm text-ink/60">mais conversões quando há resposta em menos de 5 minutos</p>
-      </div>
-    </div>
-  </div>
-</section>
 
-<!-- ============ 3 PILARES ============ -->
-<section class="py-24 lg:py-32 bg-ink text-cream relative">
-  <div class="max-w-7xl mx-auto px-6 lg:px-10">
-    <div class="max-w-2xl mb-20">
-      <p class="text-xs uppercase tracking-[0.2em] text-ember mb-6">A solução</p>
-      <h2 class="font-display text-4xl sm:text-5xl lg:text-6xl font-light leading-[1.05]">
-        Três pilares.<br>
-        <em class="italic text-ember">Um único sim.</em>
-      </h2>
-    </div>
+      <div class="bg-cream/5 border border-cream/10 rounded-2xl p-6">
+        <div class="w-11 h-11 bg-terra/20 rounded-xl flex items-center justify-center mb-5">
+          <svg class="w-5 h-5 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <h3 class="font-display text-lg font-medium leading-snug">Follow-ups esquecidos</h3>
+      </div>
 
-    <div class="grid md:grid-cols-3 gap-px bg-cream/10">
-      <div class="bg-ink p-8 lg:p-10">
-        <div class="font-display text-7xl text-ember/40 mb-6 number-display">01</div>
-        <h3 class="font-display text-3xl font-light mb-4">Centralize</h3>
-        <p class="text-cream/70 leading-relaxed">Todas as conversas do WhatsApp, Instagram, Facebook e Email numa só caixa de entrada. Toda a equipa vê tudo. Nada se perde.</p>
+      <div class="bg-cream/5 border border-cream/10 rounded-2xl p-6">
+        <div class="w-11 h-11 bg-terra/20 rounded-xl flex items-center justify-center mb-5">
+          <svg class="w-5 h-5 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        </div>
+        <h3 class="font-display text-lg font-medium leading-snug">Falta de controlo das vendas</h3>
       </div>
-      <div class="bg-ink p-8 lg:p-10">
-        <div class="font-display text-7xl text-ember/40 mb-6 number-display">02</div>
-        <h3 class="font-display text-3xl font-light mb-4">Automatize</h3>
-        <p class="text-cream/70 leading-relaxed">Chatbots qualificam leads antes de chegarem a si. Automações enviam follow-ups, criam tarefas, atribuem responsáveis. O sistema trabalha enquanto dorme.</p>
-      </div>
-      <div class="bg-ink p-8 lg:p-10">
-        <div class="font-display text-7xl text-ember/40 mb-6 number-display">03</div>
-        <h3 class="font-display text-3xl font-light mb-4">Feche</h3>
-        <p class="text-cream/70 leading-relaxed">Pipeline visual com drag and drop. Cada lead avança até ao fecho. Relatórios mostram o que funciona. Decisões com base em dados, não em palpites.</p>
+
+      <div class="bg-cream/5 border border-cream/10 rounded-2xl p-6">
+        <div class="w-11 h-11 bg-terra/20 rounded-xl flex items-center justify-center mb-5">
+          <svg class="w-5 h-5 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </div>
+        <h3 class="font-display text-lg font-medium leading-snug">Perda de tempo em tarefas manuais</h3>
       </div>
     </div>
   </div>
 </section>
 
 <!-- ============ FUNCIONALIDADES ============ -->
-<section id="funcionalidades" class="py-24 lg:py-32 relative grain">
+<section id="funcionalidades" class="py-24 lg:py-32 relative">
   <div class="max-w-7xl mx-auto px-6 lg:px-10">
-    <div class="grid lg:grid-cols-12 gap-12 mb-20">
-      <div class="lg:col-span-5">
+    <div class="grid lg:grid-cols-12 gap-8 mb-16">
+      <div class="lg:col-span-6">
         <p class="text-xs uppercase tracking-[0.2em] text-terra mb-6">Funcionalidades</p>
         <h2 class="font-display text-4xl sm:text-5xl lg:text-6xl font-light leading-[1.05]">
-          Tudo que precisa<br>
-          para <em class="italic text-terra">vender melhor.</em>
+          Tudo o que precisa para<br>
+          gerir <em class="italic text-terra">clientes e vendas.</em>
         </h2>
       </div>
       <div class="lg:col-span-6 lg:col-start-7 flex items-end">
         <p class="text-lg text-ink/70 leading-relaxed">
-          Cada funcionalidade foi pensada para o ritmo de quem vende todos os dias. Não há manuais grossos, não há configurações intermináveis. Liga, configura e começa.
+          Cada funcionalidade foi pensada para simplificar o dia a dia de quem vende. Sem manuais complicados nem configurações intermináveis: comece a usar em minutos.
         </p>
       </div>
     </div>
 
     <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <!-- Caixa de Entrada -->
       <div class="card-hover bg-white border border-ink/10 rounded-2xl p-7 lg:p-8">
         <div class="w-12 h-12 bg-terra/10 rounded-xl flex items-center justify-center mb-6">
-          <svg class="w-6 h-6 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+          <svg class="w-6 h-6 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
         </div>
-        <h3 class="font-display text-2xl font-medium mb-3">Caixa de Entrada Unificada</h3>
-        <p class="text-ink/70 text-sm leading-relaxed">WhatsApp, Instagram, Facebook e Email numa só interface. Snippets, notas internas, reencaminhamento, grupos. Tudo o que o seu vendedor precisa, sem trocar de janela.</p>
+        <h3 class="font-display text-2xl font-medium mb-3">Gestão de Clientes</h3>
+        <p class="text-ink/70 text-sm leading-relaxed">Guarde contactos, histórico de interações e informações importantes num só lugar.</p>
       </div>
 
-      <!-- Pipeline -->
       <div class="card-hover bg-white border border-ink/10 rounded-2xl p-7 lg:p-8">
         <div class="w-12 h-12 bg-moss/10 rounded-xl flex items-center justify-center mb-6">
-          <svg class="w-6 h-6 text-moss" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/></svg>
+          <svg class="w-6 h-6 text-moss" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
         </div>
-        <h3 class="font-display text-2xl font-medium mb-3">Pipeline Kanban</h3>
-        <p class="text-ink/70 text-sm leading-relaxed">Arraste leads entre etapas. Múltiplos funis. Campos personalizados. WON, LOST e tudo o que está pelo meio, sempre visível.</p>
+        <h3 class="font-display text-2xl font-medium mb-3">Pipeline de Vendas</h3>
+        <p class="text-ink/70 text-sm leading-relaxed">Acompanhe cada oportunidade desde o primeiro contacto até ao fecho.</p>
       </div>
 
-      <!-- Automações -->
       <div class="card-hover bg-white border border-ink/10 rounded-2xl p-7 lg:p-8">
         <div class="w-12 h-12 bg-terra/10 rounded-xl flex items-center justify-center mb-6">
-          <svg class="w-6 h-6 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <svg class="w-6 h-6 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
         </div>
-        <h3 class="font-display text-2xl font-medium mb-3">Automações</h3>
-        <p class="text-ink/70 text-sm leading-relaxed">Quando um lead entra numa etapa, o sistema envia mensagem, cria tarefa, atribui responsável. 10 gatilhos, 13 acções, infinitas combinações.</p>
+        <h3 class="font-display text-2xl font-medium mb-3">Tarefas e Lembretes</h3>
+        <p class="text-ink/70 text-sm leading-relaxed">Nunca mais esqueça um follow-up ou reunião importante.</p>
       </div>
 
-      <!-- Chatbots IA -->
-      <div class="card-hover bg-white border border-ink/10 rounded-2xl p-7 lg:p-8">
-        <div class="w-12 h-12 bg-moss/10 rounded-xl flex items-center justify-center mb-6">
-          <svg class="w-6 h-6 text-moss" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
-        </div>
-        <h3 class="font-display text-2xl font-medium mb-3">Chatbots com IA</h3>
-        <p class="text-ink/70 text-sm leading-relaxed">Fluxos visuais que qualificam leads antes de chegar a um humano. Com IA da Claude integrada, o bot percebe contexto e responde como gente.</p>
-      </div>
-
-      <!-- Broadcasts -->
-      <div class="card-hover bg-white border border-ink/10 rounded-2xl p-7 lg:p-8">
-        <div class="w-12 h-12 bg-terra/10 rounded-xl flex items-center justify-center mb-6">
-          <svg class="w-6 h-6 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
-        </div>
-        <h3 class="font-display text-2xl font-medium mb-3">Broadcasts</h3>
-        <p class="text-ink/70 text-sm leading-relaxed">Envie campanhas em massa filtradas por tag, etapa ou comportamento. Rate limiting incorporado para proteger o seu número.</p>
-      </div>
-
-      <!-- Analytics -->
       <div class="card-hover bg-white border border-ink/10 rounded-2xl p-7 lg:p-8">
         <div class="w-12 h-12 bg-moss/10 rounded-xl flex items-center justify-center mb-6">
           <svg class="w-6 h-6 text-moss" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         </div>
-        <h3 class="font-display text-2xl font-medium mb-3">Analytics e Relatórios</h3>
-        <p class="text-ink/70 text-sm leading-relaxed">KPIs por pipeline, por colaborador, por período. Taxa de conversão, tempo médio de fecho, performance individual. Tudo em gráficos claros.</p>
+        <h3 class="font-display text-2xl font-medium mb-3">Relatórios Inteligentes</h3>
+        <p class="text-ink/70 text-sm leading-relaxed">Visualize resultados e tome decisões baseadas em dados.</p>
       </div>
 
-      <!-- Tarefas -->
-      <div class="card-hover bg-white border border-ink/10 rounded-2xl p-7 lg:p-8">
-        <div class="w-12 h-12 bg-moss/10 rounded-xl flex items-center justify-center mb-6">
-          <svg class="w-6 h-6 text-moss" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
-        </div>
-        <h3 class="font-display text-2xl font-medium mb-3">Tarefas e Digest Diário</h3>
-        <p class="text-ink/70 text-sm leading-relaxed">Cada manhã, cada vendedor recebe no WhatsApp a lista do que tem para fazer. Sem desculpas, sem esquecimentos.</p>
-      </div>
-
-      <!-- CSAT e Metas -->
       <div class="card-hover bg-white border border-ink/10 rounded-2xl p-7 lg:p-8">
         <div class="w-12 h-12 bg-terra/10 rounded-xl flex items-center justify-center mb-6">
-          <svg class="w-6 h-6 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+          <svg class="w-6 h-6 text-terra" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
         </div>
-        <h3 class="font-display text-2xl font-medium mb-3">CSAT e Metas</h3>
-        <p class="text-ink/70 text-sm leading-relaxed">Sondagens automáticas de satisfação após cada fecho. Metas por colaborador com acompanhamento em tempo real.</p>
+        <h3 class="font-display text-2xl font-medium mb-3">Automação</h3>
+        <p class="text-ink/70 text-sm leading-relaxed">Reduza tarefas repetitivas e aumente a produtividade.</p>
       </div>
 
-      <!-- Multi-utilizador -->
       <div class="card-hover bg-white border border-ink/10 rounded-2xl p-7 lg:p-8">
         <div class="w-12 h-12 bg-moss/10 rounded-xl flex items-center justify-center mb-6">
-          <svg class="w-6 h-6 text-moss" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          <svg class="w-6 h-6 text-moss" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
         </div>
-        <h3 class="font-display text-2xl font-medium mb-3">Multi-utilizador Seguro</h3>
-        <p class="text-ink/70 text-sm leading-relaxed">4 perfis de acesso. Cada um vê só o que lhe compete. Audit log de tudo. 2FA disponível. Os seus dados, protegidos.</p>
+        <h3 class="font-display text-2xl font-medium mb-3">Acesso em Qualquer Lugar</h3>
+        <p class="text-ink/70 text-sm leading-relaxed">Utilize o Klaru no computador, tablet ou smartphone.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DEMO ============ -->
+<section id="demo" class="py-24 lg:py-32 bg-bone grain relative">
+  <div class="max-w-5xl mx-auto px-6 lg:px-10">
+    <div class="text-center mb-14">
+      <p class="text-xs uppercase tracking-[0.2em] text-terra mb-6">Demonstração</p>
+      <h2 class="font-display text-4xl sm:text-5xl lg:text-6xl font-light leading-[1.05] mb-6">
+        Veja o Klaru<br>
+        <em class="italic text-terra">em acção.</em>
+      </h2>
+      <p class="text-lg text-ink/70 max-w-xl mx-auto">
+        Em 3 minutos percebe como o Klaru capta, qualifica e organiza cada lead — do primeiro olá ao negócio fechado.
+      </p>
+    </div>
+
+    <div class="relative rounded-3xl overflow-hidden shadow-2xl shadow-ink/20 bg-ink group cursor-pointer" style="aspect-ratio:16/9;">
+      <div class="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none">
+        <svg viewBox="0 0 200 200" width="340" height="340">
+          <circle cx="100" cy="100" r="80" stroke="#FAF6EE" stroke-width="5" fill="none"/>
+          <circle cx="125" cy="120" r="18" fill="#FAF6EE"/>
+        </svg>
+      </div>
+      <div class="absolute top-0 right-0 w-64 h-80 bg-terra/15 arch hidden sm:block pointer-events-none"></div>
+      <div class="absolute bottom-0 left-0 w-48 h-60 bg-moss/10 arch hidden sm:block pointer-events-none"></div>
+
+      <div class="absolute inset-0 flex flex-col items-center justify-center gap-5 z-10">
+        <div class="w-20 h-20 bg-terra hover:bg-rust transition-all rounded-full flex items-center justify-center shadow-2xl shadow-terra/40 group-hover:scale-110">
+          <svg class="w-8 h-8 text-cream ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+        <div class="text-center">
+          <div class="text-cream font-medium text-lg">Ver demonstração</div>
+          <div class="text-cream/50 text-sm mt-1">3 min · sem registo necessário</div>
+        </div>
+      </div>
+
+      <div class="absolute bottom-5 right-5 bg-ink/60 backdrop-blur-sm text-cream/80 text-xs px-3 py-1.5 rounded-full font-mono z-10">3:24</div>
+      <div class="absolute top-5 left-5 bg-ember/20 backdrop-blur-sm text-ember text-xs px-3 py-1.5 rounded-full flex items-center gap-2 z-10">
+        <span class="w-1.5 h-1.5 bg-ember rounded-full pulse-dot"></span>
+        Vídeo em produção
+      </div>
+    </div>
+
+    <div class="grid sm:grid-cols-3 gap-4 mt-8">
+      <div class="flex items-start gap-3 p-4 rounded-xl bg-white border border-ink/10">
+        <div class="font-mono text-xs text-terra mt-0.5 shrink-0">0:00</div>
+        <div>
+          <div class="text-sm font-medium">Captar o primeiro lead</div>
+          <div class="text-xs text-ink/50 mt-1">WhatsApp, site e Instagram</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-3 p-4 rounded-xl bg-white border border-ink/10">
+        <div class="font-mono text-xs text-terra mt-0.5 shrink-0">1:12</div>
+        <div>
+          <div class="text-sm font-medium">Chatbot a qualificar</div>
+          <div class="text-xs text-ink/50 mt-1">IA a fazer as perguntas certas</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-3 p-4 rounded-xl bg-white border border-ink/10">
+        <div class="font-mono text-xs text-terra mt-0.5 shrink-0">2:30</div>
+        <div>
+          <div class="text-sm font-medium">O vendedor a fechar</div>
+          <div class="text-xs text-ink/50 mt-1">Pipeline e automações activas</div>
+        </div>
       </div>
     </div>
   </div>
@@ -522,18 +500,17 @@
     <div class="text-center mb-20">
       <p class="text-xs uppercase tracking-[0.2em] text-terra mb-6">Como funciona</p>
       <h2 class="font-display text-4xl sm:text-5xl lg:text-6xl font-light leading-[1.05] max-w-3xl mx-auto">
-        Do <em class="italic text-terra">primeiro contacto</em><br>
-        ao fecho. Sem fricção.
+        Do primeiro <em class="italic text-terra">"olá"</em><br>
+        ao negócio fechado.
       </h2>
     </div>
 
     <div class="space-y-16 lg:space-y-24">
-      <!-- Passo 1 -->
       <div class="grid lg:grid-cols-12 gap-8 lg:gap-12 items-center">
         <div class="lg:col-span-5">
           <div class="font-display text-8xl font-light text-terra/40 number-display mb-4">01</div>
           <h3 class="font-display text-3xl font-medium mb-4">O lead chega</h3>
-          <p class="text-ink/70 leading-relaxed">Alguém manda mensagem no WhatsApp, comenta no Instagram, preenche o formulário do site. O Sawa capta automaticamente e cria o lead no pipeline.</p>
+          <p class="text-ink/70 leading-relaxed">Uma mensagem no WhatsApp, um comentário no Instagram, um formulário no site. O Klaru capta tudo automaticamente e cria o lead no pipeline, sem ninguém copiar nada à mão.</p>
         </div>
         <div class="lg:col-span-7">
           <div class="bg-white rounded-2xl shadow-xl shadow-ink/5 p-6 border border-ink/5">
@@ -550,12 +527,11 @@
         </div>
       </div>
 
-      <!-- Passo 2 -->
       <div class="grid lg:grid-cols-12 gap-8 lg:gap-12 items-center">
         <div class="lg:col-span-5 lg:order-2">
           <div class="font-display text-8xl font-light text-terra/40 number-display mb-4">02</div>
           <h3 class="font-display text-3xl font-medium mb-4">O chatbot qualifica</h3>
-          <p class="text-ink/70 leading-relaxed">Antes de um vendedor entrar, o chatbot com IA pergunta o essencial: orçamento, prazo, contexto. Em 2 minutos sabe se o lead é quente, morno ou frio.</p>
+          <p class="text-ink/70 leading-relaxed">Antes de ocupar o tempo da equipa, o assistente com IA faz as perguntas certas: orçamento, prazo, necessidade. Em dois minutos sabe se o lead é quente, morno ou frio.</p>
         </div>
         <div class="lg:col-span-7 lg:order-1">
           <div class="bg-white rounded-2xl shadow-xl shadow-ink/5 p-6 border border-ink/5">
@@ -569,12 +545,11 @@
         </div>
       </div>
 
-      <!-- Passo 3 -->
       <div class="grid lg:grid-cols-12 gap-8 lg:gap-12 items-center">
         <div class="lg:col-span-5">
           <div class="font-display text-8xl font-light text-terra/40 number-display mb-4">03</div>
           <h3 class="font-display text-3xl font-medium mb-4">O vendedor fecha</h3>
-          <p class="text-ink/70 leading-relaxed">O vendedor recebe notificação no WhatsApp, abre a conversa já com o contexto completo, e fecha. O pipeline avança automaticamente.</p>
+          <p class="text-ink/70 leading-relaxed">O vendedor recebe o aviso no WhatsApp e abre a conversa já com todo o contexto. Responde, fecha, e o pipeline avança sozinho.</p>
         </div>
         <div class="lg:col-span-7">
           <div class="bg-white rounded-2xl shadow-xl shadow-ink/5 p-4 border border-ink/5">
@@ -617,20 +592,19 @@
     <div class="text-center mb-16">
       <p class="text-xs uppercase tracking-[0.2em] text-terra mb-6">Pacotes</p>
       <h2 class="font-display text-4xl sm:text-5xl lg:text-6xl font-light leading-[1.05] mb-6">
-        Escolha o seu <em class="italic text-terra">sim.</em>
+        Escolha o plano ideal<br>para o <em class="italic text-terra">seu negócio.</em>
       </h2>
-      <p class="text-lg text-ink/70 max-w-xl mx-auto">Comece com 7 dias grátis. Sem cartão. Mude de plano quando precisar.</p>
+      <p class="text-lg text-ink/70 max-w-xl mx-auto">Comece com 7 dias grátis, sem cartão. Mude de plano quando a sua equipa crescer.</p>
     </div>
 
     <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
-      <!-- Starter -->
       <div class="card-hover bg-white border border-ink/10 rounded-2xl p-6 flex flex-col">
         <div class="mb-6">
           <div class="text-xs uppercase tracking-wider text-ink/50 mb-2">Starter</div>
           <div class="font-display text-5xl font-light mb-1">29<span class="text-2xl text-ink/40">$</span></div>
           <div class="text-xs text-ink/50">por mês</div>
         </div>
-        <p class="text-sm text-ink/70 mb-6">Para freelancers e quem está a começar.</p>
+        <p class="text-sm text-ink/70 mb-6">Para freelancers e quem está a dar os primeiros passos.</p>
         <ul class="space-y-3 text-sm mb-8 flex-1">
           <li class="flex gap-2"><span class="text-moss">✓</span> 2 utilizadores</li>
           <li class="flex gap-2"><span class="text-moss">✓</span> 1 ligação WhatsApp</li>
@@ -640,10 +614,9 @@
           <li class="flex gap-2 text-ink/40"><span>—</span> Chatbot com IA</li>
           <li class="flex gap-2 text-ink/40"><span>—</span> Broadcasts</li>
         </ul>
-        <a href="https://sawa-frontend.yq6lij.easypanel.host/register" class="btn-secondary text-center py-3 rounded-full text-sm font-medium">Começar grátis</a>
+        <a href="https://sawa-frontend.yq6lij.easypanel.host/register" target="_blank" rel="noopener" class="btn-secondary text-center py-3 rounded-full text-sm font-medium">Começar grátis</a>
       </div>
 
-      <!-- Growth (destacado) -->
       <div class="card-hover bg-ink text-cream rounded-2xl p-6 flex flex-col relative shadow-2xl shadow-terra/20 -mt-4 lg:-mt-6">
         <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-terra text-cream text-xs font-medium px-3 py-1 rounded-full uppercase tracking-wider">Mais popular</div>
         <div class="mb-6 mt-2">
@@ -651,7 +624,7 @@
           <div class="font-display text-5xl font-light mb-1">99<span class="text-2xl text-cream/40">$</span></div>
           <div class="text-xs text-cream/60">por mês</div>
         </div>
-        <p class="text-sm text-cream/80 mb-6">Para equipas em crescimento.</p>
+        <p class="text-sm text-cream/80 mb-6">Para equipas que estão a crescer depressa.</p>
         <ul class="space-y-3 text-sm mb-8 flex-1">
           <li class="flex gap-2"><span class="text-ember">✓</span> 10 utilizadores</li>
           <li class="flex gap-2"><span class="text-ember">✓</span> 3 ligações WhatsApp</li>
@@ -662,17 +635,16 @@
           <li class="flex gap-2"><span class="text-ember">✓</span> Broadcasts e Analytics</li>
           <li class="flex gap-2"><span class="text-ember">✓</span> Instagram + Facebook</li>
         </ul>
-        <a href="https://sawa-frontend.yq6lij.easypanel.host/register" class="bg-terra hover:bg-rust transition-colors text-cream text-center py-3 rounded-full text-sm font-medium">Começar grátis</a>
+        <a href="https://sawa-frontend.yq6lij.easypanel.host/register" target="_blank" rel="noopener" class="bg-terra hover:bg-rust transition-colors text-cream text-center py-3 rounded-full text-sm font-medium">Começar grátis</a>
       </div>
 
-      <!-- Business -->
       <div class="card-hover bg-white border border-ink/10 rounded-2xl p-6 flex flex-col">
         <div class="mb-6">
           <div class="text-xs uppercase tracking-wider text-ink/50 mb-2">Business</div>
           <div class="font-display text-5xl font-light mb-1">249<span class="text-2xl text-ink/40">$</span></div>
           <div class="text-xs text-ink/50">por mês</div>
         </div>
-        <p class="text-sm text-ink/70 mb-6">Para empresas estabelecidas.</p>
+        <p class="text-sm text-ink/70 mb-6">Para empresas com vendas a sério.</p>
         <ul class="space-y-3 text-sm mb-8 flex-1">
           <li class="flex gap-2"><span class="text-moss">✓</span> Utilizadores ilimitados</li>
           <li class="flex gap-2"><span class="text-moss">✓</span> 10 ligações WhatsApp</li>
@@ -683,17 +655,16 @@
           <li class="flex gap-2"><span class="text-moss">✓</span> Email integrado</li>
           <li class="flex gap-2"><span class="text-moss">✓</span> Onboarding 1:1 + API</li>
         </ul>
-        <a href="https://sawa-frontend.yq6lij.easypanel.host/register" class="btn-secondary text-center py-3 rounded-full text-sm font-medium">Começar grátis</a>
+        <a href="https://sawa-frontend.yq6lij.easypanel.host/register" target="_blank" rel="noopener" class="btn-secondary text-center py-3 rounded-full text-sm font-medium">Começar grátis</a>
       </div>
 
-      <!-- Enterprise -->
       <div class="card-hover bg-bone border border-ink/10 rounded-2xl p-6 flex flex-col">
         <div class="mb-6">
           <div class="text-xs uppercase tracking-wider text-ink/50 mb-2">Enterprise</div>
           <div class="font-display text-3xl font-light mb-1">Sob consulta</div>
           <div class="text-xs text-ink/50">a partir de 600$/mês</div>
         </div>
-        <p class="text-sm text-ink/70 mb-6">Para grupos e grandes empresas.</p>
+        <p class="text-sm text-ink/70 mb-6">Para grupos e operações de grande escala.</p>
         <ul class="space-y-3 text-sm mb-8 flex-1">
           <li class="flex gap-2"><span class="text-moss">✓</span> Tudo ilimitado</li>
           <li class="flex gap-2"><span class="text-moss">✓</span> Servidor dedicado</li>
@@ -703,12 +674,12 @@
           <li class="flex gap-2"><span class="text-moss">✓</span> SLA 4 horas</li>
           <li class="flex gap-2"><span class="text-moss">✓</span> Gestor dedicado</li>
         </ul>
-        <a href="https://wa.me/258833937628?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20o%20Sawa" target="_blank" rel="noopener" class="btn-secondary text-center py-3 rounded-full text-sm font-medium">Falar com vendas</a>
+        <a href="https://wa.me/258833937628" target="_blank" rel="noopener" class="btn-secondary text-center py-3 rounded-full text-sm font-medium">Falar com vendas</a>
       </div>
     </div>
 
     <p class="text-center text-sm text-ink/60 mt-10">
-      Desconto de <span class="text-terra font-medium">20%</span> em pagamento anual · Preços em USD · Aceitamos M-Pesa, e-Mola, Pix, MB WAY, transferência bancária, Visa, Mastercard, PayPal, Apple Pay e Google Pay
+      Desconto de <span class="text-terra font-medium">20%</span> em pagamento anual · Preços em USD · Aceitamos M-Pesa, transferência bancária e cartão
     </p>
   </div>
 </section>
@@ -717,13 +688,12 @@
 <section class="py-24 lg:py-32 bg-bone relative grain">
   <div class="max-w-7xl mx-auto px-6 lg:px-10">
     <div class="max-w-2xl mb-16">
-      <p class="text-xs uppercase tracking-[0.2em] text-terra mb-6">Quem confia no Sawa</p>
+      <p class="text-xs uppercase tracking-[0.2em] text-terra mb-6">Quem confia no Klaru</p>
       <h2 class="font-display text-4xl sm:text-5xl lg:text-6xl font-light leading-[1.05]">
-        Histórias de <em class="italic text-terra">quem disse sim.</em>
+        O que os nossos clientes <em class="italic text-terra">dizem.</em>
       </h2>
     </div>
 
-    <!-- Aviso visual de exemplos -->
     <div class="mb-8 inline-flex items-center gap-2 px-3 py-1.5 bg-ember/20 rounded-full text-xs text-rust">
       <span class="w-1.5 h-1.5 bg-rust rounded-full"></span>
       Depoimentos de exemplo · serão substituídos por testemunhos reais
@@ -850,10 +820,10 @@
 
       <details class="bg-white border border-ink/10 rounded-2xl p-6 group">
         <summary class="flex items-center justify-between font-medium">
-          <span>O Sawa funciona com o meu número de WhatsApp actual?</span>
+          <span>O Klaru funciona com o meu número de WhatsApp actual?</span>
           <span class="faq-icon text-terra text-2xl font-light">+</span>
         </summary>
-        <p class="mt-4 text-ink/70 text-sm leading-relaxed">Sim. O Sawa liga-se ao seu número via Evolution API ou WhatsApp Cloud API (Meta oficial). Mantém o seu número, o seu histórico continua acessível, e ganha todas as funcionalidades do CRM por cima.</p>
+        <p class="mt-4 text-ink/70 text-sm leading-relaxed">Sim. O Klaru liga-se ao seu número via Evolution API ou WhatsApp Cloud API (Meta oficial). Mantém o seu número, o seu histórico continua acessível, e ganha todas as funcionalidades do CRM por cima.</p>
       </details>
 
       <details class="bg-white border border-ink/10 rounded-2xl p-6 group">
@@ -893,7 +863,7 @@
           <span>Aceitam M-Pesa ou outros métodos locais?</span>
           <span class="faq-icon text-terra text-2xl font-light">+</span>
         </summary>
-        <p class="mt-4 text-ink/70 text-sm leading-relaxed">Sim. Em Moçambique aceitamos M-Pesa e e-Mola; no Brasil, Pix; em Portugal, MB WAY e Multibanco. Em qualquer lugar: transferência bancária, cartão Visa e Mastercard, PayPal, Apple Pay e Google Pay. Para pagamentos anuais emitimos factura formal.</p>
+        <p class="mt-4 text-ink/70 text-sm leading-relaxed">Sim. Em Moçambique aceitamos M-Pesa e transferência bancária. Internacionalmente aceitamos cartão Visa, Mastercard e PayPal. Para pagamentos anuais emitimos factura formal.</p>
       </details>
 
       <details class="bg-white border border-ink/10 rounded-2xl p-6 group">
@@ -901,7 +871,7 @@
           <span>Há limite de mensagens enviadas por WhatsApp?</span>
           <span class="faq-icon text-terra text-2xl font-light">+</span>
         </summary>
-        <p class="mt-4 text-ink/70 text-sm leading-relaxed">Não há limite imposto pelo Sawa, mas o WhatsApp tem regras próprias para prevenir spam. O sistema tem rate limiting incorporado (1 segundo entre envios em broadcasts) para proteger o seu número de bloqueios.</p>
+        <p class="mt-4 text-ink/70 text-sm leading-relaxed">Não há limite imposto pelo Klaru, mas o WhatsApp tem regras próprias para prevenir spam. O sistema tem rate limiting incorporado (1 segundo entre envios em broadcasts) para proteger o seu número de bloqueios.</p>
       </details>
     </div>
   </div>
@@ -915,18 +885,18 @@
   <div class="max-w-4xl mx-auto px-6 lg:px-10 text-center relative">
     <p class="text-xs uppercase tracking-[0.2em] text-ember mb-6">Pronto para começar?</p>
     <h2 class="font-display text-5xl sm:text-6xl lg:text-8xl font-light leading-[0.95] mb-8">
-      Diga <em class="italic text-ember">sim</em><br>
-      ao Sawa.
+      Organize os seus clientes<br>
+      e <em class="italic text-ember">venda mais.</em>
     </h2>
     <p class="text-lg text-cream/70 max-w-xl mx-auto mb-10">
-      7 dias grátis. Sem cartão. Sem compromisso. Em 10 minutos, a sua primeira conversa já está no pipeline.
+      7 dias grátis, sem cartão e sem compromisso. Em 10 minutos, a sua primeira conversa já está organizada no pipeline.
     </p>
     <div class="flex flex-col sm:flex-row gap-3 justify-center">
-      <a href="https://sawa-frontend.yq6lij.easypanel.host/register" class="bg-terra hover:bg-rust transition-colors text-cream px-8 py-4 rounded-full font-medium inline-flex items-center justify-center gap-2 group">
+      <a href="https://sawa-frontend.yq6lij.easypanel.host/register" target="_blank" rel="noopener" class="bg-terra hover:bg-rust transition-colors text-cream px-8 py-4 rounded-full font-medium inline-flex items-center justify-center gap-2 group">
         Começar gratuitamente
         <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
       </a>
-      <a href="https://wa.me/258833937628?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20o%20Sawa" target="_blank" rel="noopener" class="border border-cream/30 hover:border-cream hover:bg-cream/5 transition-colors text-cream px-8 py-4 rounded-full font-medium inline-flex items-center justify-center">
+      <a href="https://wa.me/258833937628" target="_blank" rel="noopener" class="border border-cream/30 hover:border-cream hover:bg-cream/5 transition-colors text-cream px-8 py-4 rounded-full font-medium inline-flex items-center justify-center">
         Falar com vendas
       </a>
     </div>
@@ -938,14 +908,15 @@
   <div class="max-w-7xl mx-auto px-6 lg:px-10">
     <div class="grid md:grid-cols-12 gap-10 mb-12">
       <div class="md:col-span-5">
-        <div class="flex items-center gap-2 mb-4">
-          <div class="w-7 h-7 bg-ink rounded-full flex items-center justify-center">
-            <div class="w-2 h-2 bg-terra rounded-full"></div>
-          </div>
-          <span class="font-display text-2xl font-medium tracking-tight">Sawa</span>
+        <div class="flex items-center gap-2.5 mb-4">
+          <svg width="30" height="30" viewBox="0 0 80 80" class="text-ink">
+            <circle cx="40" cy="40" r="32" stroke="currentColor" stroke-width="4.5" fill="none"/>
+            <circle cx="50" cy="48" r="7" fill="currentColor"/>
+          </svg>
+          <span class="font-display text-2xl font-medium tracking-tight">Klaru</span>
         </div>
-        <p class="font-display text-2xl font-light leading-snug mb-4 max-w-sm">Onde nasce o <em class="italic text-terra">sim.</em></p>
-        <p class="text-sm text-ink/60 max-w-sm">O CRM com WhatsApp no centro. Nascido em Maputo, pensado para o mundo lusófono.</p>
+        <p class="font-display text-2xl font-light leading-snug mb-4 max-w-sm">Clareza para gerir, confiança para <em class="italic text-terra">crescer.</em></p>
+        <p class="text-sm text-ink/60 max-w-sm">O CRM com WhatsApp no centro, para gerir clientes e vender mais.</p>
       </div>
 
       <div class="md:col-span-2">
@@ -953,8 +924,8 @@
         <ul class="space-y-2 text-sm">
           <li><a href="#funcionalidades" class="text-ink/80 hover:text-terra">Funcionalidades</a></li>
           <li><a href="#pacotes" class="text-ink/80 hover:text-terra">Pacotes</a></li>
-          <li><a href="#funcionalidades" class="text-ink/80 hover:text-terra">Integrações</a></li>
-          <li><a href="#funcionalidades" class="text-ink/80 hover:text-terra">API</a></li>
+          <li><a href="#" class="text-ink/80 hover:text-terra">Integrações</a></li>
+          <li><a href="#" class="text-ink/80 hover:text-terra">API</a></li>
         </ul>
       </div>
 
@@ -963,7 +934,7 @@
         <ul class="space-y-2 text-sm">
           <li><a href="#" class="text-ink/80 hover:text-terra">Sobre</a></li>
           <li><a href="#" class="text-ink/80 hover:text-terra">Blog</a></li>
-          <li><a href="https://wa.me/258833937628" target="_blank" rel="noopener" class="text-ink/80 hover:text-terra">Contacto</a></li>
+          <li><a href="#" class="text-ink/80 hover:text-terra">Contacto</a></li>
           <li><a href="#" class="text-ink/80 hover:text-terra">Parceiros</a></li>
         </ul>
       </div>
@@ -973,14 +944,14 @@
         <ul class="space-y-2 text-sm">
           <li><a href="terms.html" class="text-ink/80 hover:text-terra">Termos de uso</a></li>
           <li><a href="privacy.html" class="text-ink/80 hover:text-terra">Política de privacidade</a></li>
-          <li><a href="#faq" class="text-ink/80 hover:text-terra">Centro de ajuda</a></li>
-          <li><a href="mailto:qdcreat@gmail.com" class="text-ink/80 hover:text-terra">qdcreat@gmail.com</a></li>
+          <li><a href="#" class="text-ink/80 hover:text-terra">Centro de ajuda</a></li>
+          <li><a href="mailto:ola@getklaru.com" class="text-ink/80 hover:text-terra">ola@getklaru.com</a></li>
         </ul>
       </div>
     </div>
 
     <div class="pt-8 border-t border-ink/10 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-ink/50">
-      <div>© 2026 Sawa. Todos os direitos reservados. Feito com cuidado em Maputo.</div>
+      <div>© 2026 Klaru. Todos os direitos reservados.</div>
       <div class="flex items-center gap-5">
         <a href="#" class="hover:text-terra">LinkedIn</a>
         <a href="#" class="hover:text-terra">Instagram</a>

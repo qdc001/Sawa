@@ -134,7 +134,7 @@ export default function BillingPage() {
       </div>
 
       <p className="text-xs mt-4" style={{ color: 'var(--text-muted)' }}>
-        A cobrança automática (M-Pesa, cartão) e a aplicação rígida dos limites chegam num próximo passo. Por agora os planos são geridos pela equipa Sawa.
+        A cobrança automática (M-Pesa, cartão) e a aplicação rígida dos limites chegam num próximo passo. Por agora os planos são geridos pela equipa Klaru.
       </p>
     </div>
   );

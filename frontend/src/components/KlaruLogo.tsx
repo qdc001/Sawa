@@ -1,13 +1,13 @@
-interface SawaMarkProps {
+interface KlaruMarkProps {
   size?: number;
   ringColor?: string;
   dotColor?: string;
   className?: string;
 }
 
-// Símbolo oficial Sawa: círculo a contorno (a conversa) + ponto descentrado (o sim).
+// Símbolo oficial Klaru: círculo a contorno (a conversa) + ponto descentrado (o sim).
 // Geometria do brand sheet (viewBox 100x100): círculo r=42, ponto cx=63 cy=61 r=9.
-export function SawaMark({ size = 28, ringColor = 'currentColor', dotColor = '#C8553D', className }: SawaMarkProps) {
+export function KlaruMark({ size = 28, ringColor = 'currentColor', dotColor = '#C8553D', className }: KlaruMarkProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" fill="none" className={className} aria-hidden="true">
       <circle cx="50" cy="50" r="42" fill="none" stroke={ringColor} strokeWidth="6" />
@@ -16,7 +16,7 @@ export function SawaMark({ size = 28, ringColor = 'currentColor', dotColor = '#C
   );
 }
 
-interface SawaLogoProps {
+interface KlaruLogoProps {
   size?: number;
   ringColor?: string;
   dotColor?: string;
@@ -24,17 +24,17 @@ interface SawaLogoProps {
   showWord?: boolean;
 }
 
-// Logótipo horizontal: símbolo + wordmark "Sawa" em Fraunces.
-export default function SawaLogo({
+// Logótipo horizontal: símbolo + wordmark "Klaru" em Fraunces.
+export default function KlaruLogo({
   size = 28,
   ringColor = 'currentColor',
   dotColor = '#C8553D',
   wordColor = 'currentColor',
   showWord = true,
-}: SawaLogoProps) {
+}: KlaruLogoProps) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-      <SawaMark size={size} ringColor={ringColor} dotColor={dotColor} />
+      <KlaruMark size={size} ringColor={ringColor} dotColor={dotColor} />
       {showWord && (
         <span
           style={{
@@ -46,7 +46,7 @@ export default function SawaLogo({
             lineHeight: 1,
           }}
         >
-          Sawa
+          Klaru
         </span>
       )}
     </span>

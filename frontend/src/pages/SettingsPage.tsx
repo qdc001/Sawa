@@ -809,7 +809,7 @@ export default function SettingsPage() {
               onChange={(e) => setWsAiBrandVoice(e.target.value)}
               rows={4}
               className="input-base w-full"
-              placeholder="Descreve o tom e a personalidade que a IA deve usar ao redigir mensagens. Ex: tom caloroso mas profissional, tratamento por 'você', frases curtas e directas, sem gíria nem travessões. Assina como Equipa Sawa."
+              placeholder="Descreve o tom e a personalidade que a IA deve usar ao redigir mensagens. Ex: tom caloroso mas profissional, tratamento por 'você', frases curtas e directas, sem gíria nem travessões. Assina como Equipa Klaru."
             />
             <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
               Usada pelo Copilot e pelas sugestões de resposta para escrever no tom da tua marca.

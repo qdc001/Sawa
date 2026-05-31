@@ -77,7 +77,7 @@ export default function DesktopNotifications() {
         setEnabled(true);
         toast.success('Notificações activadas');
         // notificação de teste
-        new Notification('Sawa', { body: 'Notificações activadas. Vais receber alertas de mensagens novas.' });
+        new Notification('Klaru', { body: 'Notificações activadas. Vais receber alertas de mensagens novas.' });
       } else {
         toast.error('Permissão negada. Activa nas definições do browser.');
       }

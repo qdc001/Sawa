@@ -1,4 +1,4 @@
-# Landing page do Sawa (HTML estatico + Tailwind via CDN), servida por nginx.
+# Landing page do Klaru (HTML estatico + Tailwind via CDN), servida por nginx.
 FROM nginx:alpine
 COPY *.html /usr/share/nginx/html/
 EXPOSE 80

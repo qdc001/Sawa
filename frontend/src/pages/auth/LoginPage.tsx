@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store';
-import { SawaMark } from '../../components/SawaLogo';
+import { KlaruMark } from '../../components/KlaruLogo';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 
@@ -44,14 +44,14 @@ export default function LoginPage() {
       <div className="hidden lg:flex flex-col justify-between w-1/2 p-12" style={{ background: 'var(--sidebar-bg)' }}>
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(250,246,238,0.08)' }}>
-            <SawaMark size={26} ringColor="#FAF6EE" dotColor="#C8553D" />
+            <KlaruMark size={26} ringColor="#FAF6EE" dotColor="#C8553D" />
           </div>
-          <span className="text-white text-2xl" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, letterSpacing: '-0.02em' }}>Sawa</span>
+          <span className="text-white text-2xl" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, letterSpacing: '-0.02em' }}>Klaru</span>
         </div>
 
         <div>
           <h2 className="text-4xl text-white mb-4" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, lineHeight: 1.15 }}>
-            Onde nasce<br />o sim.
+            Onde tudo<br />fica claro.
           </h2>
           <p className="text-gray-400 text-lg mb-8">CRM completo com pipeline de vendas, caixa de entrada unificada e automações inteligentes.</p>
 
@@ -70,15 +70,15 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-gray-600 text-sm">© 2026 Sawa. Todos os direitos reservados.</p>
+        <p className="text-gray-600 text-sm">© 2026 Klaru. Todos os direitos reservados.</p>
       </div>
 
       {/* Right - Form */}
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-2 mb-8">
-            <SawaMark size={28} ringColor="#1A2E25" dotColor="#C8553D" />
-            <span className="text-lg" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Sawa</span>
+            <KlaruMark size={28} ringColor="#1A2E25" dotColor="#C8553D" />
+            <span className="text-lg" style={{ fontFamily: 'Fraunces, serif', fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Klaru</span>
           </div>
 
           <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'Manrope, sans-serif', color: 'var(--text-primary)' }}>Iniciar sessão</h1>

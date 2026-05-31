@@ -7,7 +7,7 @@ import {
   ScrollText
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
-import { SawaMark } from '../SawaLogo';
+import { KlaruMark } from '../KlaruLogo';
 import CopilotPanel from '../ai/CopilotPanel';
 import DesktopNotifications from '../DesktopNotifications';
 import toast from 'react-hot-toast';
@@ -201,13 +201,13 @@ export default function AppLayout() {
           {sidebarOpen ? (
             <>
               <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'rgba(250,246,238,0.06)' }}>
-                <SawaMark size={24} ringColor="#FAF6EE" dotColor="#C8553D" />
+                <KlaruMark size={24} ringColor="#FAF6EE" dotColor="#C8553D" />
               </div>
               <div className="overflow-hidden flex-1 min-w-0">
                 <p className="font-semibold text-sm text-white truncate" style={{ fontFamily: 'Fraunces, serif', fontSize: 17 }}>
-                  {workspace?.name || 'Sawa'}
+                  {workspace?.name || 'Klaru'}
                 </p>
-                <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>Onde nasce o sim.</p>
+                <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>Onde tudo fica claro.</p>
               </div>
               <button
                 onClick={() => setSidebarOpen(false)}

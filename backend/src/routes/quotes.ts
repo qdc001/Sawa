@@ -248,7 +248,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/quotes/:id/pdf  — gera o PDF com a marca Sawa
+// GET /api/quotes/:id/pdf  — gera o PDF com a marca Klaru
 router.get('/:id/pdf', async (req: AuthRequest, res: Response, next) => {
   try {
     const quote = await prisma.quote.findFirst({
@@ -277,16 +277,16 @@ router.get('/:id/pdf', async (req: AuthRequest, res: Response, next) => {
     const right = 545;
     const contentW = right - left;
 
-    // Cabecalho: simbolo Sawa (circulo + ponto) e wordmark
+    // Cabecalho: simbolo Klaru (circulo + ponto) e wordmark
     doc.lineWidth(2).strokeColor(TERRA).circle(left + 9, 66, 9).stroke();
     doc.fillColor(TERRA).circle(left + 15, 71, 3.2).fill();
-    doc.fillColor(INK).font('Helvetica-Bold').fontSize(22).text('Sawa', left + 26, 56);
+    doc.fillColor(INK).font('Helvetica-Bold').fontSize(22).text('Klaru', left + 26, 56);
 
     // Emissor e título do documento (direita)
     doc.font('Helvetica-Bold').fontSize(16).fillColor(INK).text('PROPOSTA', left, 54, { width: contentW, align: 'right' });
     doc.font('Helvetica').fontSize(10).fillColor(MUTED)
       .text(quote.number, left, 76, { width: contentW, align: 'right' });
-    doc.text(workspace?.name || 'Sawa', left, 90, { width: contentW, align: 'right' });
+    doc.text(workspace?.name || 'Klaru', left, 90, { width: contentW, align: 'right' });
 
     // Linha separadora
     doc.moveTo(left, 116).lineTo(right, 116).lineWidth(1).strokeColor(LIGHT).stroke();
@@ -376,7 +376,7 @@ router.get('/:id/pdf', async (req: AuthRequest, res: Response, next) => {
     // Rodape
     const footerY = 800;
     doc.font('Helvetica').fontSize(8).fillColor(MUTED)
-      .text(`${workspace?.name || 'Sawa'}  ·  Proposta ${quote.number}  ·  Gerada pelo Sawa CRM`, left, footerY, { width: contentW, align: 'center' });
+      .text(`${workspace?.name || 'Klaru'}  ·  Proposta ${quote.number}  ·  Gerada pelo Klaru CRM`, left, footerY, { width: contentW, align: 'center' });
 
     doc.end();
   } catch (e) { next(e); }

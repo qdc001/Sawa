@@ -56,7 +56,7 @@ export default function SectorTemplatesPage() {
       <div className="mb-5">
         <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)', fontFamily: 'Fraunces, serif' }}>Modelos de sector</h1>
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          Escolhe o teu sector e o Sawa configura num clique o pipeline, os campos e as etiquetas certas para começares já.
+          Escolhe o teu sector e o Klaru configura num clique o pipeline, os campos e as etiquetas certas para começares já.
         </p>
       </div>
 

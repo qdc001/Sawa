@@ -1,4 +1,4 @@
-// Catálogo de planos do Sawa. Limite -1 = ilimitado.
+// Catálogo de planos do Klaru. Limite -1 = ilimitado.
 export const UNLIMITED = -1;
 
 export interface PlanLimits {
