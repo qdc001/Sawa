@@ -29,7 +29,7 @@ export default function AnalyticsPage() {
     setLoading(true);
     Promise.all([
       api.get(`/analytics/dashboard?period=${period}`),
-      api.get(`/analytics/revenue?months=12`),
+      api.get(`/analytics/revenue?period=${period}`),
       api.get(`/analytics/team-performance?period=${period}`),
       api.get(`/analytics/lead-sources?period=${period}`),
       api.get(`/analytics/conversion-stats?period=${period}`),
@@ -102,7 +102,7 @@ export default function AnalyticsPage() {
         <div className="space-y-4">
           {/* Receita 12 meses */}
           <div className="card p-5">
-            <h3 className="font-semibold mb-4 flex items-center gap-2"><TrendingUp size={16} /> Receita dos últimos 12 meses</h3>
+            <h3 className="font-semibold mb-4 flex items-center gap-2"><TrendingUp size={16} /> {period === 'today' ? 'Receita de hoje' : period === '7d' ? 'Receita dos últimos 7 dias' : period === '30d' ? 'Receita dos últimos 30 dias' : period === '3m' ? 'Receita dos últimos 3 meses' : period === '6m' ? 'Receita dos últimos 6 meses' : 'Receita dos últimos 12 meses'}</h3>
             {chartData.length === 0 ? (
               <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem dados</p>
             ) : (

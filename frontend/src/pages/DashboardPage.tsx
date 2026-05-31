@@ -717,7 +717,7 @@ export default function DashboardPage() {
         <div style={{ order: order.indexOf('revenueChart') }} className="card p-5">
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
             <TrendingUp size={16} style={{ color: 'var(--primary)' }} />
-            Receita dos últimos 6 meses
+            {period === 'today' ? 'Receita de hoje' : period === '7d' ? 'Receita dos últimos 7 dias' : period === '30d' ? 'Receita dos últimos 30 dias' : period === '3m' ? 'Receita dos últimos 3 meses' : period === '6m' ? 'Receita dos últimos 6 meses' : period === '1y' ? 'Receita dos últimos 12 meses' : 'Receita no intervalo'}
           </h3>
           {revenue.length === 0 ? (
             <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem dados</p>

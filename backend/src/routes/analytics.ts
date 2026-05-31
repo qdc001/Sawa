@@ -141,32 +141,86 @@ router.get('/dashboard', async (req: AuthRequest, res: Response, next) => {
 });
 
 // GET /api/analytics/revenue
+// Responde ao filtro de periodo: dias para periodos curtos (today/7d/30d) e meses
+// para os longos (3m/6m/1y); aceita tambem from/to (intervalo personalizado) e o
+// legado `months`. Faz 1 query e agrupa por bucket no codigo (eficiente).
 router.get('/revenue', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
     const filters = getFilters(req);
-    const months = parseInt((req.query.months as string) || '6', 10);
-    const data = [];
+    const now = new Date();
+    const period = (req.query.period as string) || '';
 
-    for (let i = months - 1; i >= 0; i--) {
-      const date = new Date();
-      const start = new Date(date.getFullYear(), date.getMonth() - i, 1);
-      // Primeiro dia do mes seguinte; usamos `lt` para apanhar o mes inteiro,
-      // incluindo negocios fechados no ultimo dia. O antigo `new Date(y, m, 0)`
-      // era a meia-noite do ultimo dia e deixava de fora o que fechasse nesse dia.
-      const end = new Date(date.getFullYear(), date.getMonth() - i + 1, 1);
+    type Bucket = { label: string; start: Date; end: Date };
+    const buckets: Bucket[] = [];
+    const dayLabel = (d: Date) => d.toLocaleDateString('pt-PT', { day: '2-digit', month: 'short' });
+    const monthLabel = (d: Date) => d.toLocaleString('pt-PT', { month: 'short' });
+    const pushDays = (from: Date, n: number) => {
+      for (let i = 0; i < n; i++) {
+        const start = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i);
+        const end = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i + 1);
+        buckets.push({ label: dayLabel(start), start, end });
+      }
+    };
+    const pushMonths = (n: number) => {
+      for (let i = n - 1; i >= 0; i--) {
+        const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+        buckets.push({ label: monthLabel(start), start, end });
+      }
+    };
 
-      const where: any = { workspaceId, status: 'WON', closedAt: { gte: start, lt: end } };
-      if (filters.pipelineId) where.pipelineId = filters.pipelineId;
-      if (filters.assignedToId) where.assignedToId = filters.assignedToId;
-
-      const result = await prisma.lead.aggregate({ where, _sum: { value: true }, _count: true });
-      data.push({
-        month: start.toLocaleString('pt', { month: 'short' }),
-        revenue: result._sum.value || 0,
-        deals: result._count,
-      });
+    if (req.query.from && req.query.to) {
+      const f = new Date(req.query.from as string);
+      const t = new Date(req.query.to as string);
+      const from = new Date(f.getFullYear(), f.getMonth(), f.getDate());
+      const to = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+      const diffDays = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
+      if (diffDays <= 62) {
+        pushDays(from, diffDays);
+      } else {
+        let cur = new Date(from.getFullYear(), from.getMonth(), 1);
+        const last = new Date(to.getFullYear(), to.getMonth(), 1);
+        while (cur <= last) {
+          const end = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+          buckets.push({ label: monthLabel(cur), start: new Date(cur), end });
+          cur = end;
+        }
+      }
+    } else if (period === 'today') {
+      pushDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), 1);
+    } else if (period === '7d') {
+      pushDays(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6), 7);
+    } else if (period === '30d') {
+      pushDays(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29), 30);
+    } else if (period === '3m') {
+      pushMonths(3);
+    } else if (period === '6m') {
+      pushMonths(6);
+    } else if (period === '1y') {
+      pushMonths(12);
+    } else {
+      pushMonths(parseInt((req.query.months as string) || '6', 10));
     }
+
+    if (buckets.length === 0) { res.json([]); return; }
+
+    const where: any = {
+      workspaceId, status: 'WON',
+      closedAt: { gte: buckets[0].start, lt: buckets[buckets.length - 1].end },
+    };
+    if (filters.pipelineId) where.pipelineId = filters.pipelineId;
+    if (filters.assignedToId) where.assignedToId = filters.assignedToId;
+    const won = await prisma.lead.findMany({ where, select: { value: true, closedAt: true } });
+
+    const data = buckets.map((b) => {
+      const inBucket = won.filter((l) => l.closedAt && l.closedAt >= b.start && l.closedAt < b.end);
+      return {
+        month: b.label,
+        revenue: inBucket.reduce((s, l) => s + (l.value || 0), 0),
+        deals: inBucket.length,
+      };
+    });
     res.json(data);
   } catch (error) { next(error); }
 });
