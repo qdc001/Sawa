@@ -332,8 +332,12 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
     if (!confirm('Desligar a sessão WhatsApp?')) return;
     setDisconnecting(true);
     try {
-      await api.post('/integrations/evolution/disconnect');
-      toast.success('Desligado');
+      const { data } = await api.post('/integrations/evolution/disconnect');
+      if (data?.state === 'open') {
+        toast.error('A Evolution ainda reporta a sessao ligada. Provavelmente e a versao do servidor: actualiza a imagem da Evolution para v2.3.7 ou superior.', { duration: 8000 });
+      } else {
+        toast.success('Desligado');
+      }
       onChanged();
       onClose();
     } catch (e: any) {

@@ -996,11 +996,31 @@ router.post('/evolution/disconnect', async (req: AuthRequest, res: Response, nex
     if (!integration) return res.json({ message: 'Não havia ligação' });
     const creds: any = getCreds(integration);
     if (creds.instanceName) {
-      try { await evolutionFetch(creds, `/instance/logout/${creds.instanceName}`, { method: 'DELETE' }); }
-      catch (e: any) { console.error('Evolution logout error:', e?.message); }
+      // Evolution v2: logout via DELETE; algumas builds aceitam apenas POST, por isso tentamos os dois.
+      try {
+        await evolutionFetch(creds, `/instance/logout/${creds.instanceName}`, { method: 'DELETE' });
+      } catch (e: any) {
+        console.error('Evolution logout (DELETE) falhou:', e?.message);
+        try { await evolutionFetch(creds, `/instance/logout/${creds.instanceName}`, { method: 'POST' }); }
+        catch (e2: any) { console.error('Evolution logout (POST) falhou:', e2?.message); }
+      }
     }
     await prisma.integration.update({ where: { id: integration.id }, data: { isActive: false } });
-    res.json({ message: 'Desligado' });
+
+    // Confirmar o estado real. Em Evolution < v2.3.7 ha um bug de reconexao automatica
+    // que pode repor a sessao em 'open' logo apos o logout; reportamos isso ao cliente
+    // em vez de dizer "Desligado" sem ser verdade.
+    let state = 'unknown';
+    if (creds.instanceName) {
+      try {
+        const data = await evolutionFetch(creds, `/instance/connectionState/${creds.instanceName}`);
+        state = data?.instance?.state || data?.state || 'unknown';
+      } catch { /* a instancia pode ja nao responder, o que e bom sinal */ }
+    }
+    res.json({
+      message: state === 'open' ? 'O pedido foi enviado, mas a Evolution ainda reporta a sessao ligada.' : 'Desligado',
+      state,
+    });
   } catch (e) { next(e); }
 });
 
