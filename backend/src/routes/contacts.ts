@@ -342,7 +342,7 @@ router.post('/bulk-delete', async (req: AuthRequest, res: Response, next) => {
 router.post('/:id/tags', async (req: AuthRequest, res: Response, next) => {
   try {
     const { tagId } = req.body;
-    if (!tagId) throw new AppError('tagId obrigatorio', 400);
+    if (!tagId) throw new AppError('tagId obrigatório', 400);
     await prisma.tagOnContact.create({ data: { contactId: req.params.id, tagId } }).catch(() => {});
     const contact = await prisma.contact.findUnique({
       where: { id: req.params.id },
@@ -366,14 +366,14 @@ router.delete('/:id/tags/:tagId', async (req: AuthRequest, res: Response, next) 
 router.post('/bulk-tag', async (req: AuthRequest, res: Response, next) => {
   try {
     const { ids, tagId } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0 || !tagId) throw new AppError('ids e tagId obrigatorios', 400);
+    if (!Array.isArray(ids) || ids.length === 0 || !tagId) throw new AppError('ids e tagId obrigatórios', 400);
     let added = 0;
     for (const id of ids) {
       try {
         await prisma.tagOnContact.create({ data: { contactId: id, tagId } });
         added++;
       } catch {
-        // ja existe ou contacto nao existe
+        // já existe ou contacto não existe
       }
     }
     res.json({ added });

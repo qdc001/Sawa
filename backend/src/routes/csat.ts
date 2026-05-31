@@ -30,7 +30,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { contactId, leadId, question } = req.body;
-    if (!contactId && !leadId) throw new AppError('contactId ou leadId obrigatorio', 400);
+    if (!contactId && !leadId) throw new AppError('contactId ou leadId obrigatório', 400);
     const csat = await prisma.csatRequest.create({
       data: {
         workspaceId: req.user!.workspaceId,
@@ -44,7 +44,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/csat/stats - estatisticas
+// GET /api/csat/stats - estatísticas
 router.get('/stats', async (req: AuthRequest, res: Response, next) => {
   try {
     const items = await prisma.csatRequest.findMany({
@@ -64,7 +64,7 @@ router.get('/stats', async (req: AuthRequest, res: Response, next) => {
 export default router;
 
 // =============== Rotas publicas (sem auth) ===============
-// Estas rotas sao montadas separadamente em /api/csat-public no server.ts
+// Estas rotas são montadas separadamente em /api/csat-public no server.ts
 export const publicRouter = Router();
 
 publicRouter.get('/:token', async (req: Request, res: Response, next) => {
@@ -73,7 +73,7 @@ publicRouter.get('/:token', async (req: Request, res: Response, next) => {
       where: { token: req.params.token },
       select: { id: true, question: true, score: true, respondedAt: true },
     });
-    if (!csat) return res.status(404).json({ message: 'Pedido nao encontrado' });
+    if (!csat) return res.status(404).json({ message: 'Pedido não encontrado' });
     res.json(csat);
   } catch (e) { next(e); }
 });
@@ -85,13 +85,13 @@ publicRouter.post('/:token/respond', async (req: Request, res: Response, next) =
       return res.status(400).json({ message: 'Score deve ser 1-5' });
     }
     const existing = await prisma.csatRequest.findUnique({ where: { token: req.params.token } });
-    if (!existing) return res.status(404).json({ message: 'Pedido nao encontrado' });
-    if (existing.respondedAt) return res.status(400).json({ message: 'Ja respondido' });
+    if (!existing) return res.status(404).json({ message: 'Pedido não encontrado' });
+    if (existing.respondedAt) return res.status(400).json({ message: 'Já respondido' });
 
     const updated = await prisma.csatRequest.update({
       where: { token: req.params.token },
       data: { score: Number(score), comment: comment || null, respondedAt: new Date() },
     });
-    res.json({ message: 'Obrigado pela tua avaliacao!', score: updated.score });
+    res.json({ message: 'Obrigado pela tua avaliação!', score: updated.score });
   } catch (e) { next(e); }
 });

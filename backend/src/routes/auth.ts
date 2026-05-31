@@ -146,7 +146,7 @@ router.post('/login', async (req: Request, res: Response, next) => {
         return res.status(206).json({ needs2FA: true, email });
       }
       if (!verifyTotp(user.twoFactorSecret, code)) {
-        throw new AppError('Codigo 2FA invalido', 401);
+        throw new AppError('Código 2FA invalido', 401);
       }
     }
 
@@ -173,14 +173,14 @@ router.post('/login', async (req: Request, res: Response, next) => {
   }
 });
 
-// POST /api/auth/forgot-password (publico)
+// POST /api/auth/forgot-password (público)
 router.post('/forgot-password', async (req: Request, res: Response, next) => {
   try {
     const { email } = req.body;
-    if (!email) throw new AppError('Email obrigatorio', 400);
+    if (!email) throw new AppError('Email obrigatório', 400);
     const user = await prisma.user.findUnique({ where: { email } });
-    // Resposta sempre 200 para nao revelar se email existe
-    if (!user) return res.json({ message: 'Se o email existir, sera enviado um link.' });
+    // Resposta sempre 200 para não revelar se email existe
+    if (!user) return res.json({ message: 'Se o email existir, será enviado um link.' });
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(); expiresAt.setHours(expiresAt.getHours() + 1);
@@ -195,17 +195,17 @@ router.post('/forgot-password', async (req: Request, res: Response, next) => {
     });
 
     res.json({
-      message: 'Se o email existir, sera enviado um link.',
+      message: 'Se o email existir, será enviado um link.',
       _debug: result.sent ? undefined : { reason: result.reason, link },
     });
   } catch (e) { next(e); }
 });
 
-// POST /api/auth/reset-password (publico)
+// POST /api/auth/reset-password (público)
 router.post('/reset-password', async (req: Request, res: Response, next) => {
   try {
     const { token, newPassword } = req.body;
-    if (!token || !newPassword) throw new AppError('Token e password obrigatorios', 400);
+    if (!token || !newPassword) throw new AppError('Token e password obrigatórios', 400);
     if (newPassword.length < 6) throw new AppError('Password tem de ter pelo menos 6 caracteres', 400);
 
     const reset = await prisma.passwordResetToken.findUnique({ where: { token } });
@@ -219,7 +219,7 @@ router.post('/reset-password', async (req: Request, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/auth/invite/:token (publico) - info do convite
+// GET /api/auth/invite/:token (público) - info do convite
 router.get('/invite/:token', async (req: Request, res: Response, next) => {
   try {
     const invite = await prisma.inviteToken.findUnique({
@@ -232,7 +232,7 @@ router.get('/invite/:token', async (req: Request, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/auth/invite/:token/accept (publico) - definir password
+// POST /api/auth/invite/:token/accept (público) - definir password
 router.post('/invite/:token/accept', async (req: Request, res: Response, next) => {
   try {
     const { password } = req.body;

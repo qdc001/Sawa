@@ -39,7 +39,7 @@ export default function ForgotPasswordPage() {
             </div>
             {debugLink && (
               <div className="p-3 rounded mt-3" style={{ background: '#FEF3C7', color: '#92400E' }}>
-                <p className="text-xs font-medium mb-1">SMTP nao configurado - usa este link:</p>
+                <p className="text-xs font-medium mb-1">SMTP não configurado - usa este link:</p>
                 <a href={debugLink} className="text-xs break-all underline">{debugLink}</a>
               </div>
             )}

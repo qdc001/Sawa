@@ -24,7 +24,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { name, content, category, channel, variables } = req.body;
     if (!name || !content || !category || !channel) {
-      throw new AppError('Nome, conteudo, categoria e canal obrigatorios', 400);
+      throw new AppError('Nome, conteudo, categoria e canal obrigatórios', 400);
     }
     const template = await prisma.messageTemplate.create({
       data: {

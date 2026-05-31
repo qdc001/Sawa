@@ -322,7 +322,7 @@ function ManageStagesModal({
       toast.success('Etapa eliminada');
       onChanged();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Nao foi possivel eliminar (talvez tenha leads)');
+      toast.error(err.response?.data?.message || 'Não foi possível eliminar (talvez tenha leads)');
     }
   };
 
@@ -506,7 +506,7 @@ function builtinLabel(key: BuiltinFieldKey, config: BuiltinFieldsConfig): string
 }
 
 function isBuiltinHidden(key: BuiltinFieldKey, config: BuiltinFieldsConfig): boolean {
-  if (key === 'title') return false; // titulo nunca esconde
+  if (key === 'title') return false; // título nunca esconde
   return !!config[key]?.hidden;
 }
 
@@ -583,10 +583,10 @@ export function CustomFieldInput({
 // ============== Manage Lead Fields Modal ==============
 const FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
   TEXT: 'Texto',
-  NUMBER: 'Numero',
+  NUMBER: 'Número',
   DATE: 'Data',
-  BOOLEAN: 'Sim/Nao',
-  SELECT: 'Lista (uma opcao)',
+  BOOLEAN: 'Sim/Não',
+  SELECT: 'Lista (uma opção)',
   MULTISELECT: 'Lista (multipla)',
   URL: 'URL',
   EMAIL: 'Email',
@@ -637,7 +637,7 @@ function ManageLeadFieldsModal({
       ? newOptions.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
     if ((newType === 'SELECT' || newType === 'MULTISELECT') && optsArr.length === 0) {
-      toast.error('Indica pelo menos uma opcao (separadas por virgula)');
+      toast.error('Indica pelo menos uma opção (separadas por virgula)');
       return;
     }
     try {
@@ -661,7 +661,7 @@ function ManageLeadFieldsModal({
   };
 
   const handleDelete = async (field: CustomField) => {
-    if (!confirm(`Eliminar o campo "${field.name}"? Os valores existentes serao perdidos.`)) return;
+    if (!confirm(`Eliminar o campo "${field.name}"? Os valores existentes serão perdidos.`)) return;
     try {
       await api.delete(`/custom-fields/${field.id}`);
       setFields((prev) => prev.filter((f) => f.id !== field.id));
@@ -694,7 +694,7 @@ function ManageLeadFieldsModal({
       >
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-            Campos do formulario de Lead
+            Campos do formulário de Lead
           </h3>
           <button onClick={onClose}>
             <X size={20} style={{ color: 'var(--text-muted)' }} />
@@ -702,7 +702,7 @@ function ManageLeadFieldsModal({
         </div>
 
         <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-          Os campos predefinidos (Titulo, Valor, Prioridade) podem ser renomeados e Valor/Prioridade tambem podem ser escondidos.
+          Os campos predefinidos (Título, Valor, Prioridade) podem ser renomeados e Valor/Prioridade também podem ser escondidos.
         </p>
 
         {/* Campos predefinidos */}
@@ -743,7 +743,7 @@ function ManageLeadFieldsModal({
                         checked={!cfg.hidden}
                         onChange={(e) => updateBuiltin(key, { hidden: !e.target.checked })}
                       />
-                      Visivel
+                      Visível
                     </label>
                   )}
                   <button
@@ -798,7 +798,7 @@ function ManageLeadFieldsModal({
                     checked={field.isRequired}
                     onChange={() => handleToggleRequired(field)}
                   />
-                  Obrigatorio
+                  Obrigatório
                 </label>
                 <button
                   onClick={() => handleDelete(field)}
@@ -829,13 +829,13 @@ function ManageLeadFieldsModal({
             <input
               value={newOptions}
               onChange={(e) => setNewOptions(e.target.value)}
-              placeholder="Opcoes separadas por virgula (ex: WhatsApp, Email, Site)"
+              placeholder="Opções separadas por virgula (ex: WhatsApp, Email, Site)"
               className="input-base"
             />
           )}
           <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-primary)' }}>
             <input type="checkbox" checked={newRequired} onChange={(e) => setNewRequired(e.target.checked)} />
-            Obrigatorio
+            Obrigatório
           </label>
           <button onClick={handleAdd} className="btn btn-primary w-full py-2">
             <Plus size={16} /> Adicionar campo
@@ -894,10 +894,10 @@ export function AddLeadModal({
     e.preventDefault();
     if (!title.trim()) return;
 
-    // validar obrigatorios
+    // validar obrigatórios
     for (const f of customFields) {
       if (f.isRequired && !customValues[f.id]) {
-        toast.error(`Campo obrigatorio: ${f.name}`);
+        toast.error(`Campo obrigatório: ${f.name}`);
         return;
       }
     }
@@ -943,7 +943,7 @@ export function AddLeadModal({
                 type="button"
                 onClick={() => setShowFieldsManager(true)}
                 className="p-1.5 rounded hover:bg-slate-100"
-                title="Editar campos do formulario"
+                title="Editar campos do formulário"
               >
                 <SlidersHorizontal size={16} style={{ color: 'var(--text-secondary)' }} />
               </button>
@@ -1003,7 +1003,7 @@ export function AddLeadModal({
 
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                Responsavel
+                Responsável
               </label>
               <select
                 value={assignedToId}
@@ -1213,7 +1213,7 @@ export function LeadDetailModal({
 
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-              Responsavel
+              Responsável
             </label>
             <select
               value={assignedToId}
@@ -1371,7 +1371,7 @@ function ManagePipelinesModal({
         list.map((p) => {
           const original = pipelines.find((o) => o.id === p.id);
           if (!original) return null;
-          // Pipeline Principal: so a cor pode mudar
+          // Pipeline Principal: só a cor pode mudar
           if (p.isDefault) {
             if (original.color !== p.color) {
               return api.patch(`/pipelines/${p.id}`, { color: p.color });
@@ -1396,14 +1396,14 @@ function ManagePipelinesModal({
 
   const handleDelete = async (pipeline: Pipeline) => {
     if (pipeline.isDefault) {
-      toast.error('O Pipeline Principal nao pode ser eliminado');
+      toast.error('O Pipeline Principal não pode ser eliminado');
       return;
     }
     if (list.length <= 1) {
       toast.error('Tem de existir pelo menos um pipeline');
       return;
     }
-    if (!confirm(`Eliminar o pipeline "${pipeline.name}"? As etapas e leads associados serao removidos.`)) return;
+    if (!confirm(`Eliminar o pipeline "${pipeline.name}"? As etapas e leads associados serão removidos.`)) return;
     try {
       await api.delete(`/pipelines/${pipeline.id}`);
       const remaining = list.filter((p) => p.id !== pipeline.id);
@@ -1414,7 +1414,7 @@ function ManagePipelinesModal({
       }
       await onChanged();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Nao foi possivel eliminar');
+      toast.error(err.response?.data?.message || 'Não foi possível eliminar');
     }
   };
 
@@ -1479,7 +1479,7 @@ function ManagePipelinesModal({
                   className="input-base flex-1"
                   disabled={isProtected}
                   readOnly={isProtected}
-                  title={isProtected ? 'O nome do Pipeline Principal nao pode ser alterado' : undefined}
+                  title={isProtected ? 'O nome do Pipeline Principal não pode ser alterado' : undefined}
                   style={isProtected ? { background: 'var(--surface-3)', cursor: 'not-allowed', color: 'var(--text-muted)' } : undefined}
                 />
                 {isProtected && (
@@ -1494,14 +1494,14 @@ function ManagePipelinesModal({
                 <span
                   className="text-xs px-2 py-1 rounded"
                   style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}
-                  title="Numero de etapas"
+                  title="Número de etapas"
                 >
                   {pipeline.stages?.length || 0} etapas
                 </span>
                 <button
                   onClick={() => handleDelete(pipeline)}
                   className="p-2 rounded hover:bg-red-50"
-                  title={isProtected ? 'O Pipeline Principal nao pode ser eliminado' : 'Eliminar'}
+                  title={isProtected ? 'O Pipeline Principal não pode ser eliminado' : 'Eliminar'}
                   disabled={isProtected || list.length <= 1}
                   style={{ opacity: isProtected || list.length <= 1 ? 0.4 : 1, cursor: isProtected ? 'not-allowed' : 'pointer' }}
                 >
@@ -1598,7 +1598,7 @@ export default function PipelinePage() {
           next.delete('leadId');
           setSearchParams(next, { replace: true });
         })
-        .catch(() => toast.error('Lead nao encontrado'));
+        .catch(() => toast.error('Lead não encontrado'));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryLeadId, leads]);
@@ -1733,7 +1733,7 @@ export default function PipelinePage() {
     if (isAggregated && activeLead.pipelineId !== activePipelineId) {
       const originalPipeline = pipelines.find((p) => p.id === activeLead.pipelineId);
       if (!originalPipeline) {
-        toast.error('Pipeline original do lead nao encontrado');
+        toast.error('Pipeline original do lead não encontrado');
         return;
       }
       let newStageId: string | null = null;
@@ -1755,7 +1755,7 @@ export default function PipelinePage() {
         }
       }
       if (!newStageId) {
-        toast.error('Nao foi possivel mapear a etapa equivalente');
+        toast.error('Não foi possível mapear a etapa equivalente');
         return;
       }
       if (newStageId === activeLead.stageId) return;

@@ -26,7 +26,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { type, target, month, year, userId } = req.body;
     if (!type || target === undefined || target === null || !month || !year) {
-      throw new AppError('Tipo, alvo, mes e ano sao obrigatorios', 400);
+      throw new AppError('Tipo, alvo, mês e ano são obrigatórios', 400);
     }
     const finalUserId = userId || null;
     // findFirst + create/update porque upsert com userId NULL falha em Postgres

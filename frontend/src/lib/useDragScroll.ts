@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 /**
  * Pan-scroll com botao do rato.
  * scrollButton: 0 = esquerdo, 1 = meio, 2 = direito; -1 = desactivado.
- * A configuracao e partilhada via localStorage (kommo:scrollButton).
+ * A configuração e partilhada via localStorage (kommo:scrollButton).
  */
 export function useDragScroll(ref: React.RefObject<HTMLElement | null>, scrollButton: number) {
   useEffect(() => {

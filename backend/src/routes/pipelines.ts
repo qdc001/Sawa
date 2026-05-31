@@ -50,7 +50,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { name, description, color } = req.body;
-    if (!name) throw new AppError('Nome e obrigatorio', 400);
+    if (!name) throw new AppError('Nome e obrigatório', 400);
     const count = await prisma.pipeline.count({ where: { workspaceId: req.user!.workspaceId } });
     const pipeline = await prisma.pipeline.create({
       data: {

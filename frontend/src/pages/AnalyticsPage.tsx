@@ -47,7 +47,7 @@ export default function AnalyticsPage() {
   }
 
   const sectionsList = [
-    { v: 'trends' as const, label: 'Tendencias', icon: TrendingUp },
+    { v: 'trends' as const, label: 'Tendências', icon: TrendingUp },
     { v: 'team' as const, label: 'Equipa', icon: Trophy },
     { v: 'sources' as const, label: 'Origens', icon: GitBranch },
     { v: 'pipeline' as const, label: 'Pipeline', icon: Target },
@@ -68,7 +68,7 @@ export default function AnalyticsPage() {
           <h1 className="text-xl font-bold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
             <BarChart3 size={20} /> Análises
           </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Relatorios detalhados do teu negocio</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Relatórios detalhados do teu negócio</p>
         </div>
         <div className="flex gap-1 flex-wrap">
           {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
@@ -97,12 +97,12 @@ export default function AnalyticsPage() {
         })}
       </div>
 
-      {/* Tendencias */}
+      {/* Tendências */}
       {section === 'trends' && (
         <div className="space-y-4">
           {/* Receita 12 meses */}
           <div className="card p-5">
-            <h3 className="font-semibold mb-4 flex items-center gap-2"><TrendingUp size={16} /> Receita dos ultimos 12 meses</h3>
+            <h3 className="font-semibold mb-4 flex items-center gap-2"><TrendingUp size={16} /> Receita dos últimos 12 meses</h3>
             {chartData.length === 0 ? (
               <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem dados</p>
             ) : (
@@ -115,7 +115,7 @@ export default function AnalyticsPage() {
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Line yAxisId="left" type="monotone" dataKey="revenue" name="Receita (MZN)" stroke="#C8553D" strokeWidth={2} dot={{ r: 4 }} />
-                  <Line yAxisId="right" type="monotone" dataKey="deals" name="Negocios" stroke="#10B981" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line yAxisId="right" type="monotone" dataKey="deals" name="Negócios" stroke="#10B981" strokeWidth={2} dot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -126,7 +126,7 @@ export default function AnalyticsPage() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
                 { label: 'Leads criados', value: dashboard.monthly.leadsCreated, growth: dashboard.monthly.leadsCreatedGrowth, color: '#C8553D' },
-                { label: 'Negocios ganhos', value: dashboard.monthly.leadsWon, growth: dashboard.monthly.leadsWonGrowth, color: '#10B981' },
+                { label: 'Negócios ganhos', value: dashboard.monthly.leadsWon, growth: dashboard.monthly.leadsWonGrowth, color: '#10B981' },
                 { label: 'Tempo medio fecho', value: `${conv.avgConversionDays} dias`, color: '#8B5CF6' },
                 { label: 'Win-rate global', value: `${conv.winRateGlobal}%`, color: '#F59E0B' },
               ].map((k) => (
@@ -135,7 +135,7 @@ export default function AnalyticsPage() {
                   <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{k.label}</p>
                   {k.growth !== undefined && k.growth !== 0 && (
                     <p className="text-xs mt-1" style={{ color: k.growth > 0 ? '#10B981' : '#EF4444' }}>
-                      {k.growth > 0 ? '↑' : '↓'} {Math.abs(k.growth)}% vs periodo anterior
+                      {k.growth > 0 ? '↑' : '↓'} {Math.abs(k.growth)}% vs período anterior
                     </p>
                   )}
                 </div>
@@ -147,7 +147,7 @@ export default function AnalyticsPage() {
           {conv && (
             <div className="card p-5" style={{ background: 'linear-gradient(135deg, #F6E3DC, #F0F9FF)' }}>
               <h3 className="font-semibold mb-2 flex items-center gap-2">
-                <Target size={16} style={{ color: 'var(--primary)' }} /> Forecast (proximos meses)
+                <Target size={16} style={{ color: 'var(--primary)' }} /> Forecast (próximos meses)
               </h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -158,7 +158,7 @@ export default function AnalyticsPage() {
                 <div>
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Win-rate aplicada</p>
                   <p className="text-xl font-bold" style={{ color: 'var(--primary)' }}>{conv.winRateGlobal}%</p>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>baseado em historico</p>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>baseado em histórico</p>
                 </div>
                 <div>
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Receita projectada</p>
@@ -173,7 +173,7 @@ export default function AnalyticsPage() {
       {/* Equipa */}
       {section === 'team' && (
         <div className="space-y-4">
-          {/* Grafico de barras: receita por membro */}
+          {/* Gráfico de barras: receita por membro */}
           <div className="card p-5">
             <h3 className="font-semibold mb-4 flex items-center gap-2"><Trophy size={16} style={{ color: '#F59E0B' }} /> Receita por membro</h3>
             {team.length === 0 ? (

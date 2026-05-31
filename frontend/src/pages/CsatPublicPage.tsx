@@ -72,7 +72,7 @@ export default function CsatPublicPage() {
             <Check size={28} style={{ color: '#10B981' }} />
           </div>
           <h2 className="text-xl font-bold mb-2" style={{ fontFamily: 'Manrope, sans-serif' }}>Obrigado!</h2>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>A tua avaliacao foi recebida.</p>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>A tua avaliação foi recebida.</p>
         </div>
       </div>
     );
@@ -125,7 +125,7 @@ export default function CsatPublicPage() {
           className="btn btn-primary w-full mt-4 py-3"
           style={{ opacity: !score ? 0.5 : 1 }}
         >
-          {submitting ? <Loader2 size={16} className="animate-spin" /> : 'Submeter avaliacao'}
+          {submitting ? <Loader2 size={16} className="animate-spin" /> : 'Submeter avaliação'}
         </button>
       </div>
     </div>

@@ -701,8 +701,8 @@ function NodePropertiesPanel({
               className="input-base w-full text-xs"
             >
               <option value="image">Imagem</option>
-              <option value="video">Vídeo</option>
-              <option value="audio">Áudio</option>
+              <option value="video">Video</option>
+              <option value="audio">Audio</option>
               <option value="document">Documento</option>
             </select>
           </div>

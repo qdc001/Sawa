@@ -116,7 +116,7 @@ async function fetchMediaFromEvolution(creds: any, baileysMessage: any, fallback
       ext = MIME_TO_EXT[cleanMime];
     } else if (cleanMime.includes('/')) {
       const t = cleanMime.split('/')[1];
-      // Sanitizar (sem pontos/espacos)
+      // Sanitizar (sem pontos/espaços)
       ext = t.replace(/[^a-z0-9]/g, '').substring(0, 8) || fallbackExt;
     }
     const fileName = `wa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
@@ -279,8 +279,8 @@ router.post('/meta', async (req: Request, res: Response) => {
           else if (m.attachments?.length) {
             const att = m.attachments[0];
             if (att.type === 'image') { msgType = 'IMAGE'; content = '[Imagem]'; mediaUrl = att.payload?.url; }
-            else if (att.type === 'video') { msgType = 'VIDEO'; content = '[Vídeo]'; mediaUrl = att.payload?.url; }
-            else if (att.type === 'audio') { msgType = 'AUDIO'; content = '[Áudio]'; mediaUrl = att.payload?.url; }
+            else if (att.type === 'video') { msgType = 'VIDEO'; content = '[Video]'; mediaUrl = att.payload?.url; }
+            else if (att.type === 'audio') { msgType = 'AUDIO'; content = '[Audio]'; mediaUrl = att.payload?.url; }
             else if (att.type === 'file') { msgType = 'DOCUMENT'; content = '[Documento]'; mediaUrl = att.payload?.url; }
             else if (att.type === 'story_mention') { content = `[Menção em story]`; }
             else if (att.type === 'share') { content = `[Partilha] ${att.payload?.url || ''}`; }
@@ -551,12 +551,12 @@ router.post('/evolution', async (req: Request, res: Response) => {
           mediaUrl = local ? absoluteUrl(req, local) : im.url;
         } else if (unwrapped.videoMessage || msg.videoMessage) {
           const vm = unwrapped.videoMessage || msg.videoMessage;
-          msgType = 'VIDEO'; content = vm.caption || '[Vídeo]';
+          msgType = 'VIDEO'; content = vm.caption || '[Video]';
           const local = await fetchMediaFromEvolution(creds, m, 'mp4');
           mediaUrl = local ? absoluteUrl(req, local) : vm.url;
         } else if (unwrapped.audioMessage || msg.audioMessage) {
           const am = unwrapped.audioMessage || msg.audioMessage;
-          msgType = 'AUDIO'; content = '[Áudio]';
+          msgType = 'AUDIO'; content = '[Audio]';
           const local = await fetchMediaFromEvolution(creds, m, 'ogg');
           mediaUrl = local ? absoluteUrl(req, local) : am.url;
         } else if (unwrapped.documentMessage || msg.documentMessage) {
@@ -694,7 +694,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
           if (lead) io.to(`lead:${lead.id}`).emit('message:new', saved);
         }
 
-        // Skip de chatbots/automacoes/notify se for fromMe (mensagem enviada pelo dono do numero, nao requer resposta automatica)
+        // Skip de chatbots/automações/notify se for fromMe (mensagem enviada pelo dono do número, não requer resposta automática)
         if (fromMe) continue;
 
         // Auto-assign round-robin (se workspace tem toggle ON)
@@ -834,7 +834,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
           if (contact) {
             const lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
             const text = status === 'ringing'
-              ? `📞 Chamada de ${callType === 'video' ? 'vídeo' : 'voz'} recebida (atende no telefone)`
+              ? `📞 Chamada de ${callType === 'video' ? 'video' : 'voz'} recebida (atende no telefone)`
               : status === 'accept'
               ? `📞 Chamada atendida`
               : status === 'reject'

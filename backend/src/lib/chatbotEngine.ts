@@ -5,7 +5,7 @@
  *   trigger    -> ponto de entrada, sem efeito
  *   message    -> envia texto. Pode esperar resposta (data.waitForReply).
  *   template   -> envia template aprovado WhatsApp Cloud com variáveis posicionais.
- *   media      -> envia imagem/vídeo/áudio/documento.
+ *   media      -> envia imagem/video/audio/documento.
  *   buttons    -> envia interactive message com botões. Espera sempre resposta.
  *   condition  -> avalia contra a última mensagem ou variável; tem 2 handles (yes/no).
  *   action     -> executa acção interna (create_task, assign_user, change_stage, etc).

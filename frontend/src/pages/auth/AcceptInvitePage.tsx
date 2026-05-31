@@ -25,7 +25,7 @@ export default function AcceptInvitePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pwd !== confirm) { toast.error('Passwords nao coincidem'); return; }
+    if (pwd !== confirm) { toast.error('Passwords não coincidem'); return; }
     if (pwd.length < 6) { toast.error('Mínimo 6 caracteres'); return; }
     setSubmitting(true);
     try {

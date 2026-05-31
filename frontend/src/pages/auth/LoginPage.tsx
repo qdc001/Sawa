@@ -25,7 +25,7 @@ export default function LoginPage() {
       // Resposta 206 indica que 2FA e necessario
       if (res.status === 206 || data.needs2FA) {
         setNeeds2FA(true);
-        toast('Insere o codigo do teu autenticador', { icon: '🔐' });
+        toast('Insere o código do teu autenticador', { icon: '🔐' });
         return;
       }
       login(data.token, data.user, data.workspace);
@@ -119,7 +119,7 @@ export default function LoginPage() {
 
             {needs2FA && (
               <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>Codigo 2FA (6 digitos)</label>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>Código 2FA (6 digitos)</label>
                 <input
                   type="text"
                   value={code}
@@ -130,7 +130,7 @@ export default function LoginPage() {
                   className="input-base text-center"
                   style={{ letterSpacing: 4, fontSize: 18 }}
                 />
-                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Abre a tua app autenticadora e copia o codigo.</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Abre a tua app autenticadora e copia o código.</p>
               </div>
             )}
 

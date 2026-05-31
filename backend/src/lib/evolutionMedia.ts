@@ -1,4 +1,4 @@
-// Helper para descarregar media (imagem/vídeo/áudio/documento) da Evolution
+// Helper para descarregar media (imagem/video/audio/documento) da Evolution
 // para a pasta local `uploads/`, devolvendo o caminho relativo.
 //
 // Usado pelo webhook (mensagens em tempo real) e pela sync inicial.

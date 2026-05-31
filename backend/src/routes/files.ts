@@ -29,7 +29,7 @@ const upload = multer({
     // permitir tudo excepto executaveis
     const banned = ['.exe', '.bat', '.sh', '.cmd', '.msi'];
     if (banned.includes(path.extname(file.originalname).toLowerCase())) {
-      return cb(new Error('Tipo de ficheiro nao permitido'));
+      return cb(new Error('Tipo de ficheiro não permitido'));
     }
     cb(null, true);
   },
@@ -66,7 +66,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     const file = await prisma.file.findUnique({ where: { id: req.params.id } });
-    if (!file) throw new AppError('Ficheiro nao encontrado', 404);
+    if (!file) throw new AppError('Ficheiro não encontrado', 404);
     await prisma.file.delete({ where: { id: req.params.id } });
     // tentar apagar do disco
     try {

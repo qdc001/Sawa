@@ -66,24 +66,24 @@ export default function DesktopNotifications() {
 
   const handleToggle = async () => {
     if (typeof Notification === 'undefined') {
-      toast.error('Browser nao suporta notificacoes');
+      toast.error('Browser não suporta notificações');
       return;
     }
     if (!enabled) {
-      // Pedir permissao
+      // Pedir permissão
       const perm = await Notification.requestPermission();
       setPermission(perm);
       if (perm === 'granted') {
         setEnabled(true);
-        toast.success('Notificacoes activadas');
-        // notificacao de teste
-        new Notification('Sawa', { body: 'Notificacoes activadas. Vais receber alertas de mensagens novas.' });
+        toast.success('Notificações activadas');
+        // notificação de teste
+        new Notification('Sawa', { body: 'Notificações activadas. Vais receber alertas de mensagens novas.' });
       } else {
-        toast.error('Permissao negada. Activa nas definicoes do browser.');
+        toast.error('Permissão negada. Activa nas definições do browser.');
       }
     } else {
       setEnabled(false);
-      toast.success('Notificacoes desactivadas');
+      toast.success('Notificações desactivadas');
     }
   };
 
@@ -93,7 +93,7 @@ export default function DesktopNotifications() {
     <button
       onClick={handleToggle}
       className="relative p-2 rounded-lg transition-colors hover:bg-gray-100"
-      title={isActive ? 'Notificacoes activas (clica para desactivar)' : 'Activar notificacoes desktop'}
+      title={isActive ? 'Notificações activas (clica para desactivar)' : 'Activar notificações desktop'}
     >
       {isActive ? (
         <Bell size={18} style={{ color: 'var(--primary)' }} />

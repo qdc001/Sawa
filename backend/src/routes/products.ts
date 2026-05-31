@@ -33,7 +33,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { name, description, sku, unitPrice, currency, taxRate, unit, isActive } = req.body;
-    if (!name || !name.trim()) throw new AppError('Nome do produto obrigatorio', 400);
+    if (!name || !name.trim()) throw new AppError('Nome do produto obrigatório', 400);
     const product = await prisma.product.create({
       data: {
         name: name.trim(),
@@ -57,7 +57,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     const existing = await prisma.product.findFirst({
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
-    if (!existing) throw new AppError('Produto nao encontrado', 404);
+    if (!existing) throw new AppError('Produto não encontrado', 404);
 
     const { name, description, sku, unitPrice, currency, taxRate, unit, isActive } = req.body;
     const product = await prisma.product.update({
@@ -83,7 +83,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     const existing = await prisma.product.findFirst({
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
-    if (!existing) throw new AppError('Produto nao encontrado', 404);
+    if (!existing) throw new AppError('Produto não encontrado', 404);
     await prisma.product.delete({ where: { id: req.params.id } });
     res.json({ message: 'Produto eliminado' });
   } catch (e) { next(e); }

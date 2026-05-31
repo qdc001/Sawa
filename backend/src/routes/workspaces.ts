@@ -13,7 +13,7 @@ router.get('/me', async (req: AuthRequest, res: Response, next) => {
       where: { id: req.user!.workspaceId },
       include: { _count: { select: { users: true, leads: true, contacts: true } } },
     });
-    if (!workspace) throw new AppError('Workspace nao encontrada', 404);
+    if (!workspace) throw new AppError('Workspace não encontrada', 404);
     res.json(workspace);
   } catch (e) { next(e); }
 });
@@ -169,12 +169,12 @@ router.post('/reset/messages', async (req: AuthRequest, res: Response, next) => 
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
     if (req.body?.confirm !== true) {
-      throw new AppError('Confirmacao em falta', 400);
+      throw new AppError('Confirmação em falta', 400);
     }
     const wsId = req.user!.workspaceId;
     const msgWhere = { OR: [{ contact: { workspaceId: wsId } }, { lead: { workspaceId: wsId } }] };
     const deleted = await prisma.$transaction(async (tx) => {
-      // Limpa as auto-referencias (replyTo) antes de eliminar em massa.
+      // Limpa as auto-referências (replyTo) antes de eliminar em massa.
       await tx.message.updateMany({ where: msgWhere, data: { replyToId: null } });
       const del = await tx.message.deleteMany({ where: msgWhere });
       await tx.conversationMeta.deleteMany({ where: { workspaceId: wsId } });
@@ -196,9 +196,9 @@ router.post('/reset/messages', async (req: AuthRequest, res: Response, next) => 
 
 // POST /api/workspaces/reset/data
 // Repoe TODOS os dados operacionais do workspace (mensagens, conversas, leads, contactos,
-// tarefas, propostas, broadcasts, metas, CSAT, notas, ficheiros, actividades e historicos
-// de automacao/chatbot). Preserva conta/equipa, integracoes, definicoes e a estrutura
-// (pipelines, etapas, tags, campos personalizados, produtos, automacoes e chatbots).
+// tarefas, propostas, broadcasts, metas, CSAT, notas, ficheiros, actividades e históricos
+// de automação/chatbot). Preserva conta/equipa, integrações, definições e a estrutura
+// (pipelines, etapas, tags, campos personalizados, produtos, automações e chatbots).
 // Apenas OWNER. Exige { confirmation: <nome exacto do workspace> }.
 router.post('/reset/data', async (req: AuthRequest, res: Response, next) => {
   try {
@@ -207,9 +207,9 @@ router.post('/reset/data', async (req: AuthRequest, res: Response, next) => {
     }
     const wsId = req.user!.workspaceId;
     const ws = await prisma.workspace.findUnique({ where: { id: wsId }, select: { name: true } });
-    if (!ws) throw new AppError('Workspace nao encontrada', 404);
+    if (!ws) throw new AppError('Workspace não encontrada', 404);
     if (String(req.body?.confirmation || '').trim() !== ws.name) {
-      throw new AppError('Confirmacao invalida: escreve o nome exacto do workspace', 400);
+      throw new AppError('Confirmação invalida: escreve o nome exacto do workspace', 400);
     }
 
     const counts: Record<string, number> = {};

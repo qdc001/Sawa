@@ -21,7 +21,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { name, color } = req.body;
-    if (!name) throw new AppError('Nome da tag obrigatorio', 400);
+    if (!name) throw new AppError('Nome da tag obrigatório', 400);
     const tag = await prisma.tag.create({
       data: {
         name: name.trim(),
@@ -31,7 +31,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     });
     res.status(201).json(tag);
   } catch (e: any) {
-    if (e.code === 'P2002') return res.status(409).json({ message: 'Tag com este nome ja existe' });
+    if (e.code === 'P2002') return res.status(409).json({ message: 'Tag com este nome já existe' });
     next(e);
   }
 });

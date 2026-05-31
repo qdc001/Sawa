@@ -39,7 +39,7 @@ function InviteModal({ onClose, onCreated, currentRole }: {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !email || (mode === 'manual' && !password)) {
-      toast.error('Preenche os campos obrigatorios');
+      toast.error('Preenche os campos obrigatórios');
       return;
     }
     setLoading(true);
@@ -51,9 +51,9 @@ function InviteModal({ onClose, onCreated, currentRole }: {
           onCreated(data.user);
           onClose();
         } else {
-          // SMTP nao configurado - mostrar link
+          // SMTP não configurado - mostrar link
           setInviteLink(data.inviteLink);
-          toast(data.emailError || 'SMTP nao configurado. Partilha o link manualmente.', { icon: 'ℹ️' });
+          toast(data.emailError || 'SMTP não configurado. Partilha o link manualmente.', { icon: 'ℹ️' });
         }
       } else {
         const { data } = await api.post('/users', { name, email, password, role });
@@ -71,8 +71,8 @@ function InviteModal({ onClose, onCreated, currentRole }: {
         <div className="card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
           <h3 className="text-lg font-bold mb-3">Membro criado</h3>
           <div className="p-3 rounded mb-3" style={{ background: '#FEF3C7', color: '#92400E' }}>
-            <p className="text-sm font-medium">Email nao foi enviado</p>
-            <p className="text-xs mt-1">Configura SMTP nas Integracoes ou partilha este link com o membro:</p>
+            <p className="text-sm font-medium">Email não foi enviado</p>
+            <p className="text-xs mt-1">Configura SMTP nas Integrações ou partilha este link com o membro:</p>
           </div>
           <div className="p-2 rounded mb-3" style={{ background: 'var(--surface-2)' }}>
             <code className="text-xs break-all">{inviteLink}</code>
@@ -105,7 +105,7 @@ function InviteModal({ onClose, onCreated, currentRole }: {
         </div>
         <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
           {mode === 'email'
-            ? 'O membro recebe um email com link para definir a sua propria password (requer SMTP configurado).'
+            ? 'O membro recebe um email com link para definir a sua própria password (requer SMTP configurado).'
             : 'Cria a conta com password temporaria. Partilha as credenciais com o membro.'}
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -122,7 +122,7 @@ function InviteModal({ onClose, onCreated, currentRole }: {
             </div>
           )}
           <select value={role} onChange={(e) => setRole(e.target.value)} className="input-base">
-            <option value="AGENT">Agente — acesso basico</option>
+            <option value="AGENT">Agente — acesso básico</option>
             <option value="MANAGER">Manager — gere leads e equipa</option>
             <option value="ADMIN">Admin — quase tudo excepto eliminar workspace</option>
             {currentRole === 'OWNER' && <option value="OWNER">Owner — controlo total</option>}
@@ -214,17 +214,17 @@ function MemberDetailModal({ user, teams, onClose, onChanged }: {
           <div>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" checked={viewOnlyOwn} onChange={(e) => setViewOnlyOwn(e.target.checked)} />
-              <span style={{ color: 'var(--text-primary)' }}>Restringir visibilidade aos seus proprios leads/conversas</span>
+              <span style={{ color: 'var(--text-primary)' }}>Restringir visibilidade aos seus próprios leads/conversas</span>
             </label>
             <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-              Util para Agentes que so devem ver o que lhes pertence.
+              Útil para Agentes que só devem ver o que lhes pertence.
             </p>
           </div>
           <div>
             <label className="block text-sm font-medium mb-1 flex items-center gap-1">
               <StickyNote size={12} /> Notas internas (HR)
             </label>
-            <textarea value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)} className="input-base" rows={4} placeholder="Notas privadas sobre o membro (so visiveis para Owner/Admin)" />
+            <textarea value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)} className="input-base" rows={4} placeholder="Notas privadas sobre o membro (só visíveis para Owner/Admin)" />
           </div>
         </div>
         <div className="flex gap-2 mt-4">
@@ -404,7 +404,7 @@ export default function TeamPage() {
   };
 
   const handleDelete = async (u: User) => {
-    if (!confirm(`Eliminar o membro "${u.name}"? Esta accao nao pode ser desfeita.`)) return;
+    if (!confirm(`Eliminar o membro "${u.name}"? Esta acção não pode ser desfeita.`)) return;
     try {
       await api.delete(`/users/${u.id}`);
       setUsers((p) => p.filter((x) => x.id !== u.id));
@@ -445,8 +445,8 @@ export default function TeamPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Role</th>
                 <th className="text-left px-4 py-3 text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Equipa</th>
                 <th className="text-left px-4 py-3 text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Estado</th>
-                <th className="text-left px-4 py-3 text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Ultimo login</th>
-                <th className="text-right px-4 py-3 text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Accoes</th>
+                <th className="text-left px-4 py-3 text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Último login</th>
+                <th className="text-right px-4 py-3 text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>Acções</th>
               </tr>
             </thead>
             <tbody>

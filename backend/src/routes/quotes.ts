@@ -120,7 +120,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
       include: quoteInclude,
     });
-    if (!quote) throw new AppError('Proposta nao encontrada', 404);
+    if (!quote) throw new AppError('Proposta não encontrada', 404);
     res.json({ ...quote, totals: computeTotals(quote.items as any, quote) });
   } catch (e) { next(e); }
 });
@@ -129,7 +129,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { title, contactId, leadId, currency, notes, discountType, discountValue, taxRate, validUntil, items } = req.body;
-    if (!title || !title.trim()) throw new AppError('Titulo da proposta obrigatorio', 400);
+    if (!title || !title.trim()) throw new AppError('Título da proposta obrigatório', 400);
     const itemList: ItemInput[] = Array.isArray(items) ? items : [];
 
     const number = await nextQuoteNumber(req.user!.workspaceId);
@@ -170,7 +170,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     const existing = await prisma.quote.findFirst({
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
-    if (!existing) throw new AppError('Proposta nao encontrada', 404);
+    if (!existing) throw new AppError('Proposta não encontrada', 404);
 
     const { title, contactId, leadId, currency, notes, discountType, discountValue, taxRate, validUntil, items } = req.body;
     const data: any = {
@@ -219,7 +219,7 @@ router.patch('/:id/status', async (req: AuthRequest, res: Response, next) => {
     const existing = await prisma.quote.findFirst({
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
-    if (!existing) throw new AppError('Proposta nao encontrada', 404);
+    if (!existing) throw new AppError('Proposta não encontrada', 404);
 
     const now = new Date();
     const quote = await prisma.quote.update({
@@ -242,7 +242,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     const existing = await prisma.quote.findFirst({
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
-    if (!existing) throw new AppError('Proposta nao encontrada', 404);
+    if (!existing) throw new AppError('Proposta não encontrada', 404);
     await prisma.quote.delete({ where: { id: req.params.id } });
     res.json({ message: 'Proposta eliminada' });
   } catch (e) { next(e); }
@@ -255,7 +255,7 @@ router.get('/:id/pdf', async (req: AuthRequest, res: Response, next) => {
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
       include: quoteInclude,
     });
-    if (!quote) throw new AppError('Proposta nao encontrada', 404);
+    if (!quote) throw new AppError('Proposta não encontrada', 404);
     const workspace = await prisma.workspace.findUnique({
       where: { id: req.user!.workspaceId },
       select: { name: true },
@@ -282,7 +282,7 @@ router.get('/:id/pdf', async (req: AuthRequest, res: Response, next) => {
     doc.fillColor(TERRA).circle(left + 15, 71, 3.2).fill();
     doc.fillColor(INK).font('Helvetica-Bold').fontSize(22).text('Sawa', left + 26, 56);
 
-    // Emissor e titulo do documento (direita)
+    // Emissor e título do documento (direita)
     doc.font('Helvetica-Bold').fontSize(16).fillColor(INK).text('PROPOSTA', left, 54, { width: contentW, align: 'right' });
     doc.font('Helvetica').fontSize(10).fillColor(MUTED)
       .text(quote.number, left, 76, { width: contentW, align: 'right' });
@@ -309,10 +309,10 @@ router.get('/:id/pdf', async (req: AuthRequest, res: Response, next) => {
     doc.text('Data:', metaX, y + 12, { continued: true }).fillColor(INK).text('  ' + dmy(quote.createdAt));
     doc.fillColor(MUTED).text('Estado:', metaX, y + 27, { continued: true }).fillColor(INK).text('  ' + (STATUS_LABELS[quote.status] || quote.status));
     if (quote.validUntil) {
-      doc.fillColor(MUTED).text('Valida ate:', metaX, y + 42, { continued: true }).fillColor(INK).text('  ' + dmy(quote.validUntil));
+      doc.fillColor(MUTED).text('Valida até:', metaX, y + 42, { continued: true }).fillColor(INK).text('  ' + dmy(quote.validUntil));
     }
 
-    // Titulo da proposta
+    // Título da proposta
     y = Math.max(cy, y + 60) + 6;
     doc.font('Helvetica-Bold').fontSize(13).fillColor(INK).text(quote.title, left, y, { width: contentW });
     y = doc.y + 12;
@@ -326,9 +326,9 @@ router.get('/:id/pdf', async (req: AuthRequest, res: Response, next) => {
 
     doc.rect(left, y, contentW, 22).fill(INK);
     doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(9);
-    doc.text('DESCRICAO', colDesc + 8, y + 7);
+    doc.text('DESCRIÇÃO', colDesc + 8, y + 7);
     doc.text('QTD', colQty, y + 7, { width: 50, align: 'right' });
-    doc.text('PRECO', colPrice, y + 7, { width: 80, align: 'right' });
+    doc.text('PREÇO', colPrice, y + 7, { width: 80, align: 'right' });
     doc.text('TOTAL', colTotal, y + 7, { width: right - colTotal - 8, align: 'right' });
     y += 22;
 
@@ -368,7 +368,7 @@ router.get('/:id/pdf', async (req: AuthRequest, res: Response, next) => {
     if (quote.notes) {
       y += 16;
       if (y > 720) { doc.addPage(); y = 50; }
-      doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED).text('NOTAS E CONDICOES', left, y);
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED).text('NOTAS E CONDIÇÕES', left, y);
       y += 14;
       doc.font('Helvetica').fontSize(9).fillColor(INK).text(quote.notes, left, y, { width: contentW });
     }

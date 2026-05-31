@@ -11,8 +11,8 @@ interface SendArgs {
   text?: string;
 }
 
-// Tenta enviar email usando integracao SMTP da workspace.
-// Devolve { sent: boolean, reason?: string } - nunca lanca para nao bloquear fluxo.
+// Tenta enviar email usando integração SMTP da workspace.
+// Devolve { sent: boolean, reason?: string } - nunca lanca para não bloquear fluxo.
 export async function sendEmail({ workspaceId, to, subject, html, text }: SendArgs): Promise<{ sent: boolean; reason?: string }> {
   try {
     const integration = await prisma.integration.findFirst({
@@ -20,7 +20,7 @@ export async function sendEmail({ workspaceId, to, subject, html, text }: SendAr
     });
     const creds: any = getCreds(integration);
     if (!creds.host || !creds.user || !creds.pass) {
-      return { sent: false, reason: 'SMTP nao configurado' };
+      return { sent: false, reason: 'SMTP não configurado' };
     }
     const transporter = nodemailer.createTransport({
       host: creds.host,
@@ -44,7 +44,7 @@ export function renderTemplate(tpl: string, vars: Record<string, string>): strin
   return tpl.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => vars[k] ?? '');
 }
 
-// Templates por defeito caso nao haja override
+// Templates por defeito caso não haja override
 export const DEFAULT_TEMPLATES: Record<string, { subject: string; body: string }> = {
   welcome: {
     subject: 'Bem-vindo a {{workspaceName}}',
@@ -52,7 +52,7 @@ export const DEFAULT_TEMPLATES: Record<string, { subject: string; body: string }
   },
   password_reset: {
     subject: 'Reposicao de password',
-    body: `<p>Ola {{name}},</p><p>Clica neste link para definir uma nova password (valido 1 hora):</p><p><a href="{{link}}">{{link}}</a></p><p>Se nao foste tu, ignora este email.</p>`,
+    body: `<p>Ola {{name}},</p><p>Clica neste link para definir uma nova password (valido 1 hora):</p><p><a href="{{link}}">{{link}}</a></p><p>Se não foste tu, ignora este email.</p>`,
   },
   invite: {
     subject: 'Foste convidado para {{workspaceName}}',
@@ -82,7 +82,7 @@ export async function sendSystemEmail(
     where: { workspaceId, type, enabled: true },
   });
   const tpl = override || DEFAULT_TEMPLATES[type];
-  if (!tpl) return { sent: false, reason: 'Template nao encontrado' };
+  if (!tpl) return { sent: false, reason: 'Template não encontrado' };
   const subject = renderTemplate(tpl.subject, vars);
   const html = renderTemplate(tpl.body, vars);
   return sendEmail({ workspaceId, to, subject, html });

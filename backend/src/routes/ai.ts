@@ -330,7 +330,7 @@ router.post('/summarize-conversation', async (req: AuthRequest, res: Response, n
     const where: any = { isInternal: false };
     if (contactId) where.contactId = contactId;
     if (leadId) where.leadId = leadId;
-    if (!contactId && !leadId) throw new AppError('contactId ou leadId obrigatorio', 400);
+    if (!contactId && !leadId) throw new AppError('contactId ou leadId obrigatório', 400);
 
     const messages = await prisma.message.findMany({
       where,

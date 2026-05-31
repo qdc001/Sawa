@@ -108,7 +108,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// Helper: calcular proxima ocorrencia
+// Helper: calcular próxima ocorrência
 function nextDueDate(dueAt: Date, recurrence: string): Date {
   const d = new Date(dueAt);
   switch (recurrence) {
@@ -143,7 +143,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       include: taskInclude,
     });
 
-    // Se concluiu uma tarefa recorrente, criar a proxima
+    // Se concluiu uma tarefa recorrente, criar a próxima
     if (
       before && before.status !== 'COMPLETED' && task.status === 'COMPLETED' &&
       task.recurrence && task.dueAt && !task.parentTaskId
@@ -210,7 +210,7 @@ router.post('/bulk-delete', async (req: AuthRequest, res: Response, next) => {
 router.post('/bulk-assign', async (req: AuthRequest, res: Response, next) => {
   try {
     const { ids, assignedToId } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0 || !assignedToId) throw new AppError('ids e assignedToId obrigatorios', 400);
+    if (!Array.isArray(ids) || ids.length === 0 || !assignedToId) throw new AppError('ids e assignedToId obrigatórios', 400);
     const result = await prisma.task.updateMany({
       where: { id: { in: ids }, assignedTo: { workspaceId: req.user!.workspaceId } },
       data: { assignedToId },
@@ -223,7 +223,7 @@ router.post('/bulk-assign', async (req: AuthRequest, res: Response, next) => {
 router.post('/:id/tags', async (req: AuthRequest, res: Response, next) => {
   try {
     const { tagId } = req.body;
-    if (!tagId) throw new AppError('tagId obrigatorio', 400);
+    if (!tagId) throw new AppError('tagId obrigatório', 400);
     await prisma.tagOnTask.create({ data: { taskId: req.params.id, tagId } }).catch(() => {});
     const task = await prisma.task.findUnique({ where: { id: req.params.id }, include: taskInclude });
     res.json(task);
@@ -305,11 +305,11 @@ router.post('/bulk-import', async (req: AuthRequest, res: Response, next) => {
 
     for (const t of tasks) {
       try {
-        const title = norm(t.title || t.text || t.Tarefa || t.descricao || t.Descrição || t.subject);
+        const title = norm(t.title || t.text || t.Tarefa || t.descrição || t.Descrição || t.subject);
         if (!title) { skipped++; continue; }
 
         // Match de responsável
-        const respRaw = norm(t.responsibleUser || t.responsible || t.Responsável || t.responsavel || t.assignedTo);
+        const respRaw = norm(t.responsibleUser || t.responsible || t.Responsável || t.responsável || t.assignedTo);
         const assignedToId = (respRaw && usersByName.get(respRaw.toLowerCase())) || fallbackUserId;
 
         // Match de contacto (prioridade): 1) telefone exacto > 2) nome exacto > 3) nome parcial

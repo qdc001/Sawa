@@ -111,7 +111,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             mediaUrl = msg.image?.id;
           } else if (msg.type === 'audio') {
             msgType = 'AUDIO';
-            content = '[Áudio]';
+            content = '[Audio]';
           } else if (msg.type === 'document') {
             msgType = 'DOCUMENT';
             content = msg.document?.filename || '[Documento]';

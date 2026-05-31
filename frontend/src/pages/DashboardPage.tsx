@@ -58,7 +58,7 @@ const PERIOD_LABELS: Record<Period, string> = {
 
 const GOAL_TYPE_LABELS: Record<GoalType, string> = {
   leads_created: 'Leads criados',
-  leads_won: 'Negocios ganhos',
+  leads_won: 'Negócios ganhos',
   revenue: 'Receita (MZN)',
   tasks_completed: 'Tarefas concluidas',
 };
@@ -194,7 +194,7 @@ const ALL_WIDGETS = [
   { id: 'goals', label: 'Metas mensais' },
   { id: 'kpis', label: 'KPIs principais' },
   { id: 'conversion', label: 'Indicadores de conversao' },
-  { id: 'revenueChart', label: 'Grafico de receita 6m' },
+  { id: 'revenueChart', label: 'Gráfico de receita 6m' },
   { id: 'wonLostPie', label: 'Estado dos leads (pizza)' },
   { id: 'funnel', label: 'Funil de conversao' },
   { id: 'sources', label: 'Origem dos leads' },
@@ -202,7 +202,7 @@ const ALL_WIDGETS = [
   { id: 'pipelineDist', label: 'Distribuicao no Pipeline' },
   { id: 'topLeads', label: 'Top leads abertos' },
   { id: 'stagnant', label: 'Leads parados' },
-  { id: 'tasks', label: 'Proximas tarefas' },
+  { id: 'tasks', label: 'Próximas tarefas' },
   { id: 'activities', label: 'Actividades recentes' },
   { id: 'heatmap', label: 'Mapa de actividade' },
   { id: 'overview', label: 'Cards de resumo' },
@@ -340,7 +340,7 @@ function HeatmapView({ data }: { data: HeatmapDay[] }) {
   data.forEach((d) => {
     const day = new Date(d.date).getDay(); // 0 = dom
     if (currentWeek.length === 0 && day !== 1) {
-      // preencher inicio da semana com nulos para alinhar (semana comeca na segunda)
+      // preencher início da semana com nulos para alinhar (semana comeca na segunda)
       const offset = (day + 6) % 7; // 0 = seg, ...6 = dom
       for (let i = 0; i < offset; i++) currentWeek.push({ date: '', count: -1 });
     }
@@ -497,7 +497,7 @@ export default function DashboardPage() {
 
   const statCards = [
     { label: 'Leads Criados', value: m.leadsCreated, growth: m.leadsCreatedGrowth, icon: Users, color: '#C8553D', bg: '#F6E3DC' },
-    { label: 'Negocios Ganhos', value: m.leadsWon, growth: m.leadsWonGrowth, icon: Target, color: '#10B981', bg: '#ECFDF5' },
+    { label: 'Negócios Ganhos', value: m.leadsWon, growth: m.leadsWonGrowth, icon: Target, color: '#10B981', bg: '#ECFDF5' },
     { label: 'Receita', value: `MZN ${(m.revenue / 1000).toFixed(1)}k`, growth: m.revenueGrowth, icon: DollarSign, color: '#0EA5E9', bg: '#F0F9FF', isString: true },
     { label: 'Tarefas em atraso', value: o.tasksDue, growth: 0, icon: AlertCircle, color: '#F59E0B', bg: '#FFFBEB' },
   ];
@@ -556,7 +556,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Selector de periodo */}
+      {/* Selector de período */}
       <div style={{ order: -99 }} className="flex flex-wrap items-center gap-1 print:hidden">
         {(Object.keys(PERIOD_LABELS) as Period[]).filter((p) => p !== 'custom').map((p) => (
           <button key={p} onClick={() => setPeriod(p)} className="text-xs px-2 py-1 rounded font-medium"
@@ -602,7 +602,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
               <Flag size={16} style={{ color: '#F59E0B' }} />
-              Metas do mes
+              Metas do mês
               <span className="text-xs font-normal capitalize" style={{ color: 'var(--text-muted)' }}>
                 ({new Date(goalYear, goalMonth - 1, 1).toLocaleDateString('pt-PT', { month: 'long' })})
               </span>
@@ -717,7 +717,7 @@ export default function DashboardPage() {
         <div style={{ order: order.indexOf('revenueChart') }} className="card p-5">
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
             <TrendingUp size={16} style={{ color: 'var(--primary)' }} />
-            Receita dos ultimos 6 meses
+            Receita dos últimos 6 meses
           </h3>
           {revenue.length === 0 ? (
             <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem dados</p>
@@ -880,7 +880,7 @@ export default function DashboardPage() {
         <div style={{ order: order.indexOf('heatmap') }} className="card p-5">
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
             <CalendarDays size={16} style={{ color: 'var(--primary)' }} />
-            Mapa de actividade (ultimos 90 dias)
+            Mapa de actividade (últimos 90 dias)
           </h3>
           <HeatmapView data={heatmap} />
         </div>
@@ -963,7 +963,7 @@ export default function DashboardPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{lead.title}</p>
                   <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
-                    {lead.pipeline?.name} · {lead.stage?.name} · ultima alteracao {timeAgo(lead.updatedAt)}
+                    {lead.pipeline?.name} · {lead.stage?.name} · última alteração {timeAgo(lead.updatedAt)}
                   </p>
                 </div>
                 <ExternalLink size={12} style={{ color: 'var(--text-muted)' }} className="print:hidden" />
@@ -973,13 +973,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Proximas tarefas */}
+      {/* Próximas tarefas */}
       {visible('tasks') && (
         <div style={{ order: order.indexOf('tasks') }} className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
               <Clock size={16} style={{ color: 'var(--primary)' }} />
-              Proximas tarefas
+              Próximas tarefas
             </h3>
             <button onClick={() => navigate('/tasks')} className="text-xs hover:underline print:hidden" style={{ color: 'var(--primary)' }}>Ver todas</button>
           </div>

@@ -70,7 +70,7 @@ router.get('/me/sessions', async (req: AuthRequest, res: Response, next) => {
       orderBy: { lastUsedAt: 'desc' },
       select: { id: true, ip: true, userAgent: true, device: true, lastUsedAt: true, createdAt: true, expiresAt: true, token: true },
     });
-    // mascarar token mas indicar se e a sessao actual
+    // mascarar token mas indicar se e a sessão actual
     const result = sessions.map((s) => ({
       ...s,
       isCurrent: s.token === currentToken,
@@ -84,9 +84,9 @@ router.get('/me/sessions', async (req: AuthRequest, res: Response, next) => {
 router.delete('/me/sessions/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     const session = await prisma.session.findUnique({ where: { id: req.params.id } });
-    if (!session || session.userId !== req.user!.id) throw new AppError('Sessao nao encontrada', 404);
+    if (!session || session.userId !== req.user!.id) throw new AppError('Sessão não encontrada', 404);
     await prisma.session.delete({ where: { id: session.id } });
-    res.json({ message: 'Sessao terminada' });
+    res.json({ message: 'Sessão terminada' });
   } catch (e) { next(e); }
 });
 
@@ -103,13 +103,13 @@ router.post('/me/sessions/revoke-others', async (req: AuthRequest, res: Response
 
 // =============== 2FA TOTP ===============
 
-// POST /api/users/me/2fa/setup - gera secret e otpauth url (nao activa ainda)
+// POST /api/users/me/2fa/setup - gera secret e otpauth url (não activa ainda)
 router.post('/me/2fa/setup', async (req: AuthRequest, res: Response, next) => {
   try {
     const secret = generateSecret();
     const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
-    if (!user) throw new AppError('Utilizador nao encontrado', 404);
-    // Guardar secret temporario (mas nao activar ate verify)
+    if (!user) throw new AppError('Utilizador não encontrado', 404);
+    // Guardar secret temporario (mas não activar até verify)
     await prisma.user.update({
       where: { id: user.id },
       data: { twoFactorSecret: secret, twoFactorEnabled: false },
@@ -119,13 +119,13 @@ router.post('/me/2fa/setup', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/users/me/2fa/enable - verificar codigo e activar
+// POST /api/users/me/2fa/enable - verificar código e activar
 router.post('/me/2fa/enable', async (req: AuthRequest, res: Response, next) => {
   try {
     const { code } = req.body;
     const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
     if (!user || !user.twoFactorSecret) throw new AppError('Configura primeiro (setup)', 400);
-    if (!verifyTotp(user.twoFactorSecret, code)) throw new AppError('Codigo invalido', 400);
+    if (!verifyTotp(user.twoFactorSecret, code)) throw new AppError('Código invalido', 400);
     await prisma.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true } });
     res.json({ message: '2FA activada' });
   } catch (e) { next(e); }
@@ -136,7 +136,7 @@ router.post('/me/2fa/disable', async (req: AuthRequest, res: Response, next) => 
   try {
     const { password } = req.body;
     const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
-    if (!user) throw new AppError('Utilizador nao encontrado', 404);
+    if (!user) throw new AppError('Utilizador não encontrado', 404);
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) throw new AppError('Password incorrecta', 400);
     await prisma.user.update({
@@ -157,9 +157,9 @@ router.post('/invite-by-email', async (req: AuthRequest, res: Response, next) =>
     }
     await checkLimit(req.user!.workspaceId, 'users');
     const { name, email, role } = req.body;
-    if (!name || !email) throw new AppError('Nome e email obrigatorios', 400);
+    if (!name || !email) throw new AppError('Nome e email obrigatórios', 400);
     const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) throw new AppError('Email ja registado', 409);
+    if (existing) throw new AppError('Email já registado', 409);
 
     const tempPwd = crypto.randomBytes(16).toString('hex');
     const hash = await bcrypt.hash(tempPwd, 12);
@@ -189,7 +189,7 @@ router.post('/invite-by-email', async (req: AuthRequest, res: Response, next) =>
 
     res.status(201).json({
       user, inviteLink: link, emailSent: result.sent,
-      ...(result.sent ? {} : { emailError: result.reason || 'SMTP nao configurado - partilha o link manualmente' }),
+      ...(result.sent ? {} : { emailError: result.reason || 'SMTP não configurado - partilha o link manualmente' }),
     });
   } catch (e) { next(e); }
 });
@@ -198,10 +198,10 @@ router.post('/invite-by-email', async (req: AuthRequest, res: Response, next) =>
 router.post('/me/change-password', async (req: AuthRequest, res: Response, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) throw new AppError('Passwords obrigatorias', 400);
+    if (!currentPassword || !newPassword) throw new AppError('Passwords obrigatórias', 400);
     if (newPassword.length < 6) throw new AppError('Nova password tem de ter pelo menos 6 caracteres', 400);
     const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
-    if (!user) throw new AppError('Utilizador nao encontrado', 404);
+    if (!user) throw new AppError('Utilizador não encontrado', 404);
     const ok = await bcrypt.compare(currentPassword, user.password);
     if (!ok) throw new AppError('Password actual incorrecta', 400);
     const hash = await bcrypt.hash(newPassword, 12);
@@ -218,13 +218,13 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     }
     await checkLimit(req.user!.workspaceId, 'users');
     const { name, email, role, password } = req.body;
-    if (!name || !email || !password) throw new AppError('Nome, email e password obrigatorios', 400);
+    if (!name || !email || !password) throw new AppError('Nome, email e password obrigatórios', 400);
     if (password.length < 6) throw new AppError('Password tem de ter pelo menos 6 caracteres', 400);
     if (role && !['ADMIN', 'MANAGER', 'AGENT'].includes(role)) {
-      throw new AppError('Role invalida (so OWNER pode definir OWNER)', 400);
+      throw new AppError('Role invalida (só OWNER pode definir OWNER)', 400);
     }
     const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) throw new AppError('Email ja registado', 409);
+    if (existing) throw new AppError('Email já registado', 409);
     const hash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
       data: {
@@ -242,7 +242,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     const target = await prisma.user.findUnique({ where: { id: req.params.id } });
-    if (!target) throw new AppError('Utilizador nao encontrado', 404);
+    if (!target) throw new AppError('Utilizador não encontrado', 404);
     if (target.workspaceId !== req.user!.workspaceId) throw new AppError('Acesso negado', 403);
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN podem editar membros', 403);
@@ -280,7 +280,7 @@ router.post('/:id/reset-password', async (req: AuthRequest, res: Response, next)
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
     const target = await prisma.user.findUnique({ where: { id: req.params.id } });
-    if (!target || target.workspaceId !== req.user!.workspaceId) throw new AppError('Utilizador nao encontrado', 404);
+    if (!target || target.workspaceId !== req.user!.workspaceId) throw new AppError('Utilizador não encontrado', 404);
     const { newPassword } = req.body;
     if (!newPassword || newPassword.length < 6) throw new AppError('Nova password tem de ter pelo menos 6 caracteres', 400);
     const hash = await bcrypt.hash(newPassword, 12);
@@ -293,9 +293,9 @@ router.post('/:id/reset-password', async (req: AuthRequest, res: Response, next)
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     if (req.user!.role !== 'OWNER') throw new AppError('Apenas OWNER pode eliminar membros', 403);
-    if (req.params.id === req.user!.id) throw new AppError('Nao podes eliminar-te a ti proprio', 400);
+    if (req.params.id === req.user!.id) throw new AppError('Não podes eliminar-te a ti próprio', 400);
     const target = await prisma.user.findUnique({ where: { id: req.params.id } });
-    if (!target || target.workspaceId !== req.user!.workspaceId) throw new AppError('Utilizador nao encontrado', 404);
+    if (!target || target.workspaceId !== req.user!.workspaceId) throw new AppError('Utilizador não encontrado', 404);
     if (target.role === 'OWNER') {
       const owners = await prisma.user.count({ where: { workspaceId: req.user!.workspaceId, role: 'OWNER' } });
       if (owners <= 1) throw new AppError('Tem de existir pelo menos um OWNER', 400);

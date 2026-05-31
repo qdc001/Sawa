@@ -31,7 +31,7 @@ function NewBroadcastModal({ onClose, onCreated, allTags }: {
   const [loading, setLoading] = useState(false);
 
   const handleCreate = async () => {
-    if (!name || !message) { toast.error('Preenche todos os campos obrigatorios'); return; }
+    if (!name || !message) { toast.error('Preenche todos os campos obrigatórios'); return; }
     setLoading(true);
     try {
       const tagNames = allTags.filter((t) => tagIds.includes(t.id)).map((t) => t.name);
@@ -56,7 +56,7 @@ function NewBroadcastModal({ onClose, onCreated, allTags }: {
         </div>
 
         <div className="flex gap-2 mb-4">
-          {['Configuracao', 'Mensagem', 'Audiencia'].map((s, i) => (
+          {['Configuração', 'Mensagem', 'Audiência'].map((s, i) => (
             <div key={s} className="flex-1">
               <div className="h-1 rounded-full mb-1" style={{ background: i + 1 <= step ? 'var(--primary)' : 'var(--border)' }} />
               <p className="text-xs" style={{ color: i + 1 === step ? 'var(--primary)' : 'var(--text-muted)' }}>{s}</p>
@@ -102,7 +102,7 @@ function NewBroadcastModal({ onClose, onCreated, allTags }: {
           <div className="space-y-3">
             <label className="block text-sm font-medium mb-1">Mensagem *</label>
             <textarea className="input-base" rows={6}
-              placeholder="Ola {{nome}}, temos uma promocao especial para si!"
+              placeholder="Olá {{nome}}, temos uma promoção especial para si!"
               value={message} onChange={(e) => setMessage(e.target.value)} />
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Variaveis suportadas (substituidas no envio): {'{{nome}}'} (do contacto)
@@ -112,7 +112,7 @@ function NewBroadcastModal({ onClose, onCreated, allTags }: {
 
         {step === 3 && (
           <div className="space-y-3">
-            <p className="text-sm">Filtra por tags (opcional). Sem filtros: envia para todos os contactos com {channel === 'WHATSAPP' ? 'WhatsApp' : channel === 'EMAIL' ? 'email' : 'numero'}.</p>
+            <p className="text-sm">Filtra por tags (opcional). Sem filtros: envia para todos os contactos com {channel === 'WHATSAPP' ? 'WhatsApp' : channel === 'EMAIL' ? 'email' : 'número'}.</p>
             <div className="flex flex-wrap gap-1.5 p-2 rounded" style={{ background: 'var(--surface-2)', minHeight: 40 }}>
               {allTags.length === 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Sem tags. Cria nos Contactos.</span>}
               {allTags.map((t) => {
@@ -131,8 +131,8 @@ function NewBroadcastModal({ onClose, onCreated, allTags }: {
               })}
             </div>
             <div className="p-3 rounded text-xs" style={{ background: '#FEF3C7', color: '#92400E' }}>
-              <p className="font-semibold mb-1 flex items-center gap-1"><AlertCircle size={12} /> Atencao</p>
-              <p>Confirma que os destinatarios consentiram receber mensagens. WhatsApp pode banir numeros que enviam spam.</p>
+              <p className="font-semibold mb-1 flex items-center gap-1"><AlertCircle size={12} /> Atenção</p>
+              <p>Confirma que os destinatarios consentiram receber mensagens. WhatsApp pode banir números que enviam spam.</p>
             </div>
           </div>
         )}
@@ -142,7 +142,7 @@ function NewBroadcastModal({ onClose, onCreated, allTags }: {
             <button onClick={() => setStep((s) => s - 1)} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Anterior</button>
           )}
           {step < 3 ? (
-            <button onClick={() => setStep((s) => s + 1)} className="btn btn-primary flex-1 py-2">Proximo</button>
+            <button onClick={() => setStep((s) => s + 1)} className="btn btn-primary flex-1 py-2">Próximo</button>
           ) : (
             <button onClick={handleCreate} disabled={loading} className="btn btn-primary flex-1 py-2">
               {loading ? <Loader2 size={14} className="animate-spin" /> : 'Criar Broadcast'}
@@ -187,7 +187,7 @@ function StatsModal({ broadcastId, onClose }: { broadcastId: string; onClose: ()
             </div>
           ))}
         </div>
-        <h3 className="text-sm font-medium mb-2">Destinatarios (ultimos 100)</h3>
+        <h3 className="text-sm font-medium mb-2">Destinatarios (últimos 100)</h3>
         <div className="space-y-1 max-h-80 overflow-y-auto">
           {(data.recipients || []).map((r) => (
             <div key={r.id} className="flex items-center gap-2 p-2 rounded text-xs" style={{ background: 'var(--surface-2)' }}>
@@ -233,7 +233,7 @@ export default function BroadcastsPage() {
   }, []);
 
   const handleSend = async (id: string) => {
-    if (!confirm('Iniciar envio? Nao podes parar depois de comecar.')) return;
+    if (!confirm('Iniciar envio? Não podes parar depois de comecar.')) return;
     setSending(id);
     try {
       await api.post(`/broadcasts/${id}/send`);
@@ -297,7 +297,7 @@ export default function BroadcastsPage() {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--surface-2)' }}>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Nome', 'Canal', 'Estado', 'Total', 'Enviado', 'Falhou', 'Data', 'Accoes'].map((h) => (
+                {['Nome', 'Canal', 'Estado', 'Total', 'Enviado', 'Falhou', 'Data', 'Acções'].map((h) => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium uppercase" style={{ color: 'var(--text-muted)' }}>{h}</th>
                 ))}
               </tr>

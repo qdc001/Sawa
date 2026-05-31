@@ -57,11 +57,11 @@ async function sendWhatsAppOut(workspaceId: string, phone: string, content: stri
         let body: any = { number: destination };
 
         if (type === 'AUDIO' && mediaUrl) {
-          // Endpoint dedicado para áudio (converte para opus aceito pelo WhatsApp)
+          // Endpoint dedicado para audio (converte para opus aceito pelo WhatsApp)
           path = `/message/sendWhatsAppAudio/${creds.instanceName}`;
           body.audio = mediaUrl;
         } else if (type !== 'TEXT' && mediaUrl) {
-          // Mídia (imagem/vídeo/documento)
+          // Mídia (imagem/video/documento)
           path = `/message/sendMedia/${creds.instanceName}`;
           body.mediatype = type === 'IMAGE' ? 'image' : type === 'VIDEO' ? 'video' : 'document';
           body.media = mediaUrl;
@@ -294,8 +294,8 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { content, channel, contactId, leadId, type, direction, mediaUrl, mediaType, replyToId, isInternal, fileName } = req.body;
-    if (!content) throw new AppError('Conteudo obrigatorio', 400);
-    if (!channel) throw new AppError('Canal obrigatorio', 400);
+    if (!content) throw new AppError('Conteudo obrigatório', 400);
+    if (!channel) throw new AppError('Canal obrigatório', 400);
 
     let externalId: string | undefined;
     let status = 'PENDING';
@@ -380,14 +380,14 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     const { content } = req.body;
-    if (!content) throw new AppError('Conteudo obrigatorio', 400);
+    if (!content) throw new AppError('Conteudo obrigatório', 400);
     const existing = await prisma.message.findUnique({
       where: { id: req.params.id },
       include: { contact: { select: { whatsapp: true, phone: true } } },
     });
-    if (!existing) throw new AppError('Mensagem nao encontrada', 404);
+    if (!existing) throw new AppError('Mensagem não encontrada', 404);
     if (existing.sentById !== req.user!.id) {
-      throw new AppError('So podes editar mensagens que enviaste', 403);
+      throw new AppError('Só podes editar mensagens que enviaste', 403);
     }
 
     // Tentar editar no canal externo (WhatsApp via Evolution)
@@ -619,16 +619,16 @@ router.delete('/conversation', async (req: AuthRequest, res: Response, next) => 
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     const existing = await prisma.message.findUnique({ where: { id: req.params.id } });
-    if (!existing) throw new AppError('Mensagem nao encontrada', 404);
+    if (!existing) throw new AppError('Mensagem não encontrada', 404);
     if (existing.sentById !== req.user!.id) {
-      throw new AppError('So podes eliminar mensagens que enviaste', 403);
+      throw new AppError('Só podes eliminar mensagens que enviaste', 403);
     }
     await prisma.message.delete({ where: { id: req.params.id } });
     res.json({ message: 'Mensagem eliminada' });
   } catch (e) { next(e); }
 });
 
-// ── Transcrição de áudio (Groq Whisper) ───────────────────────────
+// ── Transcrição de audio (Groq Whisper) ───────────────────────────
 function guessAudioMime(p: string): string {
   const ext = p.split('.').pop()?.toLowerCase();
   const m: Record<string, string> = {
@@ -648,7 +648,7 @@ async function fetchAudio(mediaUrl: string): Promise<{ buffer: Buffer; filename:
     return { buffer, filename: path.basename(filePath), mime: guessAudioMime(filePath) };
   }
   const r = await fetch(mediaUrl);
-  if (!r.ok) throw new AppError('Nao foi possivel obter o ficheiro de audio', 502);
+  if (!r.ok) throw new AppError('Não foi possível obter o ficheiro de audio', 502);
   const ab = await r.arrayBuffer();
   return { buffer: Buffer.from(ab), filename: 'audio.ogg', mime: r.headers.get('content-type') || 'audio/ogg' };
 }
@@ -671,13 +671,13 @@ async function transcribeWithGroq(buffer: Buffer, filename: string, mime: string
     if (r.status === 401) throw new AppError('GROQ_API_KEY invalida ou revogada.', 401);
     if (r.status === 429) throw new AppError('Servidor de IA ocupado. Tenta de novo em ~30 segundos.', 429);
     if (r.status === 413) throw new AppError('Audio demasiado grande para transcrever.', 413);
-    throw new AppError(`Groq transcricao: ${detail}`, 502);
+    throw new AppError(`Groq transcrição: ${detail}`, 502);
   }
   const data: any = await r.json();
   return (data.text || '').trim();
 }
 
-// POST /api/messages/:id/transcribe — transcreve o áudio da mensagem
+// POST /api/messages/:id/transcribe — transcreve o audio da mensagem
 router.post('/:id/transcribe', async (req: AuthRequest, res: Response, next) => {
   try {
     const message = await prisma.message.findFirst({
@@ -689,19 +689,19 @@ router.post('/:id/transcribe', async (req: AuthRequest, res: Response, next) => 
         ],
       },
     });
-    if (!message) throw new AppError('Mensagem nao encontrada', 404);
+    if (!message) throw new AppError('Mensagem não encontrada', 404);
     const isAudio = message.type === 'AUDIO' || (message.mediaType || '').startsWith('audio/');
-    if (!message.mediaUrl || !isAudio) throw new AppError('Esta mensagem nao tem audio para transcrever', 400);
+    if (!message.mediaUrl || !isAudio) throw new AppError('Esta mensagem não tem audio para transcrever', 400);
 
     // Cache: se já foi transcrita, devolve logo
     if (message.transcription) return res.json({ transcription: message.transcription });
 
     const apiKey = process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new AppError('GROQ_API_KEY nao configurada no backend', 500);
+    if (!apiKey) throw new AppError('GROQ_API_KEY não configurada no backend', 500);
 
     const audio = await fetchAudio(message.mediaUrl);
     const text = await transcribeWithGroq(audio.buffer, audio.filename, audio.mime, apiKey);
-    if (!text) throw new AppError('Nao foi possivel transcrever (audio vazio ou inaudivel)', 422);
+    if (!text) throw new AppError('Não foi possível transcrever (audio vazio ou inaudivel)', 422);
 
     const updated = await prisma.message.update({
       where: { id: message.id },

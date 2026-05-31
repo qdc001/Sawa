@@ -8,7 +8,7 @@ const router = Router();
 
 const TEMPLATE_TYPES = ['welcome', 'password_reset', 'invite', 'csat', 'lead_assigned', 'task_overdue'];
 
-// GET /api/system-email-templates - lista todos (com defaults se nao houver override)
+// GET /api/system-email-templates - lista todos (com defaults se não houver override)
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
@@ -44,7 +44,7 @@ router.put('/:type', async (req: AuthRequest, res: Response, next) => {
     const { type } = req.params;
     if (!TEMPLATE_TYPES.includes(type)) throw new AppError('Tipo invalido', 400);
     const { subject, body, enabled } = req.body;
-    if (!subject || !body) throw new AppError('Subject e body obrigatorios', 400);
+    if (!subject || !body) throw new AppError('Subject e body obrigatórios', 400);
 
     const existing = await prisma.systemEmailTemplate.findFirst({
       where: { workspaceId: req.user!.workspaceId, type },

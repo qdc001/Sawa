@@ -27,7 +27,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
     const { name, description, color } = req.body;
-    if (!name) throw new AppError('Nome obrigatorio', 400);
+    if (!name) throw new AppError('Nome obrigatório', 400);
     const team = await prisma.team.create({
       data: {
         name, description, color: color || '#6366F1',
@@ -36,7 +36,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     });
     res.status(201).json(team);
   } catch (e: any) {
-    if (e.code === 'P2002') return res.status(409).json({ message: 'Equipa com este nome ja existe' });
+    if (e.code === 'P2002') return res.status(409).json({ message: 'Equipa com este nome já existe' });
     next(e);
   }
 });
@@ -73,7 +73,7 @@ router.post('/:id/members', async (req: AuthRequest, res: Response, next) => {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
     const { userId } = req.body;
-    if (!userId) throw new AppError('userId obrigatorio', 400);
+    if (!userId) throw new AppError('userId obrigatório', 400);
     await prisma.user.update({ where: { id: userId }, data: { teamId: req.params.id } });
     res.json({ message: 'Adicionado' });
   } catch (e) { next(e); }

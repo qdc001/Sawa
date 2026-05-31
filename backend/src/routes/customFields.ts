@@ -23,7 +23,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { name, key, type, entity, options, isRequired, position } = req.body;
-    if (!name || !type || !entity) throw new AppError('Nome, tipo e entidade sao obrigatorios', 400);
+    if (!name || !type || !entity) throw new AppError('Nome, tipo e entidade são obrigatórios', 400);
 
     const slugKey = (key || name).toString().toLowerCase().trim()
       .replace(/[^a-z0-9]+/g, '_')

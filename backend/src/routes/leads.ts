@@ -142,7 +142,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     }
 
     // Sincronizar status com tipo da etapa quando a etapa muda (excepto se o utilizador
-    // tambem enviou status explicitamente — nesse caso respeita a escolha)
+    // também enviou status explicitamente — nesse caso respeita a escolha)
     let stageStatusSync: any = {};
     if (stageId && !status) {
       const stage = await prisma.stage.findUnique({ where: { id: stageId } });
