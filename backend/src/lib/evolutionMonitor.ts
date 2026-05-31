@@ -30,8 +30,11 @@ async function evolutionPost(creds: any, path: string, body: any = {}): Promise<
 }
 
 export async function checkEvolutionInstances(): Promise<void> {
+  // Só monitorizamos integrações que o utilizador quer ligadas (isActive=true).
+  // Quando ele desliga manualmente, isActive passa a false e o monitor deixa de
+  // reconectar; senão o auto-reconnect desfazia logo o "Desligar".
   const integrations = await prisma.integration.findMany({
-    where: { type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
+    where: { type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
   });
 
   const io = (global as any).io;
@@ -59,10 +62,6 @@ export async function checkEvolutionInstances(): Promise<void> {
         if (io) io.to(`workspace:${integration.workspaceId}`).emit('evolution:state', { state: 'open', recovered: true });
       }
       lastStateMap.set(key, { state, since: now, warnedAt: 0 });
-      // garantir que integration está active
-      if (!integration.isActive) {
-        await prisma.integration.update({ where: { id: integration.id }, data: { isActive: true } });
-      }
       continue;
     }
 
@@ -100,8 +99,6 @@ export async function checkEvolutionInstances(): Promise<void> {
           message: 'WhatsApp desligado há mais de 15 minutos. Pode ser preciso re-escanear o QR.',
         });
       }
-      // marcar integração inactiva
-      await prisma.integration.update({ where: { id: integration.id }, data: { isActive: false } }).catch(() => {});
     }
   }
 }
