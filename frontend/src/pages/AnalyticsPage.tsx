@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, Legend,
+  LineChart, Line, ComposedChart, PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import api, { TeamMemberStats, LeadSourceStat, ConversionStats, RevenueData, DashboardData } from '../lib/api';
 
@@ -107,16 +107,16 @@ export default function AnalyticsPage() {
               <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Sem dados</p>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={chartData}>
+                <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                   <YAxis yAxisId="left" tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                  <Tooltip />
+                  <YAxis yAxisId="right" orientation="right" allowDecimals={false} tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={(v: any, name: any) => name === 'Receita (MZN)' ? [`MZN ${Number(v).toLocaleString('pt-PT')}`, name] : [v, name]} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line yAxisId="left" type="monotone" dataKey="revenue" name="Receita (MZN)" stroke="#C8553D" strokeWidth={2} dot={{ r: 4 }} />
+                  <Bar yAxisId="left" dataKey="revenue" name="Receita (MZN)" fill="#C8553D" radius={[4, 4, 0, 0]} barSize={26} />
                   <Line yAxisId="right" type="monotone" dataKey="deals" name="Negócios" stroke="#10B981" strokeWidth={2} dot={{ r: 4 }} />
-                </LineChart>
+                </ComposedChart>
               </ResponsiveContainer>
             )}
           </div>
