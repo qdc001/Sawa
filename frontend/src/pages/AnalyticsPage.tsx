@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, Legend,
+  LineChart, Line, PieChart, Pie, Cell, Legend, LabelList,
 } from 'recharts';
 import api, { TeamMemberStats, LeadSourceStat, ConversionStats, RevenueData, DashboardData } from '../lib/api';
 
@@ -114,8 +114,12 @@ export default function AnalyticsPage() {
                   <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line yAxisId="left" type="monotone" dataKey="revenue" name="Receita (MZN)" stroke="#C8553D" strokeWidth={2} dot={{ r: 4 }} />
-                  <Line yAxisId="right" type="monotone" dataKey="deals" name="Negócios" stroke="#10B981" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line yAxisId="left" type="monotone" dataKey="revenue" name="Receita (MZN)" stroke="#C8553D" strokeWidth={2} dot={{ r: 4 }}>
+                    <LabelList dataKey="revenue" position="top" offset={10} formatter={(v: any) => Number(v) > 0 ? Number(v).toLocaleString('pt-PT') : ''} style={{ fontSize: 10, fontWeight: 700, fill: '#C8553D' }} />
+                  </Line>
+                  <Line yAxisId="right" type="monotone" dataKey="deals" name="Negócios" stroke="#10B981" strokeWidth={2} dot={{ r: 4 }}>
+                    <LabelList dataKey="deals" position="bottom" offset={10} formatter={(v: any) => Number(v) > 0 ? String(v) : ''} style={{ fontSize: 10, fontWeight: 700, fill: '#10B981' }} />
+                  </Line>
                 </LineChart>
               </ResponsiveContainer>
             )}
