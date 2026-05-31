@@ -45,7 +45,7 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  // Nas Definicoes recolhe a barra lateral automaticamente (mais espaco); ao sair,
+  // Nas Definições recolhe a barra lateral automaticamente (mais espaço); ao sair,
   // devolve o estado anterior. O botao de menu no topo expande/recolhe a qualquer momento.
   const wasSettingsRef = useRef(false);
   const beforeSettingsOpenRef = useRef(true);
@@ -102,7 +102,7 @@ export default function AppLayout() {
     };
   }, [updateWorkspace]);
 
-  // Pesquisa global (partilhada via store para destacar tambem no kanban)
+  // Pesquisa global (partilhada via store para destacar também no kanban)
   const { globalSearchQuery: query, setGlobalSearchQuery: setQuery } = useUIStore();
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<{ leads: Lead[]; contacts: Contact[] }>({ leads: [], contacts: [] });
@@ -333,6 +333,14 @@ export default function AppLayout() {
                 placeholder="Pesquisar leads, contactos..."
                 className="flex-1 bg-transparent outline-none"
                 style={{ color: 'var(--text-primary)' }}
+                type="search"
+                name="sawa-omni-search"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-1p-ignore
+                data-lpignore="true"
               />
               {searching ? (
                 <Loader2 size={14} className="animate-spin" style={{ color: 'var(--text-muted)' }} />

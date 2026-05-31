@@ -102,7 +102,7 @@ function ContactSearchPicker({ contacts, value, onChange }: { contacts: Contact[
         value={search}
         onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        placeholder="Pesquisar contacto por nome, telefone ou email..."
+        placeholder="Pesquisar contacto por nome, telefone ou email..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
         className="input-base"
       />
       {open && (
@@ -184,7 +184,7 @@ function NewMessageModal({ contacts, onClose, onCreated }: {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!contactId || !content.trim()) { toast.error('Contacto e conteudo obrigatorios'); return; }
+    if (!contactId || !content.trim()) { toast.error('Contacto e conteudo obrigatórios'); return; }
     setLoading(true);
     try {
       const { data } = await api.post('/messages', { content, channel, contactId, direction });
@@ -314,7 +314,7 @@ function TemplateEditor({ template, channel, onCancel, onSaved }: {
   const [loading, setLoading] = useState(false);
 
   const handleSave = async () => {
-    if (!name.trim() || !content.trim()) { toast.error('Nome e conteudo obrigatorios'); return; }
+    if (!name.trim() || !content.trim()) { toast.error('Nome e conteudo obrigatórios'); return; }
     setLoading(true);
     try {
       if (template) {
@@ -338,8 +338,8 @@ function TemplateEditor({ template, channel, onCancel, onSaved }: {
         <select value={category} onChange={(e) => setCategory(e.target.value as any)} className="input-base">
           <option value="MARKETING">Marketing</option>
           <option value="UTILITY">Utilitario</option>
-          <option value="AUTHENTICATION">Autenticacao</option>
-          <option value="SERVICE">Servico</option>
+          <option value="AUTHENTICATION">Autenticação</option>
+          <option value="SERVICE">Serviço</option>
         </select>
       </div>
       <textarea value={content} onChange={(e) => setContent(e.target.value)} className="input-base" rows={6} placeholder="Conteudo do template (podes usar {{nome}}, {{empresa}}, etc.)" />
@@ -363,7 +363,7 @@ function SnippetsModal({ snippets, onChange, onClose }: {
 
   const handleAdd = () => {
     const k = newKey.trim().replace(/^\//, '');
-    if (!k || !newValue.trim()) { toast.error('Atalho e texto obrigatorios'); return; }
+    if (!k || !newValue.trim()) { toast.error('Atalho e texto obrigatórios'); return; }
     const next = [...list.filter((s) => s.key !== k), { key: k, value: newValue.trim() }];
     setList(next); onChange(next);
     setNewKey(''); setNewValue('');
@@ -382,7 +382,7 @@ function SnippetsModal({ snippets, onChange, onClose }: {
           <button onClick={onClose}><X size={20} /></button>
         </div>
         <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-          Escreves <code className="px-1 rounded" style={{ background: 'var(--surface-3)' }}>/atalho</code> seguido de espaco no input para expandir automaticamente.
+          Escreves <code className="px-1 rounded" style={{ background: 'var(--surface-3)' }}>/atalho</code> seguido de espaço no input para expandir automaticamente.
         </p>
         {list.length === 0 ? (
           <p className="text-sm text-center py-3" style={{ color: 'var(--text-muted)' }}>Sem snippets ainda</p>
@@ -402,7 +402,7 @@ function SnippetsModal({ snippets, onChange, onClose }: {
         <div className="border-t pt-3 space-y-2" style={{ borderColor: 'var(--border)' }}>
           <p className="text-sm font-medium">Novo snippet</p>
           <input value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="atalho (ex: ola)" className="input-base" />
-          <textarea value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="Texto que sera inserido" className="input-base" rows={3} />
+          <textarea value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="Texto que será inserido" className="input-base" rows={3} />
           <button onClick={handleAdd} className="btn btn-primary w-full py-2"><Plus size={14} /> Adicionar</button>
         </div>
       </div>
@@ -410,7 +410,7 @@ function SnippetsModal({ snippets, onChange, onClose }: {
   );
 }
 
-// =============== Pagina principal ===============
+// =============== Página principal ===============
 export default function InboxPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -562,7 +562,7 @@ export default function InboxPage() {
             <span style={{ fontSize: 20 }}>📞</span>
             <div>
               <p className="font-semibold text-sm">{data.contactName} está a chamar</p>
-              <p className="text-xs opacity-70">{data.callType === 'video' ? 'Vídeo' : 'Voz'} · atende no telefone</p>
+              <p className="text-xs opacity-70">{data.callType === 'video' ? 'Video' : 'Voz'} · atende no telefone</p>
             </div>
             <button onClick={() => toast.dismiss(tt.id)} className="ml-2 text-xs">OK</button>
           </div>
@@ -570,7 +570,7 @@ export default function InboxPage() {
 
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           new Notification(`${data.contactName} está a chamar`, {
-            body: data.callType === 'video' ? 'Chamada de vídeo recebida' : 'Chamada de voz recebida',
+            body: data.callType === 'video' ? 'Chamada de video recebida' : 'Chamada de voz recebida',
           });
         }
       }
@@ -761,7 +761,7 @@ export default function InboxPage() {
     }
 
     // 2) Não está nas conversas carregadas. Pode ser que:
-    //    a) Existe noutra página da paginação → fetch directo do contacto + criar virtual
+    //    a) Existe noutra página da páginação → fetch directo do contacto + criar virtual
     //    b) Contacto não tem mensagens ainda → criar virtual
     (async () => {
       try {
@@ -874,7 +874,7 @@ export default function InboxPage() {
       .then(({ data }) => {
         let msgs: Message[] = Array.isArray(data) ? data : [];
         // Quando combinado por contacto, filtrar pelo contactId mas todos os canais
-        // Quando nao combinado, filtrar tambem pelo canal
+        // Quando não combinado, filtrar também pelo canal
         if (!selected.combined) msgs = msgs.filter((m) => m.channel === selected.channel || m.isInternal);
         setMessages(msgs);
         if (selected.unread > 0) {
@@ -899,7 +899,7 @@ export default function InboxPage() {
   //   - Veio com ?contactId=... ou ?leadId=... no URL → abre essa
   //   - Clicou no botão "Ir ao chat" de outro sítio (Contactos/Tarefas/Lead)
 
-  // Snippet expansion: quando draft termina com /xxx <espaco>, expande
+  // Snippet expansion: quando draft termina com /xxx <espaço>, expande
   // Envio de presence (composing/recording/paused) com debounce
   const presenceDebounceRef = useRef<any>(null);
   const lastPresenceSentRef = useRef<{ state: string; at: number } | null>(null);
@@ -1030,7 +1030,7 @@ export default function InboxPage() {
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro a enviar'); } finally { setSending(false); }
   };
 
-  // Gravação de áudio
+  // Gravação de audio
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1095,7 +1095,7 @@ export default function InboxPage() {
       });
       setAttachment({ url: data.url, name: data.name, mimeType: data.mimeType, size: data.size });
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Erro a carregar áudio');
+      toast.error(err.response?.data?.message || 'Erro a carregar audio');
     } finally { setUploading(false); }
   };
 
@@ -1179,7 +1179,7 @@ export default function InboxPage() {
   };
 
   const handleAISuggest = async () => {
-    if (!selected?.leadId) { toast.error('Esta conversa nao esta ligada a um lead'); return; }
+    if (!selected?.leadId) { toast.error('Esta conversa não esta ligada a um lead'); return; }
     const lastInbound = [...messages].reverse().find((m) => m.direction === 'INBOUND');
     if (!lastInbound) { toast.error('Sem mensagem do cliente para responder'); return; }
     setAiLoading(true);
@@ -1305,11 +1305,11 @@ export default function InboxPage() {
           </div>
           <div className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
             {visibleConversations.length} conversas
-            {totalUnread > 0 && <span className="ml-2 font-medium" style={{ color: 'var(--primary)' }}>· {totalUnread} nao lidas</span>}
+            {totalUnread > 0 && <span className="ml-2 font-medium" style={{ color: 'var(--primary)' }}>· {totalUnread} não lidas</span>}
           </div>
           <div className="relative mb-2">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
-            <input className="input-base text-sm" style={{ paddingLeft: 32 }} placeholder="Pesquisar..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input className="input-base text-sm" style={{ paddingLeft: 32 }} placeholder="Pesquisar..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           {/* Folders */}
           <div className="flex gap-1 mb-2 flex-wrap">
@@ -1339,10 +1339,10 @@ export default function InboxPage() {
             ))}
             <button onClick={() => setUnreadOnly(!unreadOnly)} className="text-xs px-2 py-1 rounded font-medium"
               style={{ background: unreadOnly ? 'var(--primary)' : 'var(--surface-3)', color: unreadOnly ? '#fff' : 'var(--text-secondary)' }}>
-              Nao lidas
+              Não lidas
             </button>
             <button onClick={() => setCombineByContact(!combineByContact)} className="text-xs px-2 py-1 rounded font-medium"
-              title="Juntar todos os canais do mesmo contacto numa unica conversa"
+              title="Juntar todos os canais do mesmo contacto numa única conversa"
               style={{ background: combineByContact ? 'var(--primary)' : 'var(--surface-3)', color: combineByContact ? '#fff' : 'var(--text-secondary)' }}>
               Combinar
             </button>
@@ -1415,7 +1415,7 @@ export default function InboxPage() {
                       </div>
                     </div>
                   </button>
-                  {/* Tags da conversa (sempre visiveis) */}
+                  {/* Tags da conversa (sempre visíveis) */}
                   {meta?.tags && meta.tags.length > 0 && (
                     <div className="absolute left-14 bottom-1 flex gap-0.5 pointer-events-none">
                       {meta.tags.slice(0, 3).map((t) => (
@@ -1440,7 +1440,7 @@ export default function InboxPage() {
           )}
         </div>
 
-        {/* Paginação das conversas */}
+        {/* Páginação das conversas */}
         {convTotal > CONV_PAGE_SIZE && (
           <div className="flex items-center justify-between px-3 py-2 text-xs flex-shrink-0" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
             <span style={{ color: 'var(--text-muted)' }}>
@@ -1501,7 +1501,7 @@ export default function InboxPage() {
                     {selected.contact?.id && presenceMap[selected.contact.id] === 'composing' ? (
                       <span className="text-xs font-medium" style={{ color: 'var(--primary)' }}>a escrever...</span>
                     ) : selected.contact?.id && presenceMap[selected.contact.id] === 'recording' ? (
-                      <span className="text-xs font-medium" style={{ color: '#10B981' }}>a gravar áudio...</span>
+                      <span className="text-xs font-medium" style={{ color: '#10B981' }}>a gravar audio...</span>
                     ) : (
                       <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                         {selected.combined ? 'Multi-canal' : CHANNEL_LABELS[selected.channel]}
@@ -1595,7 +1595,7 @@ export default function InboxPage() {
               <div className="px-6 py-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
-                  <input autoFocus value={convSearch} onChange={(e) => setConvSearch(e.target.value)} className="input-base text-sm" style={{ paddingLeft: 32 }} placeholder="Pesquisar nesta conversa..." />
+                  <input autoFocus value={convSearch} onChange={(e) => setConvSearch(e.target.value)} className="input-base text-sm" style={{ paddingLeft: 32 }} placeholder="Pesquisar nesta conversa..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
                 </div>
                 {convSearch.trim() && (
                   <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{filteredMessages.length} resultado(s)</p>
@@ -1615,8 +1615,8 @@ export default function InboxPage() {
                     <option value="">Qualquer tipo</option>
                     <option value="TEXT">Texto</option>
                     <option value="IMAGE">Imagem</option>
-                    <option value="VIDEO">Vídeo</option>
-                    <option value="AUDIO">Áudio</option>
+                    <option value="VIDEO">Video</option>
+                    <option value="AUDIO">Audio</option>
                     <option value="DOCUMENT">Documento</option>
                     <option value="INTERACTIVE">Botão/Lista</option>
                     <option value="SYSTEM">Sistema (chamadas)</option>
@@ -1730,7 +1730,7 @@ export default function InboxPage() {
                                           className="mt-1 flex items-center gap-1 text-xs underline"
                                           style={{ color: out ? 'rgba(255,255,255,0.85)' : 'var(--primary)' }}
                                         >
-                                          {transcribingId === msg.id ? (<><Loader2 size={11} className="animate-spin" /> A transcrever...</>) : ('Transcrever áudio')}
+                                          {transcribingId === msg.id ? (<><Loader2 size={11} className="animate-spin" /> A transcrever...</>) : ('Transcrever audio')}
                                         </button>
                                       )}
                                     </div>
@@ -1750,7 +1750,7 @@ export default function InboxPage() {
                                   )}
                                 </div>
                               )}
-                              {msg.content && !(msg.type === 'IMAGE' || msg.mediaType?.startsWith('image/')) && msg.content !== '[Áudio]' && msg.content !== '[Imagem]' && msg.content !== '[Vídeo]' && (
+                              {msg.content && !(msg.type === 'IMAGE' || msg.mediaType?.startsWith('image/')) && msg.content !== '[Audio]' && msg.content !== '[Imagem]' && msg.content !== '[Video]' && (
                                 <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
                               )}
                             </>
@@ -1933,7 +1933,7 @@ export default function InboxPage() {
                     ref={draftRef}
                     className="flex-1 text-sm resize-none outline-none min-h-[36px] max-h-32"
                     style={{ color: 'var(--text-primary)', background: 'transparent' }}
-                    placeholder={isInternalNote ? 'Nota interna (so visivel para a equipa)...' : `Mensagem para ${fullName(selected.contact)}... (/atalho para snippets)`}
+                    placeholder={isInternalNote ? 'Nota interna (só visível para a equipa)...' : `Mensagem para ${fullName(selected.contact)}... (/atalho para snippets)`}
                     value={draft}
                     onChange={(e) => handleDraftChange(e.target.value)}
                     onKeyDown={(e) => {
@@ -2031,9 +2031,9 @@ export default function InboxPage() {
               </button>
             )}
 
-            {/* Atribuir responsavel */}
+            {/* Atribuir responsável */}
             <div className="space-y-1">
-              <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Responsavel</p>
+              <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Responsável</p>
               <select
                 value={getMeta(selected)?.assignedToId || ''}
                 onChange={(e) => assignTo(selected, e.target.value || null)}
@@ -2077,7 +2077,7 @@ export default function InboxPage() {
                 <span className="font-medium">{selected.total}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span style={{ color: 'var(--text-secondary)' }}>Nao lidas</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Não lidas</span>
                 <span className="font-medium" style={{ color: selected.unread > 0 ? 'var(--primary)' : undefined }}>{selected.unread}</span>
               </div>
               {avgResponseMin !== null && (
@@ -2154,7 +2154,7 @@ export default function InboxPage() {
         />
       )}
 
-      {/* Modal Ver Tarefa (compacto, edicao rapida) */}
+      {/* Modal Ver Tarefa (compacto, edição rápida) */}
       {viewingTask && (
         <ViewTaskModal
           task={viewingTask}
@@ -2531,7 +2531,7 @@ function ForwardMessageModal({ message, onClose, onSent }: {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Pesquisar contacto..."
+            placeholder="Pesquisar contacto..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
             className="input-base text-sm"
             autoFocus
           />

@@ -147,7 +147,7 @@ function ManageTagsModal({
 
 // ============== Modal: Gerir Campos Personalizados de Contactos ==============
 const CFIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
-  TEXT: 'Texto', NUMBER: 'Numero', DATE: 'Data', BOOLEAN: 'Sim/Nao',
+  TEXT: 'Texto', NUMBER: 'Número', DATE: 'Data', BOOLEAN: 'Sim/Não',
   SELECT: 'Lista (uma)', MULTISELECT: 'Lista (multipla)', URL: 'URL', EMAIL: 'Email', PHONE: 'Telefone',
 };
 function ManageContactFieldsModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
@@ -170,7 +170,7 @@ function ManageContactFieldsModal({ onClose, onChanged }: { onClose: () => void;
     const opts = (newType === 'SELECT' || newType === 'MULTISELECT')
       ? newOptions.split(',').map((s) => s.trim()).filter(Boolean) : [];
     if ((newType === 'SELECT' || newType === 'MULTISELECT') && opts.length === 0) {
-      return toast.error('Indica pelo menos uma opcao');
+      return toast.error('Indica pelo menos uma opção');
     }
     try {
       const { data } = await api.post('/custom-fields', {
@@ -230,10 +230,10 @@ function ManageContactFieldsModal({ onClose, onChanged }: { onClose: () => void;
             {Object.entries(CFIELD_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
           {(newType === 'SELECT' || newType === 'MULTISELECT') && (
-            <input value={newOptions} onChange={(e) => setNewOptions(e.target.value)} placeholder="Opcoes separadas por virgula" className="input-base" />
+            <input value={newOptions} onChange={(e) => setNewOptions(e.target.value)} placeholder="Opções separadas por virgula" className="input-base" />
           )}
           <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-primary)' }}>
-            <input type="checkbox" checked={newRequired} onChange={(e) => setNewRequired(e.target.checked)} /> Obrigatorio
+            <input type="checkbox" checked={newRequired} onChange={(e) => setNewRequired(e.target.checked)} /> Obrigatório
           </label>
           <button onClick={handleAdd} className="btn btn-primary w-full py-2"><Plus size={16} /> Adicionar campo</button>
         </div>
@@ -258,7 +258,7 @@ function ColumnsModal({
     <div className="fixed inset-0 flex items-center justify-center z-[60] p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
       <div className="card p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Colunas visiveis</h3>
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Colunas visíveis</h3>
           <button onClick={onClose}><X size={20} style={{ color: 'var(--text-muted)' }} /></button>
         </div>
         <div className="space-y-2">
@@ -296,7 +296,7 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
     { key: 'company', label: 'Empresa' },
     { key: 'position', label: 'Cargo' },
     { key: 'website', label: 'Website' },
-    { key: 'address', label: 'Endereco' },
+    { key: 'address', label: 'Endereço' },
     { key: 'city', label: 'Cidade' },
     { key: 'country', label: 'Pais' },
     { key: 'notes', label: 'Notas' },
@@ -385,7 +385,7 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
       if (data.created) parts.push(`${data.created} criados`);
       if (data.updated) parts.push(`${data.updated} actualizados`);
       if (data.skipped) parts.push(`${data.skipped} ignorados`);
-      toast.success(`Importacao: ${parts.join(', ')} (total ${data.total})`);
+      toast.success(`Importação: ${parts.join(', ')} (total ${data.total})`);
       onImported();
       onClose();
     } catch (err: any) {
@@ -452,7 +452,7 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
                       className="input-base"
                       style={{ flex: 2, padding: '4px 8px', fontSize: 13 }}
                     >
-                      <option value="">— Nao mapear —</option>
+                      <option value="">— Não mapear —</option>
                       {headers.map((h) => <option key={h} value={h}>{h}</option>)}
                     </select>
                   </div>
@@ -550,7 +550,7 @@ function ContactFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!firstName.trim()) { toast.error('Nome obrigatorio'); return; }
+    if (!firstName.trim()) { toast.error('Nome obrigatório'); return; }
     setLoading(true);
     try {
       const payload: any = {
@@ -684,7 +684,7 @@ function ContactFormModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Endereco</label>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Endereço</label>
               <input value={address} onChange={(e) => setAddress(e.target.value)} className="input-base" />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -790,7 +790,7 @@ function ContactFormModal({
   );
 }
 
-// ============== Pagina principal ==============
+// ============== Página principal ==============
 export default function ContactsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -878,7 +878,7 @@ export default function ContactsPage() {
     if (!queryContactId) return;
     api.get(`/contacts/${queryContactId}`)
       .then(({ data }) => setEditing(data))
-      .catch(() => toast.error('Contacto nao encontrado'))
+      .catch(() => toast.error('Contacto não encontrado'))
       .finally(() => {
         const next = new URLSearchParams(searchParams);
         next.delete('contactId');
@@ -982,7 +982,7 @@ export default function ContactsPage() {
       if (s.includes(',') || s.includes('"') || s.includes('\n')) return '"' + s.replace(/"/g, '""') + '"';
       return s;
     };
-    const headers = ['Tipo', 'Nome', 'Apelido', 'Empresa', 'Cargo', 'Email', 'Telefone', 'WhatsApp', 'Website', 'Endereco', 'Cidade', 'Pais', 'Notas', 'Tags', 'Nr Leads', 'Criado em'];
+    const headers = ['Tipo', 'Nome', 'Apelido', 'Empresa', 'Cargo', 'Email', 'Telefone', 'WhatsApp', 'Website', 'Endereço', 'Cidade', 'Pais', 'Notas', 'Tags', 'Nr Leads', 'Criado em'];
     const rows = list.map((c: any) => [
       c.type === 'COMPANY' ? 'Empresa' : 'Pessoa',
       c.firstName || '', c.lastName || '', c.company || '', c.position || '',
@@ -1041,7 +1041,7 @@ export default function ContactsPage() {
       <div className="p-3 flex flex-wrap items-center gap-2" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
         <div className="relative" style={{ minWidth: 240, flex: '1 1 240px' }}>
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar..." className="input-base" style={{ paddingLeft: 32 }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} className="input-base" style={{ paddingLeft: 32 }} />
         </div>
         <div className="flex items-center gap-1">
           {(['', 'PERSON', 'COMPANY'] as const).map((t) => (
@@ -1071,7 +1071,7 @@ export default function ContactsPage() {
       {selectedArray.length > 0 && (
         <div className="px-3 py-2 flex items-center gap-2 flex-wrap" style={{ background: 'var(--primary-light)', borderBottom: '1px solid var(--border)' }}>
           <span className="text-sm font-medium" style={{ color: 'var(--primary)' }}>{selectedArray.length} seleccionado(s)</span>
-          <button onClick={() => setSelectedIds(new Set())} className="text-xs hover:underline" style={{ color: 'var(--primary)' }}>Limpar selecao</button>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs hover:underline" style={{ color: 'var(--primary)' }}>Limpar selecção</button>
           <span className="ml-auto flex items-center gap-2">
             <select value={bulkTagId} onChange={(e) => setBulkTagId(e.target.value)} className="input-base" style={{ padding: '4px 8px', fontSize: 12 }}>
               <option value="">Atribuir tag...</option>
@@ -1129,7 +1129,7 @@ export default function ContactsPage() {
                     <button onClick={() => toggleSort('createdAt')} className="flex items-center gap-1 text-xs uppercase">Criado {sortIcon('createdAt')}</button>
                   </th>
                 )}
-                <th className="text-right px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Accoes</th>
+                <th className="text-right px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Acções</th>
               </tr>
             </thead>
             <tbody>
@@ -1198,7 +1198,7 @@ export default function ContactsPage() {
           </table>
         )}
 
-        {/* Paginação */}
+        {/* Páginação */}
         {!loading && total > PAGE_SIZE && (
           <div className="flex items-center justify-between py-3 px-4" style={{ borderTop: '1px solid var(--border)' }}>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>

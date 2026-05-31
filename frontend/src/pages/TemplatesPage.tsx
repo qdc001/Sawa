@@ -38,7 +38,7 @@ function TemplateModal({
   };
 
   const handleSave = async () => {
-    if (!name.trim() || !content.trim()) { toast.error('Nome e conteudo obrigatorios'); return; }
+    if (!name.trim() || !content.trim()) { toast.error('Nome e conteudo obrigatórios'); return; }
     setLoading(true);
     try {
       const variables = variablesText.split(',').map((s) => s.trim()).filter(Boolean);
@@ -169,7 +169,7 @@ export default function TemplatesPage() {
       <div className="p-3 flex flex-wrap items-center gap-2" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
         <div className="relative" style={{ minWidth: 220, flex: '1 1 220px' }}>
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar..." className="input-base" style={{ paddingLeft: 32 }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} className="input-base" style={{ paddingLeft: 32 }} />
         </div>
         <select value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
           <option value="">Todos os canais</option>

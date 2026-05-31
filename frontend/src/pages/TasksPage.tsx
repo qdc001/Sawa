@@ -89,7 +89,7 @@ function LeadSearchPicker({ leads, value, onChange }: { leads: Lead[]; value: st
         value={search}
         onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        placeholder="Pesquisar lead por título ou contacto..."
+        placeholder="Pesquisar lead por título ou contacto..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
         className="input-base"
       />
       {open && (
@@ -221,7 +221,7 @@ export function TaskOptionBadge({ option, size = 'sm' }: { option?: TaskOption; 
   );
 }
 
-// =============== Modal: Nova/Editar Tarefa (versao simplificada) ===============
+// =============== Modal: Nova/Editar Tarefa (versão simplificada) ===============
 function TaskFormModalV2({
   task, users, leads, tags,
   onClose, onSaved, onTagsChanged, initialDate,
@@ -312,7 +312,7 @@ function TaskFormModalV2({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) { toast.error('Titulo obrigatorio'); return; }
+    if (!title.trim()) { toast.error('Título obrigatório'); return; }
     setLoading(true);
     // Tarefa ligada apenas ao contacto. Estado/Recorrência/Tags/Subtarefas/Lead foram
     // removidos do form principal. Edição de estado faz-se via "Marcar concluída" no ViewTaskModal.
@@ -445,7 +445,7 @@ function TaskFormModalV2({
                       } catch {}
                     }
                   }}
-                  placeholder="Procurar contacto por nome ou telefone..."
+                  placeholder="Procurar contacto por nome ou telefone..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                   className="input-base"
                 />
                 {contactResults.length > 0 && (
@@ -483,7 +483,7 @@ function TaskFormModalV2({
   );
 }
 
-// =============== Componentes Drag-Drop Calendario ===============
+// =============== Componentes Drag-Drop Calendário ===============
 function DraggableTaskBadge({ task, onClick }: { task: Task; onClick: () => void }) {
   const { lookupPriority } = useTaskOptions();
   const prio = lookupPriority(task.priority);
@@ -520,7 +520,7 @@ function DroppableDay({ dayKey, children }: { dayKey: string; children: React.Re
   );
 }
 
-// =============== Vista Calendario ===============
+// =============== Vista Calendário ===============
 function CalendarView({
   tasks, monthDate, onPrev, onNext, onToday, onCreateAt, onEdit, onTaskMoved,
 }: {
@@ -1190,16 +1190,16 @@ function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImpo
         return undefined;
       };
       let found: string | undefined;
-      if (key === 'title') found = find('título', 'titulo', 'title', 'texto', 'text', 'tarefa', 'task name', 'subject');
-      else if (key === 'description') found = find('descrição', 'descricao', 'description', 'notas', 'notes');
+      if (key === 'title') found = find('título', 'título', 'title', 'texto', 'text', 'tarefa', 'task name', 'subject');
+      else if (key === 'description') found = find('descrição', 'descrição', 'description', 'notas', 'notes');
       else if (key === 'dueAt') found = find('complete till', 'data limite', 'due date', 'due_at', 'data', 'deadline', 'date');
       else if (key === 'type') found = find('tipo', 'type', 'task type');
       else if (key === 'status') found = find('estado', 'status');
       else if (key === 'priority') found = find('prioridade', 'priority');
-      else if (key === 'responsibleUser') found = find('responsável', 'responsavel', 'responsible', 'assignee', 'owner');
+      else if (key === 'responsibleUser') found = find('responsável', 'responsável', 'responsible', 'assignee', 'owner');
       else if (key === 'contact') found = find('contacto', 'contato', 'contact');
       else if (key === 'contactPhone') found = find('telefone', 'phone');
-      else if (key === 'lead') found = find('lead', 'deal', 'negócio', 'negocio');
+      else if (key === 'lead') found = find('lead', 'deal', 'negócio', 'negócio');
       if (found) auto[key] = found;
     });
     setMapping(auto);
@@ -1330,7 +1330,7 @@ function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImpo
   );
 }
 
-// =============== Pagina principal ===============
+// =============== Página principal ===============
 export default function TasksPage() {
   const navigate = useNavigate();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
@@ -1414,7 +1414,7 @@ export default function TasksPage() {
       const newStatus = t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED';
       const { data } = await api.patch(`/tasks/${t.id}`, { status: newStatus });
       setTasks((prev) => prev.map((x) => (x.id === t.id ? data : x)));
-      // Se era recorrente, recarregar para apanhar a nova ocorrencia
+      // Se era recorrente, recarregar para apanhar a nova ocorrência
       if (newStatus === 'COMPLETED' && t.recurrence) {
         setTimeout(loadTasks, 300);
       }
@@ -1483,7 +1483,7 @@ export default function TasksPage() {
       const s = String(v);
       return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
-    const headers = ['Titulo', 'Tipo', 'Estado', 'Prioridade', 'Data limite', 'Responsavel', 'Lead', 'Tags', 'Recorrencia', 'Criada em'];
+    const headers = ['Título', 'Tipo', 'Estado', 'Prioridade', 'Data limite', 'Responsável', 'Lead', 'Tags', 'Recorrência', 'Criada em'];
     const rows = filteredTasks.map((t: any) => [
       t.title || '', taskOpts.lookupType(t.type).label, taskOpts.lookupStatus(t.status).label,
       taskOpts.lookupPriority(t.priority).label,
@@ -1503,7 +1503,7 @@ export default function TasksPage() {
     toast.success(`${filteredTasks.length} exportadas`);
   };
 
-  // Drag-and-drop no calendario muda data
+  // Drag-and-drop no calendário muda data
   const handleTaskMoved = async (taskId: string, newDateKey: string) => {
     const t = tasks.find((x) => x.id === taskId);
     if (!t) return;
@@ -1594,7 +1594,7 @@ export default function TasksPage() {
                 style={{ background: view === v ? 'var(--primary)' : 'var(--surface)', color: view === v ? '#fff' : 'var(--text-primary)' }}>
                 {v === 'list' && <><ListIcon size={12} /> Lista</>}
                 {v === 'agenda' && <><Clock size={12} /> Agenda</>}
-                {v === 'calendar' && <><CalIcon size={12} /> Calendario</>}
+                {v === 'calendar' && <><CalIcon size={12} /> Calendário</>}
                 {v === 'kanban' && <><Layout size={12} /> Kanban</>}
               </button>
             ))}
@@ -1608,13 +1608,13 @@ export default function TasksPage() {
         </div>
       </div>
 
-      {/* Filtros rapidos de data */}
+      {/* Filtros rápidos de data */}
       <div className="px-3 py-2 flex flex-wrap items-center gap-1" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
         {([
           { v: '', label: 'Todas' },
           { v: 'today', label: 'Hoje' },
           { v: 'week', label: 'Esta semana' },
-          { v: '7days', label: 'Proximos 7 dias' },
+          { v: '7days', label: 'Próximos 7 dias' },
           { v: 'overdue', label: 'Atrasadas' },
           { v: 'noDate', label: 'Sem data' },
         ] as Array<{ v: DateFilter; label: string }>).map((opt) => (
@@ -1630,12 +1630,12 @@ export default function TasksPage() {
         </button>
       </div>
 
-      {/* Filtros detalhados (so na vista lista) */}
+      {/* Filtros detalhados (só na vista lista) */}
       {view === 'list' && (
         <div className="p-3 flex flex-wrap items-center gap-2" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
           <div className="relative" style={{ minWidth: 200, flex: '1 1 200px' }}>
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar..." className="input-base" style={{ paddingLeft: 32 }} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} className="input-base" style={{ paddingLeft: 32 }} />
           </div>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
             <option value="">Todos estados</option>
@@ -1650,7 +1650,7 @@ export default function TasksPage() {
             {taskOpts.types.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
-            <option value="">Todos responsaveis</option>
+            <option value="">Todos responsáveis</option>
             {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
           <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
@@ -1732,15 +1732,15 @@ export default function TasksPage() {
                   </button>
                 </th>
                 <th className="w-8 px-3 py-2"></th>
-                <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Titulo</th>
+                <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Título</th>
                 <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Prio.</th>
                 <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Tipo</th>
                 <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Estado</th>
                 <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Data</th>
-                <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Responsavel</th>
+                <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Responsável</th>
                 <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Lead</th>
                 <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Tags</th>
-                <th className="text-right px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Accoes</th>
+                <th className="text-right px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>Acções</th>
               </tr>
             </thead>
             <tbody>

@@ -272,7 +272,7 @@ export default function QuotesPage() {
 
       <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg max-w-sm" style={{ background: 'var(--surface-3)', border: '1px solid var(--border)' }}>
         <Search size={14} style={{ color: 'var(--text-muted)' }} />
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar proposta..." className="flex-1 bg-transparent outline-none text-sm" style={{ color: 'var(--text-primary)' }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar proposta..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} className="flex-1 bg-transparent outline-none text-sm" style={{ color: 'var(--text-primary)' }} />
       </div>
 
       <div className="card overflow-visible">

@@ -26,7 +26,7 @@ function callIcon(content: string) {
 }
 
 function callLabel(content: string): string {
-  if (content.includes('vídeo')) return 'Chamada de vídeo';
+  if (content.includes('video')) return 'Chamada de video';
   if (content.includes('voz')) return 'Chamada de voz';
   return 'Chamada';
 }
@@ -88,7 +88,7 @@ export default function CallsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Pesquisar por nome ou telefone..."
+              placeholder="Pesquisar por nome ou telefone..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
               className="input-base text-sm"
               style={{ paddingLeft: 32 }}
             />
@@ -157,7 +157,7 @@ export default function CallsPage() {
                     </td>
                     <td className="py-2 px-4">
                       <span className="flex items-center gap-1.5 text-xs">
-                        {c.content.includes('vídeo') ? <Video size={12} /> : <Phone size={12} />}
+                        {c.content.includes('video') ? <Video size={12} /> : <Phone size={12} />}
                         {callLabel(c.content)}
                       </span>
                     </td>
