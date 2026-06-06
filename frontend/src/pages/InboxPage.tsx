@@ -2478,19 +2478,26 @@ function ForwardMessageModal({ message, onClose, onSent }: {
     if (selectedIds.size === 0) return;
     setSending(true);
     let ok = 0;
+    let failed = 0;
     for (const cid of selectedIds) {
       try {
-        // Reencaminhar: enviar o mesmo conteúdo (mediaUrl, type, content) para o contacto
-        // Para WhatsApp como canal por defeito; o backend tenta canais disponíveis.
-        await api.post('/messages', {
-          content: message.content,
+        // Reencaminhar: enviar o mesmo conteúdo (mediaUrl, type, content) para o contacto.
+        // O backend tenta a Evolution e cai para Cloud API. Verificamos o status devolvido
+        // porque a chamada HTTP pode ter sucesso mesmo quando o envio externo falha.
+        const { data } = await api.post('/messages', {
+          content: message.content || '[Anexo]',
           channel: 'WHATSAPP',
           contactId: cid,
           type: message.type || 'TEXT',
           mediaUrl: message.mediaUrl || undefined,
           mediaType: message.mediaType || undefined,
         });
-        ok++;
+        if (data?.status === 'FAILED') {
+          failed++;
+          toast.error(`Nao chegou ao destinatario ${cid.slice(-4)}: verifica o WhatsApp/Evolution`);
+        } else {
+          ok++;
+        }
         // Se há comentário extra, enviar como mensagem separada de seguida
         if (extraComment.trim()) {
           try {
@@ -2503,10 +2510,15 @@ function ForwardMessageModal({ message, onClose, onSent }: {
           } catch { /* silent */ }
         }
       } catch (e: any) {
+        failed++;
         toast.error(`Falhou para ${cid.slice(-4)}: ${e.response?.data?.message || 'erro'}`);
       }
     }
     setSending(false);
+    if (failed > 0 && ok === 0) {
+      onClose();
+      return;
+    }
     onSent(ok);
   };
 
