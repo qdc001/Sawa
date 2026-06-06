@@ -1718,7 +1718,29 @@ export default function InboxPage() {
                                     <video src={msg.mediaUrl} controls className="rounded max-w-full" style={{ maxHeight: 240, maxWidth: 320 }} />
                                   ) : (msg.type === 'AUDIO' || msg.mediaType?.startsWith('audio/')) ? (
                                     <div style={{ maxWidth: 280 }}>
-                                      <audio src={msg.mediaUrl} controls style={{ maxWidth: 280 }} />
+                                      <audio
+                                        src={msg.mediaUrl}
+                                        controls
+                                        preload="metadata"
+                                        style={{ maxWidth: 280 }}
+                                        onLoadedMetadata={(e) => {
+                                          // WhatsApp envia opus/ogg sem Cues no inicio do ficheiro.
+                                          // O Chrome devolve duracao=Infinity ate o ficheiro ser
+                                          // todo lido. O truque abaixo forca a leitura sem mexer
+                                          // no audio percebido pelo utilizador.
+                                          const a = e.currentTarget;
+                                          if (!isFinite(a.duration) || a.duration === 0) {
+                                            const onUpdate = () => {
+                                              if (isFinite(a.duration) && a.duration > 0) {
+                                                a.removeEventListener('durationchange', onUpdate);
+                                                a.currentTime = 0;
+                                              }
+                                            };
+                                            a.addEventListener('durationchange', onUpdate);
+                                            try { a.currentTime = 1e10; } catch { /* ignore */ }
+                                          }
+                                        }}
+                                      />
                                       {msg.transcription ? (
                                         <p className="mt-1 text-xs italic" style={{ color: out ? 'rgba(255,255,255,0.85)' : 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
                                           "{msg.transcription}"
