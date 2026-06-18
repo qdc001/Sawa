@@ -112,6 +112,19 @@ model Workspace {
   assignmentNotifyEnabled Boolean   @default(true)
   // Voz/tom da marca que a IA usa ao redigir mensagens (suggest-reply, agent-reply, improve-text)
   aiBrandVoice            String?
+  // Sector/ramo de actividade do workspace, usado pela IA Vendedora para escolher
+  // tacticas e vocabulario adequados. Chaves alinhadas com sectorTemplates:
+  // imobiliaria | clinica | escola | consultoria | outro.
+  sector                  String    @default("outro")
+  // Persona da IA Vendedora (configuravel por cliente do Klaru).
+  aiAgentName             String?
+  aiAgentRole             String?
+  // Instrucoes livres do utilizador (ex: "Sempre sugere visita guiada antes
+  // de proposta"). Concatenadas ao system prompt da IA Vendedora.
+  aiAgentInstructions     String?
+  // Memoria consolidada pelo job nocturno a partir das correccoes humanas
+  // e dos fechos de leads (preenchida pela Fase 4 do plano).
+  aiLearnedMemory         String?
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 

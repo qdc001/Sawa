@@ -4,7 +4,7 @@ import {
   LayoutDashboard, GitBranch, Users, MessageSquare, CheckSquare,
   Zap, Bot, BarChart3, FileText, Plug, Settings, LogOut,
   Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2, Check, Phone,
-  ScrollText
+  ScrollText, Sparkles
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
 import { KlaruMark } from '../KlaruLogo';
@@ -27,6 +27,7 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
   { path: '/automations', icon: Zap, key: 'nav.automations' },
   { path: '/broadcasts', icon: Radio, key: 'nav.broadcasts' },
   { path: '/chatbots', icon: Bot, key: 'nav.chatbots' },
+  { path: '/sales-agent', icon: Sparkles, key: 'nav.salesAgent' },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
   { path: '/templates', icon: FileText, key: 'nav.templates' },
   { path: '/integrations', icon: Plug, key: 'nav.integrations' },

@@ -214,6 +214,15 @@ router.post('/:key/apply', async (req: AuthRequest, res: Response, next) => {
       }
     }
 
+    // Grava o sector escolhido no Workspace para a IA Vendedora poder
+    // adaptar vocabulario, objeccoes e tacticas de fecho.
+    try {
+      await prisma.workspace.update({
+        where: { id: wsId },
+        data: { sector: req.params.key },
+      });
+    } catch { /* nao bloquear a aplicacao do template */ }
+
     res.json({ message: `Modelo "${sector.label}" aplicado.`, ...result });
   } catch (e) { next(e); }
 });

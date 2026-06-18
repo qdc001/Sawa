@@ -53,6 +53,7 @@ const dict: Record<string, Record<Lang, string>> = {
   'nav.automations': { pt: 'Automatizações', en: 'Automations' },
   'nav.broadcasts': { pt: 'Broadcasts', en: 'Broadcasts' },
   'nav.chatbots': { pt: 'Chatbots', en: 'Chatbots' },
+  'nav.salesAgent': { pt: 'IA Vendedora', en: 'Sales AI' },
   'nav.analytics': { pt: 'Análises', en: 'Analytics' },
   'nav.templates': { pt: 'Templates', en: 'Templates' },
   'nav.integrations': { pt: 'Integrações', en: 'Integrations' },
