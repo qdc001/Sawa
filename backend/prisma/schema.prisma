@@ -11,55 +11,55 @@ datasource db {
 // ==================== AUTH & USERS ====================
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  password     String
-  avatar       String?
-  phone        String?
+  id               String    @id @default(cuid())
+  name             String
+  email            String    @unique
+  password         String
+  avatar           String?
+  phone            String?
   // JID do grupo WhatsApp para onde se envia o digest diário deste utilizador
   // (formato: 258...-12345@g.us). Se preenchido, sobrepõe-se ao `phone` no digest.
-  digestGroupJid String?
-  role         UserRole @default(AGENT)
-  isActive     Boolean  @default(true)
-  status       String   @default("OFFLINE") // ONLINE | AWAY | BUSY | DND | OFFLINE
-  internalNotes String?
-  viewOnlyOwn  Boolean  @default(false)
-  lastLoginAt  DateTime?
+  digestGroupJid   String?
+  role             UserRole  @default(AGENT)
+  isActive         Boolean   @default(true)
+  status           String    @default("OFFLINE") // ONLINE | AWAY | BUSY | DND | OFFLINE
+  internalNotes    String?
+  viewOnlyOwn      Boolean   @default(false)
+  lastLoginAt      DateTime?
   // 2FA
-  twoFactorEnabled Boolean @default(false)
+  twoFactorEnabled Boolean   @default(false)
   twoFactorSecret  String?
   // Preferencias notificacoes (JSON: { newLead, taskOverdue, newMessage, mention } )
-  emailPreferences Json    @default("{\"newLead\":true,\"taskOverdue\":true,\"newMessage\":false,\"mention\":true}")
+  emailPreferences Json      @default("{\"newLead\":true,\"taskOverdue\":true,\"newMessage\":false,\"mention\":true}")
   // i18n
-  language     String   @default("pt")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  language         String    @default("pt")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  workspace    Workspace   @relation(fields: [workspaceId], references: [id])
-  workspaceId  String
-  team         Team?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  teamId       String?
-  sessions     Session[]
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id])
+  workspaceId         String
+  team                Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  teamId              String?
+  sessions            Session[]
   passwordResetTokens PasswordResetToken[]
-  inviteToken  InviteToken?
+  inviteToken         InviteToken?
 
-  assignedLeads    Lead[]       @relation("AssignedLeads")
-  assignedContacts Contact[]    @relation("AssignedContacts")
-  createdLeads     Lead[]       @relation("CreatedLeads")
-  tasks            Task[]
-  messages         Message[]
-  notes            Note[]
-  activities       Activity[]
-  notifications    Notification[]
-  chatbotFlows     ChatbotFlow[]
-  automations      Automation[]
-  pipelines        Pipeline[]
-  broadcasts       Broadcast[]
-  goals            Goal[]
+  assignedLeads         Lead[]             @relation("AssignedLeads")
+  assignedContacts      Contact[]          @relation("AssignedContacts")
+  createdLeads          Lead[]             @relation("CreatedLeads")
+  tasks                 Task[]
+  messages              Message[]
+  notes                 Note[]
+  activities            Activity[]
+  notifications         Notification[]
+  chatbotFlows          ChatbotFlow[]
+  automations           Automation[]
+  pipelines             Pipeline[]
+  broadcasts            Broadcast[]
+  goals                 Goal[]
   assignedConversations ConversationMeta[]
-  csatRequests     CsatRequest[]
-  quotes           Quote[]
+  csatRequests          CsatRequest[]
+  quotes                Quote[]
 
   @@map("users")
 }
@@ -72,68 +72,68 @@ enum UserRole {
 }
 
 model Workspace {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  logo        String?
-  timezone    String   @default("Africa/Maputo")
-  currency    String   @default("MZN")
+  id                      String    @id @default(cuid())
+  name                    String
+  slug                    String    @unique
+  logo                    String?
+  timezone                String    @default("Africa/Maputo")
+  currency                String    @default("MZN")
   // Subscrição/plano: STARTER | GROWTH | BUSINESS | ENTERPRISE
-  plan        String   @default("STARTER")
-  trialEndsAt DateTime?
-  primaryColor String  @default("#6366F1")
-  dateFormat   String  @default("DD/MM/YYYY")
-  fiscalYearStartMonth Int @default(1) // 1 = Janeiro
-  autoAssignEnabled Boolean @default(false) // atribuicao round-robin de conversas novas
+  plan                    String    @default("STARTER")
+  trialEndsAt             DateTime?
+  primaryColor            String    @default("#6366F1")
+  dateFormat              String    @default("DD/MM/YYYY")
+  fiscalYearStartMonth    Int       @default(1) // 1 = Janeiro
+  autoAssignEnabled       Boolean   @default(false) // atribuicao round-robin de conversas novas
   // Opcoes customizaveis para tarefas (arrays JSON; vazio = usar defaults)
   // Formato cada item: { value: string, label: string, color?: string }
-  taskTypes        Json @default("[]")
-  taskPriorities   Json @default("[]")
-  taskStatuses     Json @default("[]")
-  taskRecurrences  Json @default("[]")
+  taskTypes               Json      @default("[]")
+  taskPriorities          Json      @default("[]")
+  taskStatuses            Json      @default("[]")
+  taskRecurrences         Json      @default("[]")
   // Títulos pré-definidos para tarefa (ex: Slide, Sinopse, Projecto, Monografia)
-  taskTitles       Json @default("[]")
+  taskTitles              Json      @default("[]")
   // Labels customizadas dos campos do modal de tarefa.
   // Formato: { title: string, description: string, type: string, priority: string, dueAt: string, assignee: string, contact: string }
-  taskFieldLabels  Json @default("{}")
+  taskFieldLabels         Json      @default("{}")
   // Digest diário de tarefas via WhatsApp para os responsáveis
-  dailyDigestEnabled Boolean @default(false)
-  dailyDigestHour    Int     @default(7)   // 0-23 (hora local Africa/Maputo)
-  dailyDigestMinute  Int     @default(0)   // 0-59
+  dailyDigestEnabled      Boolean   @default(false)
+  dailyDigestHour         Int       @default(7) // 0-23 (hora local Africa/Maputo)
+  dailyDigestMinute       Int       @default(0) // 0-59
   // Timestamp da última execução para evitar duplicar no mesmo minuto
-  dailyDigestLastRunAt DateTime?
+  dailyDigestLastRunAt    DateTime?
   // Template customizável da mensagem do digest. Estrutura:
   // { header, overdueHeader, todayHeader, tomorrowHeader, taskLine, footer }
   // Vazio = usa defaults definidos no código.
-  dailyDigestTemplate Json @default("{}")
+  dailyDigestTemplate     Json      @default("{}")
   // Dias da semana em que o digest é enviado. Array de ints 0-6 (0=Dom,1=Seg,...,6=Sáb).
   // Default: todos os dias.
-  dailyDigestWeekdays Json @default("[0,1,2,3,4,5,6]")
-  assignmentNotifyEnabled Boolean @default(true)
+  dailyDigestWeekdays     Json      @default("[0,1,2,3,4,5,6]")
+  assignmentNotifyEnabled Boolean   @default(true)
   // Voz/tom da marca que a IA usa ao redigir mensagens (suggest-reply, agent-reply, improve-text)
-  aiBrandVoice String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  aiBrandVoice            String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
-  users        User[]
-  pipelines    Pipeline[]
-  broadcasts   Broadcast[]
-  contacts     Contact[]
-  leads        Lead[]
-  tags         Tag[]
-  integrations Integration[]
-  automations  Automation[]
-  chatbotFlows ChatbotFlow[]
-  templates    MessageTemplate[]
-  customFields CustomField[]
-  webhooks     Webhook[]
-  goals        Goal[]
-  conversationMetas ConversationMeta[]
-  teams        Team[]
-  auditLogs    AuditLog[]
+  users                User[]
+  pipelines            Pipeline[]
+  broadcasts           Broadcast[]
+  contacts             Contact[]
+  leads                Lead[]
+  tags                 Tag[]
+  integrations         Integration[]
+  automations          Automation[]
+  chatbotFlows         ChatbotFlow[]
+  templates            MessageTemplate[]
+  customFields         CustomField[]
+  webhooks             Webhook[]
+  goals                Goal[]
+  conversationMetas    ConversationMeta[]
+  teams                Team[]
+  auditLogs            AuditLog[]
   systemEmailTemplates SystemEmailTemplate[]
-  products     Product[]
-  quotes       Quote[]
+  products             Product[]
+  quotes               Quote[]
 
   @@map("workspaces")
 }
@@ -155,25 +155,25 @@ model Pipeline {
   createdBy   User      @relation(fields: [createdById], references: [id])
   createdById String
 
-  stages      Stage[]
-  leads       Lead[]
+  stages Stage[]
+  leads  Lead[]
 
   @@map("pipelines")
 }
 
 model Stage {
-  id          String    @id @default(cuid())
-  name        String
-  color       String    @default("#6B7280")
-  position    Int
-  type        StageType @default(REGULAR)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id        String    @id @default(cuid())
+  name      String
+  color     String    @default("#6B7280")
+  position  Int
+  type      StageType @default(REGULAR)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  pipeline    Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
-  pipelineId  String
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  pipelineId String
 
-  leads       Lead[]
+  leads Lead[]
 
   @@map("stages")
 }
@@ -247,8 +247,8 @@ model Contact {
   email       String?
   phone       String?
   whatsapp    String?
-  instagramId String?     // IGSID (Instagram Scoped ID)
-  facebookId  String?     // PSID (Page-Scoped ID) Messenger
+  instagramId String? // IGSID (Instagram Scoped ID)
+  facebookId  String? // PSID (Page-Scoped ID) Messenger
   tiktokId    String?
   company     String?
   position    String?
@@ -267,15 +267,15 @@ model Contact {
   assignedTo   User?   @relation("AssignedContacts", fields: [assignedToId], references: [id], onDelete: SetNull)
   assignedToId String?
 
-  leads        Lead[]
+  leads               Lead[]
   broadcastRecipients BroadcastRecipient[]
-  messages     Message[]
-  tags         TagOnContact[]
-  customValues CustomFieldValue[]
-  conversationMetas ConversationMeta[]
-  csatRequests CsatRequest[]
-  tasks        Task[]
-  quotes       Quote[]
+  messages            Message[]
+  tags                TagOnContact[]
+  customValues        CustomFieldValue[]
+  conversationMetas   ConversationMeta[]
+  csatRequests        CsatRequest[]
+  tasks               Task[]
+  quotes              Quote[]
 
   @@index([assignedToId])
   @@map("contacts")
@@ -289,31 +289,31 @@ enum ContactType {
 // ==================== MESSAGING ====================
 
 model Message {
-  id          String        @id @default(cuid())
-  content     String
-  type        MessageType   @default(TEXT)
-  direction   Direction     @default(OUTBOUND)
-  channel     Channel
-  status      MessageStatus @default(SENT)
-  mediaUrl    String?
-  mediaType   String?
-  externalId  String?
-  readAt      DateTime?
-  editedAt    DateTime?
-  isInternal  Boolean       @default(false)
-  transcription String?     // transcricao de audio via Groq Whisper (preenchida on-demand)
-  createdAt   DateTime      @default(now())
+  id            String        @id @default(cuid())
+  content       String
+  type          MessageType   @default(TEXT)
+  direction     Direction     @default(OUTBOUND)
+  channel       Channel
+  status        MessageStatus @default(SENT)
+  mediaUrl      String?
+  mediaType     String?
+  externalId    String?
+  readAt        DateTime?
+  editedAt      DateTime?
+  isInternal    Boolean       @default(false)
+  transcription String? // transcricao de audio via Groq Whisper (preenchida on-demand)
+  createdAt     DateTime      @default(now())
 
-  lead        Lead?    @relation(fields: [leadId], references: [id])
-  leadId      String?
-  contact     Contact? @relation(fields: [contactId], references: [id])
-  contactId   String?
-  sentBy      User?    @relation(fields: [sentById], references: [id])
-  sentById    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+  leadId    String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
+  contactId String?
+  sentBy    User?    @relation(fields: [sentById], references: [id])
+  sentById  String?
 
-  replyToId   String?
-  replyTo     Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies     Message[] @relation("MessageReplies")
+  replyToId String?
+  replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("MessageReplies")
 
   // Indices essenciais para acelerar GET /messages (lista por contacto/lead)
   // e GET /messages/conversations (top recentes do workspace).
@@ -363,32 +363,32 @@ enum MessageStatus {
 // ==================== TASKS ====================
 
 model Task {
-  id          String     @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   description String?
   // Customizáveis no Workspace (taskTypes/taskStatuses/taskPriorities).
   // Mantidos como String para aceitar valores definidos pelo utilizador.
-  type        String     @default("CALL")
-  status      String     @default("PENDING")
-  priority    String     @default("MEDIUM")
+  type        String    @default("CALL")
+  status      String    @default("PENDING")
+  priority    String    @default("MEDIUM")
   dueAt       DateTime?
   completedAt DateTime?
-  recurrence  String?    // DAILY | WEEKLY | MONTHLY (null = nao recorrente)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  recurrence  String? // DAILY | WEEKLY | MONTHLY (null = nao recorrente)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  lead        Lead?  @relation(fields: [leadId], references: [id])
-  leadId      String?
-  contact     Contact? @relation(fields: [contactId], references: [id])
-  contactId   String?
-  assignedTo  User   @relation(fields: [assignedToId], references: [id])
+  lead         Lead?    @relation(fields: [leadId], references: [id])
+  leadId       String?
+  contact      Contact? @relation(fields: [contactId], references: [id])
+  contactId    String?
+  assignedTo   User     @relation(fields: [assignedToId], references: [id])
   assignedToId String
 
   parentTaskId String?
-  parentTask   Task?  @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
-  subtasks     Task[] @relation("Subtasks")
+  parentTask   Task?   @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks     Task[]  @relation("Subtasks")
 
-  tags         TagOnTask[]
+  tags TagOnTask[]
 
   @@index([contactId])
   @@map("tasks")
@@ -403,9 +403,9 @@ model Note {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lead      Lead?   @relation(fields: [leadId], references: [id])
-  leadId    String?
-  createdBy User    @relation(fields: [createdById], references: [id])
+  lead        Lead?   @relation(fields: [leadId], references: [id])
+  leadId      String?
+  createdBy   User    @relation(fields: [createdById], references: [id])
   createdById String
 
   @@map("notes")
@@ -420,10 +420,10 @@ model Activity {
   metadata    Json?
   createdAt   DateTime     @default(now())
 
-  lead        Lead?  @relation(fields: [leadId], references: [id])
-  leadId      String?
-  user        User?  @relation(fields: [userId], references: [id])
-  userId      String?
+  lead   Lead?   @relation(fields: [leadId], references: [id])
+  leadId String?
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String?
 
   @@map("activities")
 }
@@ -451,50 +451,50 @@ enum ActivityType {
 // ==================== AUTOMATION ====================
 
 model Automation {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  isActive    Boolean  @default(true)
-  trigger     Json     // { type, params } incluindo schedule (every_X_minutes/daily_at/weekly_at), no_response, lead_stagnant
-  conditions  Json?    // { op: "AND"|"OR", items: [{field, op, value}] }   ou array legado [{...}]
-  actions     Json     // [{ type, params, delaySeconds? }]
-  runCount    Int      @default(0)
-  lastRunAt   DateTime?
+  id                 String    @id @default(cuid())
+  name               String
+  description        String?
+  isActive           Boolean   @default(true)
+  trigger            Json // { type, params } incluindo schedule (every_X_minutes/daily_at/weekly_at), no_response, lead_stagnant
+  conditions         Json? // { op: "AND"|"OR", items: [{field, op, value}] }   ou array legado [{...}]
+  actions            Json // [{ type, params, delaySeconds? }]
+  runCount           Int       @default(0)
+  lastRunAt          DateTime?
   // Horario activo (opcional)
-  activeHoursStart   Int?     // 0-23
-  activeHoursEnd     Int?     // 0-23
-  activeWeekdays     String?  // "1234567" (1=Segunda...7=Domingo)
+  activeHoursStart   Int? // 0-23
+  activeHoursEnd     Int? // 0-23
+  activeWeekdays     String? // "1234567" (1=Segunda...7=Domingo)
   // Limites
-  runLimitPerContact Int?     // max execucoes por contacto
-  runLimitTotal      Int?     // max execucoes total
-  runLimitWindow     Int?     // janela em horas
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  runLimitPerContact Int? // max execucoes por contacto
+  runLimitTotal      Int? // max execucoes total
+  runLimitWindow     Int? // janela em horas
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
   createdBy   User      @relation(fields: [createdById], references: [id])
   createdById String
 
-  runs        AutomationRun[]
+  runs AutomationRun[]
 
   @@map("automations")
 }
 
 // Historico de execucoes (uma entrada por disparo de regra)
 model AutomationRun {
-  id           String   @id @default(cuid())
+  id           String     @id @default(cuid())
   automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
   automationId String
   workspaceId  String
-  triggeredBy  String   // tipo de evento que disparou
-  entityType   String?  // "lead" | "task" | "message" | etc
+  triggeredBy  String // tipo de evento que disparou
+  entityType   String? // "lead" | "task" | "message" | etc
   entityId     String?
-  contactId    String?  // para verificar limite por contacto
-  leadId       String?  // para activity log integrado
-  status       String   @default("OK") // OK | SKIPPED | FAILED
-  log          Json     @default("[]") // [{at, action, detail}]
-  createdAt    DateTime @default(now())
+  contactId    String? // para verificar limite por contacto
+  leadId       String? // para activity log integrado
+  status       String     @default("OK") // OK | SKIPPED | FAILED
+  log          Json       @default("[]") // [{at, action, detail}]
+  createdAt    DateTime   @default(now())
 
   @@index([automationId, createdAt])
   @@index([workspaceId, createdAt])
@@ -506,51 +506,51 @@ model AutomationRun {
 // ==================== CHATBOT ====================
 
 model ChatbotFlow {
-  id           String   @id @default(cuid())
-  name         String
-  description  String?
-  isActive     Boolean  @default(true)
-  trigger      String   // "first_message" | "keyword" | "always"
-  triggerValue String?  // palavra-chave (quando trigger = "keyword")
-  channel      String   @default("WHATSAPP") // WHATSAPP | EMAIL | etc
-  nodes        Json
-  edges        Json
-  runCount     Int      @default(0)
-  leadCount    Int      @default(0)
+  id                    String   @id @default(cuid())
+  name                  String
+  description           String?
+  isActive              Boolean  @default(true)
+  trigger               String // "first_message" | "keyword" | "always"
+  triggerValue          String? // palavra-chave (quando trigger = "keyword")
+  channel               String   @default("WHATSAPP") // WHATSAPP | EMAIL | etc
+  nodes                 Json
+  edges                 Json
+  runCount              Int      @default(0)
+  leadCount             Int      @default(0)
   // Horario comercial (opcional)
-  businessHoursStart    Int?     // 0-23
-  businessHoursEnd      Int?     // 0-23
-  businessHoursWeekdays String?  // "1234567"
+  businessHoursStart    Int? // 0-23
+  businessHoursEnd      Int? // 0-23
+  businessHoursWeekdays String? // "1234567"
   outOfHoursMessage     String?
-  language     String   @default("pt") // pt | en | etc
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  language              String   @default("pt") // pt | en | etc
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
   createdBy   User      @relation(fields: [createdById], references: [id])
   createdById String
 
-  sessions    ChatbotSession[]
+  sessions ChatbotSession[]
 
   @@map("chatbot_flows")
 }
 
 // Sessao de execucao por contacto: guarda em que no o fluxo esta parado a espera de resposta
 model ChatbotSession {
-  id          String   @id @default(cuid())
-  flow        ChatbotFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  flowId      String
-  workspaceId String
-  contactId   String
-  leadId      String?
-  currentNodeId String   // no onde a execucao esta parada (geralmente um no que espera resposta)
-  variables   Json     @default("{}") // valores capturados pelas perguntas durante o fluxo
-  log         Json     @default("[]") // historico de passos executados [{at, nodeId, nodeType, action, detail}]
-  isFinished  Boolean  @default(false)
-  resumeAt    DateTime? // para nos de "esperar tempo"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String      @id @default(cuid())
+  flow          ChatbotFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  flowId        String
+  workspaceId   String
+  contactId     String
+  leadId        String?
+  currentNodeId String // no onde a execucao esta parada (geralmente um no que espera resposta)
+  variables     Json        @default("{}") // valores capturados pelas perguntas durante o fluxo
+  log           Json        @default("[]") // historico de passos executados [{at, nodeId, nodeType, action, detail}]
+  isFinished    Boolean     @default(false)
+  resumeAt      DateTime? // para nos de "esperar tempo"
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   @@index([workspaceId, contactId])
   @@index([resumeAt])
@@ -560,15 +560,15 @@ model ChatbotSession {
 // ==================== TEMPLATES ====================
 
 model MessageTemplate {
-  id          String          @id @default(cuid())
-  name        String
-  content     String
-  category    TemplateCategory
-  channel     Channel
-  variables   String[]        @default([])
-  isApproved  Boolean         @default(false)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id         String           @id @default(cuid())
+  name       String
+  content    String
+  category   TemplateCategory
+  channel    Channel
+  variables  String[]         @default([])
+  isApproved Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
@@ -594,9 +594,9 @@ model Tag {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
 
-  leads    TagOnLead[]
-  contacts TagOnContact[]
-  tasks    TagOnTask[]
+  leads         TagOnLead[]
+  contacts      TagOnContact[]
+  tasks         TagOnTask[]
   conversations TagOnConversation[]
 
   @@unique([name, workspaceId])
@@ -624,9 +624,9 @@ model TagOnContact {
 }
 
 model TagOnTask {
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
   taskId String
-  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
   tagId  String
 
   @@id([taskId, tagId])
@@ -636,20 +636,20 @@ model TagOnTask {
 // ==================== CUSTOM FIELDS ====================
 
 model CustomField {
-  id          String          @id @default(cuid())
-  name        String
-  key         String
-  type        CustomFieldType
-  entity      String
-  options     String[]        @default([])
-  isRequired  Boolean         @default(false)
-  position    Int             @default(0)
-  createdAt   DateTime        @default(now())
+  id         String          @id @default(cuid())
+  name       String
+  key        String
+  type       CustomFieldType
+  entity     String
+  options    String[]        @default([])
+  isRequired Boolean         @default(false)
+  position   Int             @default(0)
+  createdAt  DateTime        @default(now())
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
 
-  values      CustomFieldValue[]
+  values CustomFieldValue[]
 
   @@unique([key, workspaceId, entity])
   @@map("custom_fields")
@@ -668,8 +668,8 @@ enum CustomFieldType {
 }
 
 model CustomFieldValue {
-  id       String @id @default(cuid())
-  value    String
+  id    String @id @default(cuid())
+  value String
 
   field     CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
   fieldId   String
@@ -684,14 +684,14 @@ model CustomFieldValue {
 // ==================== INTEGRATIONS ====================
 
 model Integration {
-  id          String            @id @default(cuid())
+  id          String          @id @default(cuid())
   type        IntegrationType
   name        String
-  isActive    Boolean           @default(true)
+  isActive    Boolean         @default(true)
   credentials Json
   settings    Json?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
@@ -715,16 +715,24 @@ enum IntegrationType {
 // ==================== FILES ====================
 
 model File {
-  id        String   @id @default(cuid())
-  name      String
-  url       String
-  size      Int
-  mimeType  String
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  name        String
+  url         String
+  size        Int
+  mimeType    String
+  // Rotulo e descricao opcionais, usados sobretudo quando o ficheiro esta
+  // associado a um Product (catalogo) para a IA Vendedora saber escolher.
+  label       String?
+  description String?
+  createdAt   DateTime @default(now())
 
-  lead      Lead?  @relation(fields: [leadId], references: [id])
-  leadId    String?
+  lead   Lead?   @relation(fields: [leadId], references: [id])
+  leadId String?
 
+  product   Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId String?
+
+  @@index([productId])
   @@map("files")
 }
 
@@ -790,7 +798,7 @@ model Broadcast {
   createdBy   User      @relation(fields: [createdById], references: [id])
   createdById String
 
-  recipients  BroadcastRecipient[]
+  recipients BroadcastRecipient[]
 
   @@map("broadcasts")
 }
@@ -826,21 +834,21 @@ model BroadcastRecipient {
 // ==================== CONVERSATION META ====================
 // Metadata por conversa (uniao de contactId + channel ou contactId combinado)
 model ConversationMeta {
-  id           String    @id @default(cuid())
+  id           String              @id @default(cuid())
   workspaceId  String
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace    Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contactId    String?
-  contact      Contact?  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact      Contact?            @relation(fields: [contactId], references: [id], onDelete: Cascade)
   leadId       String?
-  channel      String?   // null = combinado por contacto
-  isArchived   Boolean   @default(false)
-  isPinned     Boolean   @default(false)
-  priority     String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  channel      String? // null = combinado por contacto
+  isArchived   Boolean             @default(false)
+  isPinned     Boolean             @default(false)
+  priority     String              @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
   assignedToId String?
-  assignedTo   User?     @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedTo   User?               @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
   tags         TagOnConversation[]
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
 
   @@unique([workspaceId, contactId, channel])
   @@map("conversation_meta")
@@ -859,16 +867,16 @@ model TagOnConversation {
 // ==================== SESSIONS (multi-device) ====================
 
 model Session {
-  id          String   @id @default(cuid())
-  token       String   @unique
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId      String
-  ip          String?
-  userAgent   String?
-  device      String?  // "Chrome no Windows", etc.
-  lastUsedAt  DateTime @default(now())
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  token      String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  ip         String?
+  userAgent  String?
+  device     String? // "Chrome no Windows", etc.
+  lastUsedAt DateTime @default(now())
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
 
   @@index([userId])
   @@map("sessions")
@@ -877,13 +885,13 @@ model Session {
 // ==================== PASSWORD RESET ====================
 
 model PasswordResetToken {
-  id         String   @id @default(cuid())
-  token      String   @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     String
-  expiresAt  DateTime
-  usedAt     DateTime?
-  createdAt  DateTime @default(now())
+  id        String    @id @default(cuid())
+  token     String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   @@map("password_reset_tokens")
 }
@@ -891,13 +899,13 @@ model PasswordResetToken {
 // ==================== INVITE BY EMAIL ====================
 
 model InviteToken {
-  id         String   @id @default(cuid())
-  token      String   @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     String   @unique
-  expiresAt  DateTime
-  usedAt     DateTime?
-  createdAt  DateTime @default(now())
+  id        String    @id @default(cuid())
+  token     String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   @@map("invite_tokens")
 }
@@ -905,15 +913,15 @@ model InviteToken {
 // ==================== SYSTEM EMAIL TEMPLATES ====================
 
 model SystemEmailTemplate {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
-  type        String   // "welcome" | "password_reset" | "invite" | "csat" | "lead_assigned" | "task_overdue"
+  type        String // "welcome" | "password_reset" | "invite" | "csat" | "lead_assigned" | "task_overdue"
   subject     String
-  body        String   // HTML/plain text com variaveis {{nome}}, {{link}}, etc.
-  enabled     Boolean  @default(true)
-  updatedAt   DateTime @updatedAt
-  createdAt   DateTime @default(now())
+  body        String // HTML/plain text com variaveis {{nome}}, {{link}}, etc.
+  enabled     Boolean   @default(true)
+  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime  @default(now())
 
   @@unique([workspaceId, type])
   @@map("system_email_templates")
@@ -932,7 +940,7 @@ model Team {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
 
-  members     User[]
+  members User[]
 
   @@unique([workspaceId, name])
   @@map("teams")
@@ -942,8 +950,8 @@ model Team {
 
 model AuditLog {
   id          String   @id @default(cuid())
-  action      String   // "CREATE" | "UPDATE" | "DELETE" | "LOGIN"
-  entity      String   // "lead" | "contact" | "task" | "user" | etc
+  action      String // "CREATE" | "UPDATE" | "DELETE" | "LOGIN"
+  entity      String // "lead" | "contact" | "task" | "user" | etc
   entityId    String?
   description String
   metadata    Json?
@@ -960,20 +968,20 @@ model AuditLog {
 // ==================== CSAT ====================
 
 model CsatRequest {
-  id           String    @id @default(cuid())
-  token        String    @unique @default(cuid())
-  workspaceId  String
-  contactId    String?
-  contact      Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  leadId       String?
-  lead         Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  question     String    @default("Como classificas o nosso atendimento?")
-  score        Int?      // 1-5
-  comment      String?
-  sentAt       DateTime  @default(now())
-  respondedAt  DateTime?
-  createdById  String
-  createdBy    User      @relation(fields: [createdById], references: [id])
+  id          String    @id @default(cuid())
+  token       String    @unique @default(cuid())
+  workspaceId String
+  contactId   String?
+  contact     Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  leadId      String?
+  lead        Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  question    String    @default("Como classificas o nosso atendimento?")
+  score       Int? // 1-5
+  comment     String?
+  sentAt      DateTime  @default(now())
+  respondedAt DateTime?
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
 
   @@map("csat_requests")
 }
@@ -981,18 +989,18 @@ model CsatRequest {
 // ==================== GOALS / METAS ====================
 
 model Goal {
-  id          String   @id @default(cuid())
-  type        String   // "leads_created" | "leads_won" | "revenue" | "tasks_completed"
-  target      Float
-  month       Int      // 1-12
-  year        Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  type      String // "leads_created" | "leads_won" | "revenue" | "tasks_completed"
+  target    Float
+  month     Int // 1-12
+  year      Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
   user        User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId      String?   // null = meta da workspace inteira
+  userId      String? // null = meta da workspace inteira
 
   @@unique([workspaceId, type, month, year, userId])
   @@map("goals")
@@ -1008,7 +1016,7 @@ model Product {
   unitPrice   Float    @default(0)
   currency    String   @default("MZN")
   taxRate     Float    @default(0) // percentagem, ex: 16 = 16%
-  unit        String?  // ex: "hora", "unidade", "mes"
+  unit        String? // ex: "hora", "unidade", "mes"
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1016,7 +1024,8 @@ model Product {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
 
-  quoteItems  QuoteItem[]
+  quoteItems QuoteItem[]
+  files      File[]
 
   @@index([workspaceId])
   @@map("products")
@@ -1048,7 +1057,7 @@ model Quote {
   createdBy   User      @relation(fields: [createdById], references: [id])
   createdById String
 
-  items       QuoteItem[]
+  items QuoteItem[]
 
   @@index([workspaceId])
   @@map("quotes")
@@ -1062,12 +1071,12 @@ enum QuoteStatus {
 }
 
 model QuoteItem {
-  id          String   @id @default(cuid())
+  id          String @id @default(cuid())
   description String
-  quantity    Float    @default(1)
-  unitPrice   Float    @default(0)
-  taxRate     Float    @default(0) // % por linha
-  position    Int      @default(0)
+  quantity    Float  @default(1)
+  unitPrice   Float  @default(0)
+  taxRate     Float  @default(0) // % por linha
+  position    Int    @default(0)
 
   quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   quoteId   String

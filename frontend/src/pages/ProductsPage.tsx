@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search, X, Loader2, Trash2, Edit3, Package } from 'lucide-react';
+import { Plus, Search, X, Loader2, Trash2, Edit3, Package, Paperclip } from 'lucide-react';
 import api, { Product } from '../lib/api';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
+import ProductFilesPanel from '../components/products/ProductFilesPanel';
 
 function money(n: number, currency: string) {
   const s = (Math.round((n + Number.EPSILON) * 100) / 100).toFixed(2);
@@ -14,22 +15,29 @@ const empty = (currency: string): Partial<Product> => ({
   name: '', description: '', sku: '', unitPrice: 0, currency, taxRate: 0, unit: '', isActive: true,
 });
 
-function ProductModal({ initial, currency, onClose, onSaved }: {
-  initial: Partial<Product>; currency: string; onClose: () => void; onSaved: () => void;
+function ProductModal({ initial, currency, initialTab = 'general', onClose, onSaved }: {
+  initial: Partial<Product>; currency: string; initialTab?: 'general' | 'files'; onClose: () => void; onSaved: () => void;
 }) {
   const [form, setForm] = useState<Partial<Product>>(initial);
   const [saving, setSaving] = useState(false);
-  const isEdit = !!initial.id;
+  // Quando crias um produto novo, o separador Ficheiros so abre depois de guardar.
+  const [savedId, setSavedId] = useState<string | null>(initial.id || null);
+  const [tab, setTab] = useState<'general' | 'files'>(initialTab && initial.id ? initialTab : 'general');
+  const isEdit = !!savedId;
 
   const save = async () => {
     if (!form.name?.trim()) { toast.error('Indica o nome do produto'); return; }
     setSaving(true);
     try {
-      if (isEdit) await api.patch(`/products/${initial.id}`, form);
-      else await api.post('/products', form);
-      toast.success(isEdit ? 'Produto actualizado' : 'Produto criado');
+      if (savedId) {
+        await api.patch(`/products/${savedId}`, form);
+        toast.success('Produto actualizado');
+      } else {
+        const { data } = await api.post('/products', form);
+        setSavedId(data.id);
+        toast.success('Produto criado, agora podes anexar ficheiros');
+      }
       onSaved();
-      onClose();
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Erro ao guardar');
     } finally { setSaving(false); }
@@ -39,47 +47,89 @@ function ProductModal({ initial, currency, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-[60] p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
-      <div className="card p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{isEdit ? 'Editar produto' : 'Novo produto'}</h3>
+      <div className="card p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)', fontFamily: 'Fraunces, serif' }}>{isEdit ? 'Editar produto' : 'Novo produto'}</h3>
           <button onClick={onClose}><X size={20} style={{ color: 'var(--text-muted)' }} /></button>
         </div>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Nome *</label>
-            <input className="input-base w-full mt-1" value={form.name || ''} onChange={(e) => set('name', e.target.value)} placeholder="Ex: Consultoria mensal" />
-          </div>
-          <div>
-            <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Descrição</label>
-            <textarea className="input-base w-full mt-1" rows={2} value={form.description || ''} onChange={(e) => set('description', e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Preço ({currency})</label>
-              <input type="number" step="0.01" className="input-base w-full mt-1" value={form.unitPrice ?? 0} onChange={(e) => set('unitPrice', e.target.value)} />
-            </div>
-            <div>
-              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Imposto (%)</label>
-              <input type="number" step="0.01" className="input-base w-full mt-1" value={form.taxRate ?? 0} onChange={(e) => set('taxRate', e.target.value)} />
-            </div>
-            <div>
-              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>SKU / Código</label>
-              <input className="input-base w-full mt-1" value={form.sku || ''} onChange={(e) => set('sku', e.target.value)} />
-            </div>
-            <div>
-              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Unidade</label>
-              <input className="input-base w-full mt-1" value={form.unit || ''} onChange={(e) => set('unit', e.target.value)} placeholder="hora, mês, unidade" />
-            </div>
-          </div>
-          <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <input type="checkbox" checked={form.isActive !== false} onChange={(e) => set('isActive', e.target.checked)} />
-            Activo (disponível para propostas)
-          </label>
+
+        <div className="flex gap-1 mb-4 border-b" style={{ borderColor: 'var(--border)' }}>
+          <button
+            onClick={() => setTab('general')}
+            className="px-3 py-2 text-sm font-medium"
+            style={{
+              color: tab === 'general' ? 'var(--primary)' : 'var(--text-muted)',
+              borderBottom: `2px solid ${tab === 'general' ? 'var(--primary)' : 'transparent'}`,
+              marginBottom: -1,
+            }}
+          >Geral</button>
+          <button
+            onClick={() => isEdit && setTab('files')}
+            disabled={!isEdit}
+            title={isEdit ? '' : 'Guarda o produto primeiro para anexar ficheiros'}
+            className="px-3 py-2 text-sm font-medium flex items-center gap-1.5"
+            style={{
+              color: tab === 'files' ? 'var(--primary)' : 'var(--text-muted)',
+              borderBottom: `2px solid ${tab === 'files' ? 'var(--primary)' : 'transparent'}`,
+              marginBottom: -1,
+              opacity: isEdit ? 1 : 0.5,
+              cursor: isEdit ? 'pointer' : 'not-allowed',
+            }}
+          ><Paperclip size={13} /> Ficheiros</button>
         </div>
-        <div className="flex justify-end gap-2 mt-5">
-          <button className="btn" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }} onClick={onClose}>Cancelar</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? <Loader2 size={16} className="animate-spin" /> : 'Guardar'}</button>
-        </div>
+
+        {tab === 'general' ? (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Nome *</label>
+                <input className="input-base w-full mt-1" value={form.name || ''} onChange={(e) => set('name', e.target.value)} placeholder="Ex: Consultoria mensal" />
+              </div>
+              <div>
+                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Descrição</label>
+                <textarea className="input-base w-full mt-1" rows={2} value={form.description || ''} onChange={(e) => set('description', e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Preço ({currency})</label>
+                  <input type="number" step="0.01" className="input-base w-full mt-1" value={form.unitPrice ?? 0} onChange={(e) => set('unitPrice', e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Imposto (%)</label>
+                  <input type="number" step="0.01" className="input-base w-full mt-1" value={form.taxRate ?? 0} onChange={(e) => set('taxRate', e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>SKU / Código</label>
+                  <input className="input-base w-full mt-1" value={form.sku || ''} onChange={(e) => set('sku', e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Unidade</label>
+                  <input className="input-base w-full mt-1" value={form.unit || ''} onChange={(e) => set('unit', e.target.value)} placeholder="hora, mês, unidade" />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                <input type="checkbox" checked={form.isActive !== false} onChange={(e) => set('isActive', e.target.checked)} />
+                Activo (disponível para propostas e para a IA Vendedora)
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button className="btn" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }} onClick={onClose}>Fechar</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? <Loader2 size={16} className="animate-spin" /> : 'Guardar'}</button>
+            </div>
+          </>
+        ) : (
+          savedId ? (
+            <>
+              <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                Anexa imagens, PDFs, vídeos e outros ficheiros a este produto. A IA Vendedora vai poder enviá-los ao lead quando fizer sentido (brochuras, fotos, tabela de preços, testemunhos).
+              </p>
+              <ProductFilesPanel productId={savedId} />
+              <div className="flex justify-end mt-5">
+                <button className="btn" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }} onClick={onClose}>Fechar</button>
+              </div>
+            </>
+          ) : null
+        )}
       </div>
     </div>
   );
@@ -92,6 +142,7 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<Partial<Product> | null>(null);
+  const [modalTab, setModalTab] = useState<'general' | 'files'>('general');
 
   const load = async () => {
     setLoading(true);
@@ -167,7 +218,19 @@ export default function ProductsPage() {
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => setModal(p)} className="p-1.5 rounded hover:bg-black/5" title="Editar"><Edit3 size={15} style={{ color: 'var(--text-muted)' }} /></button>
+                      <button
+                        onClick={() => { setModalTab('files'); setModal(p); }}
+                        className="p-1.5 rounded hover:bg-black/5 relative"
+                        title="Ficheiros do produto"
+                      >
+                        <Paperclip size={15} style={{ color: 'var(--text-muted)' }} />
+                        {p.files && p.files.length > 0 && (
+                          <span className="absolute -top-1 -right-1 text-[9px] font-bold rounded-full px-1" style={{ background: 'var(--primary)', color: '#fff', minWidth: 14, lineHeight: '14px' }}>
+                            {p.files.length}
+                          </span>
+                        )}
+                      </button>
+                      <button onClick={() => { setModalTab('general'); setModal(p); }} className="p-1.5 rounded hover:bg-black/5" title="Editar"><Edit3 size={15} style={{ color: 'var(--text-muted)' }} /></button>
                       <button onClick={() => del(p)} className="p-1.5 rounded hover:bg-red-50" title="Eliminar"><Trash2 size={15} style={{ color: '#EF4444' }} /></button>
                     </div>
                   </td>
@@ -178,7 +241,7 @@ export default function ProductsPage() {
         )}
       </div>
 
-      {modal && <ProductModal initial={modal} currency={currency} onClose={() => setModal(null)} onSaved={load} />}
+      {modal && <ProductModal initial={modal} currency={currency} initialTab={modalTab} onClose={() => setModal(null)} onSaved={load} />}
     </div>
   );
 }

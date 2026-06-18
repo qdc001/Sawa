@@ -717,6 +717,17 @@ export interface AutomationRun {
 
 // ==================== PRODUTOS & PROPOSTAS ====================
 
+export interface ProductFile {
+  id: string;
+  name: string;
+  url: string;
+  size: number;
+  mimeType: string;
+  label?: string | null;
+  description?: string | null;
+  createdAt: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -728,6 +739,7 @@ export interface Product {
   unit?: string | null;
   isActive: boolean;
   createdAt: string;
+  files?: ProductFile[];
 }
 
 export type QuoteStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED';
