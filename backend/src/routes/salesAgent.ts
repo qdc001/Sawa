@@ -5,6 +5,8 @@ import prisma from '../lib/prisma';
 import { buildSalesSystemPrompt } from '../lib/buildSalesSystemPrompt';
 import { SALES_PRINCIPLES, SOURCE_BOOKS, DEFAULT_ACTIVE_PRINCIPLES } from '../data/salesKnowledge';
 import { SECTOR_KNOWLEDGE, listSectorKeys } from '../data/sectorKnowledge';
+import { generateSalesSuggestion, AgentError } from '../lib/aiSalesAgent';
+import { sendWhatsAppOut } from '../lib/whatsappSend';
 
 const router = Router();
 
@@ -32,6 +34,24 @@ router.get('/config', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/sales-agent/config (campos extra da Fase 3)
+// Acima ja devolve os campos de persona/sector. Para Fase 3, tambem
+// devolvemos os campos de execucao: aiSalesEnabled, modo, conversas
+// activas e palavras de handoff.
+router.get('/runtime-config', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.user!.workspaceId } });
+    if (!ws) throw new AppError('Workspace nao encontrado', 404);
+    res.json({
+      aiSalesEnabled: ws.aiSalesEnabled,
+      aiSalesMode: ws.aiSalesMode,
+      aiSalesEnabledConversationIds: ws.aiSalesEnabledConversationIds,
+      aiSalesMaxParts: ws.aiSalesMaxParts,
+      aiSalesHandoffTriggers: ws.aiSalesHandoffTriggers,
+    });
+  } catch (e) { next(e); }
+});
+
 // PATCH /api/sales-agent/config
 // Actualiza persona, sector, voz da marca e instrucoes livres.
 // Nao deixa o utilizador escrever directamente sobre a memoria aprendida
@@ -39,7 +59,11 @@ router.get('/config', async (req: AuthRequest, res: Response, next) => {
 router.patch('/config', async (req: AuthRequest, res: Response, next) => {
   try {
     requireAdmin(req);
-    const { sector, aiAgentName, aiAgentRole, aiBrandVoice, aiAgentInstructions } = req.body || {};
+    const {
+      sector, aiAgentName, aiAgentRole, aiBrandVoice, aiAgentInstructions,
+      aiSalesEnabled, aiSalesMode, aiSalesEnabledConversationIds,
+      aiSalesMaxParts, aiSalesHandoffTriggers,
+    } = req.body || {};
 
     const validSectors = listSectorKeys();
     const data: any = {};
@@ -53,6 +77,38 @@ router.patch('/config', async (req: AuthRequest, res: Response, next) => {
     if (aiAgentRole !== undefined) data.aiAgentRole = typeof aiAgentRole === 'string' ? aiAgentRole.trim().slice(0, 60) || null : null;
     if (aiBrandVoice !== undefined) data.aiBrandVoice = typeof aiBrandVoice === 'string' ? aiBrandVoice.trim().slice(0, 2000) || null : null;
     if (aiAgentInstructions !== undefined) data.aiAgentInstructions = typeof aiAgentInstructions === 'string' ? aiAgentInstructions.trim().slice(0, 4000) || null : null;
+    // Campos da Fase 3
+    if (aiSalesEnabled !== undefined) data.aiSalesEnabled = !!aiSalesEnabled;
+    if (aiSalesMode !== undefined) {
+      if (!['supervised', 'auto'].includes(aiSalesMode)) {
+        throw new AppError('aiSalesMode deve ser "supervised" ou "auto"', 400);
+      }
+      data.aiSalesMode = aiSalesMode;
+    }
+    if (aiSalesEnabledConversationIds !== undefined) {
+      if (!Array.isArray(aiSalesEnabledConversationIds)) {
+        throw new AppError('aiSalesEnabledConversationIds deve ser array', 400);
+      }
+      data.aiSalesEnabledConversationIds = aiSalesEnabledConversationIds
+        .filter((x: any) => typeof x === 'string' && x.trim())
+        .slice(0, 5000) as any;
+    }
+    if (aiSalesMaxParts !== undefined) {
+      const n = Number(aiSalesMaxParts);
+      if (!Number.isInteger(n) || n < 1 || n > 6) {
+        throw new AppError('aiSalesMaxParts deve ser inteiro entre 1 e 6', 400);
+      }
+      data.aiSalesMaxParts = n;
+    }
+    if (aiSalesHandoffTriggers !== undefined) {
+      if (!Array.isArray(aiSalesHandoffTriggers)) {
+        throw new AppError('aiSalesHandoffTriggers deve ser array', 400);
+      }
+      data.aiSalesHandoffTriggers = aiSalesHandoffTriggers
+        .filter((x: any) => typeof x === 'string' && x.trim())
+        .map((x: string) => x.trim().toLowerCase())
+        .slice(0, 50) as any;
+    }
 
     const updated = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
@@ -65,6 +121,11 @@ router.patch('/config', async (req: AuthRequest, res: Response, next) => {
       aiBrandVoice: updated.aiBrandVoice,
       aiAgentInstructions: updated.aiAgentInstructions,
       aiLearnedMemory: updated.aiLearnedMemory,
+      aiSalesEnabled: updated.aiSalesEnabled,
+      aiSalesMode: updated.aiSalesMode,
+      aiSalesEnabledConversationIds: updated.aiSalesEnabledConversationIds,
+      aiSalesMaxParts: updated.aiSalesMaxParts,
+      aiSalesHandoffTriggers: updated.aiSalesHandoffTriggers,
     });
   } catch (e) { next(e); }
 });
@@ -131,6 +192,339 @@ router.get('/sectors', async (_req: AuthRequest, res: Response, next) => {
       closingTactics: SECTOR_KNOWLEDGE[k].closingTactics.length,
     }));
     res.json(items);
+  } catch (e) { next(e); }
+});
+
+// =====================================================================
+//                     FASE 3: SUGESTOES DA IA VENDEDORA
+// =====================================================================
+
+// POST /api/sales-agent/suggest
+// Gera uma sugestao da IA para uma conversa especifica. Em modo
+// supervisionado, fica PENDING ate o humano decidir. Util para testar
+// via curl e para o botao "Sugerir resposta" no Inbox.
+//
+// Body: { contactId: string, leadId?: string, triggerMessageId?: string,
+//         activePrincipleKeys?: string[], model?: string }
+router.post('/suggest', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, leadId, triggerMessageId, activePrincipleKeys, model } = req.body || {};
+    if (!contactId || typeof contactId !== 'string') {
+      throw new AppError('contactId obrigatorio', 400);
+    }
+
+    // Verifica que o contacto e do workspace do utilizador.
+    const contact = await prisma.contact.findFirst({
+      where: { id: contactId, workspaceId: req.user!.workspaceId },
+    });
+    if (!contact) throw new AppError('Contacto nao encontrado neste workspace', 404);
+
+    if (leadId) {
+      const lead = await prisma.lead.findFirst({
+        where: { id: leadId, workspaceId: req.user!.workspaceId },
+      });
+      if (!lead) throw new AppError('Lead nao encontrado neste workspace', 404);
+    }
+
+    try {
+      const { suggestion, normalized } = await generateSalesSuggestion({
+        workspaceId: req.user!.workspaceId,
+        contactId,
+        leadId: leadId || null,
+        triggerMessageId: triggerMessageId || null,
+        activePrincipleKeys: Array.isArray(activePrincipleKeys) ? activePrincipleKeys : undefined,
+        model: typeof model === 'string' ? model : undefined,
+      });
+      res.json({ suggestion, normalized });
+    } catch (e: any) {
+      if (e instanceof AgentError) throw new AppError(e.message, e.status);
+      throw e;
+    }
+  } catch (e) { next(e); }
+});
+
+// GET /api/sales-agent/suggestions
+// Lista sugestoes do workspace, filtros opcionais.
+// Query: status (PENDING|APPROVED|EDITED|DISCARDED|SENT|FAILED|all)
+//        contactId, leadId, limit (default 50, max 200)
+router.get('/suggestions', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status : 'PENDING';
+    const contactId = typeof req.query.contactId === 'string' ? req.query.contactId : undefined;
+    const leadId = typeof req.query.leadId === 'string' ? req.query.leadId : undefined;
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+
+    const where: any = { workspaceId: req.user!.workspaceId };
+    if (status && status !== 'all') where.status = status;
+    if (contactId) where.contactId = contactId;
+    if (leadId) where.leadId = leadId;
+
+    const items = await prisma.aiSalesSuggestion.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: {
+        contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true } },
+        lead: { select: { id: true, title: true, value: true } },
+        triggerMessage: { select: { id: true, content: true, createdAt: true } },
+        decidedBy: { select: { id: true, name: true } },
+      },
+    });
+    res.json(items);
+  } catch (e) { next(e); }
+});
+
+// GET /api/sales-agent/suggestions/:id
+router.get('/suggestions/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const item = await prisma.aiSalesSuggestion.findFirst({
+      where: { id: req.params.id, workspaceId: req.user!.workspaceId },
+      include: {
+        contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true } },
+        lead: { select: { id: true, title: true, value: true } },
+        triggerMessage: { select: { id: true, content: true, createdAt: true, direction: true } },
+        decidedBy: { select: { id: true, name: true } },
+      },
+    });
+    if (!item) throw new AppError('Sugestao nao encontrada', 404);
+    res.json(item);
+  } catch (e) { next(e); }
+});
+
+// Helper interno: envia as partes via WhatsApp e cria entradas Message.
+async function dispatchSuggestion(
+  workspaceId: string,
+  contactPhone: string,
+  contactId: string,
+  leadId: string | null,
+  parts: string[],
+  productFiles: Array<{ id: string; url: string; type: string; name?: string | null }>,
+  sentById: string | null,
+  io: any,
+): Promise<{ sentMessageIds: string[]; failedAt?: number; error?: string }> {
+  const sentMessageIds: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const text = parts[i];
+    const result = await sendWhatsAppOut(workspaceId, contactPhone, text, 'TEXT');
+    const msg = await prisma.message.create({
+      data: {
+        content: text,
+        type: 'TEXT',
+        direction: 'OUTBOUND',
+        channel: 'WHATSAPP',
+        status: result.ok ? 'SENT' : 'FAILED',
+        externalId: result.externalId,
+        contactId,
+        leadId: leadId || undefined,
+        sentById: sentById || undefined,
+      },
+    });
+    sentMessageIds.push(msg.id);
+    if (io) {
+      io.to(`workspace:${workspaceId}`).emit('message:new', msg);
+      if (leadId) io.to(`lead:${leadId}`).emit('message:new', msg);
+    }
+    if (!result.ok) {
+      return { sentMessageIds, failedAt: i, error: result.error };
+    }
+    // Pequeno intervalo entre fragmentos para parecer mais natural
+    if (i < parts.length - 1) await new Promise((r) => setTimeout(r, 700));
+  }
+  // Anexos de produto (se houver)
+  for (const file of productFiles) {
+    const mtype = file.type?.startsWith('image/') ? 'IMAGE'
+      : file.type?.startsWith('video/') ? 'VIDEO'
+      : file.type?.startsWith('audio/') ? 'AUDIO'
+      : 'DOCUMENT';
+    const result = await sendWhatsAppOut(workspaceId, contactPhone, file.name || 'Anexo', mtype, file.url, file.name || undefined);
+    const msg = await prisma.message.create({
+      data: {
+        content: file.name || 'Anexo',
+        type: mtype as any,
+        direction: 'OUTBOUND',
+        channel: 'WHATSAPP',
+        status: result.ok ? 'SENT' : 'FAILED',
+        externalId: result.externalId,
+        mediaUrl: file.url,
+        mediaType: file.type,
+        contactId,
+        leadId: leadId || undefined,
+        sentById: sentById || undefined,
+      },
+    });
+    sentMessageIds.push(msg.id);
+    if (io) {
+      io.to(`workspace:${workspaceId}`).emit('message:new', msg);
+      if (leadId) io.to(`lead:${leadId}`).emit('message:new', msg);
+    }
+    if (!result.ok) {
+      return { sentMessageIds, failedAt: parts.length, error: result.error };
+    }
+  }
+  return { sentMessageIds };
+}
+
+// POST /api/sales-agent/suggestions/:id/approve
+// Aceita a sugestao como esta e envia. Em handoff, atribui a conversa ao
+// utilizador especificado em body.assignedToId (ou ao proprio approver).
+router.post('/suggestions/:id/approve', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const suggestion = await prisma.aiSalesSuggestion.findFirst({
+      where: { id: req.params.id, workspaceId: req.user!.workspaceId },
+      include: { contact: true },
+    });
+    if (!suggestion) throw new AppError('Sugestao nao encontrada', 404);
+    if (suggestion.status !== 'PENDING') {
+      throw new AppError(`Sugestao ja foi decidida (${suggestion.status})`, 400);
+    }
+
+    const partsArr = Array.isArray(suggestion.parts) ? (suggestion.parts as any[]).filter((p) => typeof p === 'string') : [];
+
+    // Handoff puro: nao envia nada para o lead, atribui conversa.
+    if (suggestion.action === 'handoff') {
+      const assignedToId = req.body?.assignedToId || req.user!.id;
+      await prisma.conversationMeta.upsert({
+        where: { workspaceId_contactId_channel: { workspaceId: suggestion.workspaceId, contactId: suggestion.contactId, channel: 'WHATSAPP' } },
+        create: { workspaceId: suggestion.workspaceId, contactId: suggestion.contactId, channel: 'WHATSAPP', assignedToId },
+        update: { assignedToId },
+      });
+      const updated = await prisma.aiSalesSuggestion.update({
+        where: { id: suggestion.id },
+        data: { status: 'APPROVED', decidedAt: new Date(), decidedById: req.user!.id, finalParts: partsArr as any },
+      });
+      return res.json({ suggestion: updated, handoff: { assignedToId } });
+    }
+
+    // Wait: nao faz nada, marca como aprovada.
+    if (suggestion.action === 'wait') {
+      const updated = await prisma.aiSalesSuggestion.update({
+        where: { id: suggestion.id },
+        data: { status: 'APPROVED', decidedAt: new Date(), decidedById: req.user!.id, finalParts: [] as any },
+      });
+      return res.json({ suggestion: updated });
+    }
+
+    // send_text / send_product: envia para o WhatsApp.
+    const phone = suggestion.contact.whatsapp || suggestion.contact.phone;
+    if (!phone) throw new AppError('Contacto sem numero de WhatsApp/telefone', 400);
+
+    let productFiles: Array<{ id: string; url: string; type: string; name?: string | null }> = [];
+    if (suggestion.action === 'send_product' && Array.isArray(suggestion.productFileIds)) {
+      const ids = (suggestion.productFileIds as any[]).filter((x) => typeof x === 'string');
+      if (ids.length > 0) {
+        const files = await prisma.file.findMany({ where: { id: { in: ids } } });
+        productFiles = files.map((f) => ({ id: f.id, url: f.url, type: f.mimeType, name: f.name }));
+      }
+    }
+
+    const io = (global as any).io;
+    const dispatch = await dispatchSuggestion(
+      suggestion.workspaceId,
+      phone,
+      suggestion.contactId,
+      suggestion.leadId,
+      partsArr,
+      productFiles,
+      req.user!.id,
+      io,
+    );
+
+    const updated = await prisma.aiSalesSuggestion.update({
+      where: { id: suggestion.id },
+      data: {
+        status: dispatch.error ? 'FAILED' : 'APPROVED',
+        decidedAt: new Date(),
+        decidedById: req.user!.id,
+        finalParts: partsArr as any,
+        sentMessageIds: dispatch.sentMessageIds as any,
+        errorDetail: dispatch.error || null,
+      },
+    });
+    res.json({ suggestion: updated, dispatch });
+  } catch (e) { next(e); }
+});
+
+// POST /api/sales-agent/suggestions/:id/edit
+// Substitui as partes pela versao editada do humano e envia.
+// Body: { parts: string[] }
+router.post('/suggestions/:id/edit', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const finalParts = Array.isArray(req.body?.parts)
+      ? req.body.parts.filter((p: any) => typeof p === 'string' && p.trim()).map((p: string) => p.trim())
+      : [];
+    if (finalParts.length === 0) throw new AppError('parts (array de strings) obrigatorio e nao vazio', 400);
+
+    const suggestion = await prisma.aiSalesSuggestion.findFirst({
+      where: { id: req.params.id, workspaceId: req.user!.workspaceId },
+      include: { contact: true },
+    });
+    if (!suggestion) throw new AppError('Sugestao nao encontrada', 404);
+    if (suggestion.status !== 'PENDING') {
+      throw new AppError(`Sugestao ja foi decidida (${suggestion.status})`, 400);
+    }
+
+    const phone = suggestion.contact.whatsapp || suggestion.contact.phone;
+    if (!phone) throw new AppError('Contacto sem numero de WhatsApp/telefone', 400);
+
+    // Em edit, mantemos a accao original (provavelmente send_text). Se o
+    // humano quiser tirar o anexo de produto, edita as partes apenas.
+    let productFiles: Array<{ id: string; url: string; type: string; name?: string | null }> = [];
+    if (suggestion.action === 'send_product' && req.body?.keepProductFiles !== false && Array.isArray(suggestion.productFileIds)) {
+      const ids = (suggestion.productFileIds as any[]).filter((x) => typeof x === 'string');
+      if (ids.length > 0) {
+        const files = await prisma.file.findMany({ where: { id: { in: ids } } });
+        productFiles = files.map((f) => ({ id: f.id, url: f.url, type: f.mimeType, name: f.name }));
+      }
+    }
+
+    const io = (global as any).io;
+    const dispatch = await dispatchSuggestion(
+      suggestion.workspaceId,
+      phone,
+      suggestion.contactId,
+      suggestion.leadId,
+      finalParts,
+      productFiles,
+      req.user!.id,
+      io,
+    );
+
+    const updated = await prisma.aiSalesSuggestion.update({
+      where: { id: suggestion.id },
+      data: {
+        status: dispatch.error ? 'FAILED' : 'EDITED',
+        decidedAt: new Date(),
+        decidedById: req.user!.id,
+        finalParts: finalParts as any,
+        sentMessageIds: dispatch.sentMessageIds as any,
+        errorDetail: dispatch.error || null,
+      },
+    });
+    res.json({ suggestion: updated, dispatch });
+  } catch (e) { next(e); }
+});
+
+// POST /api/sales-agent/suggestions/:id/discard
+// Rejeita sem enviar nada. Body opcional: { reason: string }
+router.post('/suggestions/:id/discard', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const suggestion = await prisma.aiSalesSuggestion.findFirst({
+      where: { id: req.params.id, workspaceId: req.user!.workspaceId },
+    });
+    if (!suggestion) throw new AppError('Sugestao nao encontrada', 404);
+    if (suggestion.status !== 'PENDING') {
+      throw new AppError(`Sugestao ja foi decidida (${suggestion.status})`, 400);
+    }
+    const updated = await prisma.aiSalesSuggestion.update({
+      where: { id: suggestion.id },
+      data: {
+        status: 'DISCARDED',
+        decidedAt: new Date(),
+        decidedById: req.user!.id,
+        errorDetail: typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 500) : null,
+      },
+    });
+    res.json({ suggestion: updated });
   } catch (e) { next(e); }
 });
 

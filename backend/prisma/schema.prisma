@@ -44,9 +44,9 @@ model User {
   passwordResetTokens PasswordResetToken[]
   inviteToken         InviteToken?
 
-  assignedLeads         Lead[]             @relation("AssignedLeads")
-  assignedContacts      Contact[]          @relation("AssignedContacts")
-  createdLeads          Lead[]             @relation("CreatedLeads")
+  assignedLeads         Lead[]              @relation("AssignedLeads")
+  assignedContacts      Contact[]           @relation("AssignedContacts")
+  createdLeads          Lead[]              @relation("CreatedLeads")
   tasks                 Task[]
   messages              Message[]
   notes                 Note[]
@@ -60,6 +60,7 @@ model User {
   assignedConversations ConversationMeta[]
   csatRequests          CsatRequest[]
   quotes                Quote[]
+  aiSuggestionsDecided  AiSalesSuggestion[] @relation("AiSuggestionDecidedBy")
 
   @@map("users")
 }
@@ -72,61 +73,79 @@ enum UserRole {
 }
 
 model Workspace {
-  id                      String    @id @default(cuid())
-  name                    String
-  slug                    String    @unique
-  logo                    String?
-  timezone                String    @default("Africa/Maputo")
-  currency                String    @default("MZN")
+  id                            String    @id @default(cuid())
+  name                          String
+  slug                          String    @unique
+  logo                          String?
+  timezone                      String    @default("Africa/Maputo")
+  currency                      String    @default("MZN")
   // Subscrição/plano: STARTER | GROWTH | BUSINESS | ENTERPRISE
-  plan                    String    @default("STARTER")
-  trialEndsAt             DateTime?
-  primaryColor            String    @default("#6366F1")
-  dateFormat              String    @default("DD/MM/YYYY")
-  fiscalYearStartMonth    Int       @default(1) // 1 = Janeiro
-  autoAssignEnabled       Boolean   @default(false) // atribuicao round-robin de conversas novas
+  plan                          String    @default("STARTER")
+  trialEndsAt                   DateTime?
+  primaryColor                  String    @default("#6366F1")
+  dateFormat                    String    @default("DD/MM/YYYY")
+  fiscalYearStartMonth          Int       @default(1) // 1 = Janeiro
+  autoAssignEnabled             Boolean   @default(false) // atribuicao round-robin de conversas novas
   // Opcoes customizaveis para tarefas (arrays JSON; vazio = usar defaults)
   // Formato cada item: { value: string, label: string, color?: string }
-  taskTypes               Json      @default("[]")
-  taskPriorities          Json      @default("[]")
-  taskStatuses            Json      @default("[]")
-  taskRecurrences         Json      @default("[]")
+  taskTypes                     Json      @default("[]")
+  taskPriorities                Json      @default("[]")
+  taskStatuses                  Json      @default("[]")
+  taskRecurrences               Json      @default("[]")
   // Títulos pré-definidos para tarefa (ex: Slide, Sinopse, Projecto, Monografia)
-  taskTitles              Json      @default("[]")
+  taskTitles                    Json      @default("[]")
   // Labels customizadas dos campos do modal de tarefa.
   // Formato: { title: string, description: string, type: string, priority: string, dueAt: string, assignee: string, contact: string }
-  taskFieldLabels         Json      @default("{}")
+  taskFieldLabels               Json      @default("{}")
   // Digest diário de tarefas via WhatsApp para os responsáveis
-  dailyDigestEnabled      Boolean   @default(false)
-  dailyDigestHour         Int       @default(7) // 0-23 (hora local Africa/Maputo)
-  dailyDigestMinute       Int       @default(0) // 0-59
+  dailyDigestEnabled            Boolean   @default(false)
+  dailyDigestHour               Int       @default(7) // 0-23 (hora local Africa/Maputo)
+  dailyDigestMinute             Int       @default(0) // 0-59
   // Timestamp da última execução para evitar duplicar no mesmo minuto
-  dailyDigestLastRunAt    DateTime?
+  dailyDigestLastRunAt          DateTime?
   // Template customizável da mensagem do digest. Estrutura:
   // { header, overdueHeader, todayHeader, tomorrowHeader, taskLine, footer }
   // Vazio = usa defaults definidos no código.
-  dailyDigestTemplate     Json      @default("{}")
+  dailyDigestTemplate           Json      @default("{}")
   // Dias da semana em que o digest é enviado. Array de ints 0-6 (0=Dom,1=Seg,...,6=Sáb).
   // Default: todos os dias.
-  dailyDigestWeekdays     Json      @default("[0,1,2,3,4,5,6]")
-  assignmentNotifyEnabled Boolean   @default(true)
+  dailyDigestWeekdays           Json      @default("[0,1,2,3,4,5,6]")
+  assignmentNotifyEnabled       Boolean   @default(true)
   // Voz/tom da marca que a IA usa ao redigir mensagens (suggest-reply, agent-reply, improve-text)
-  aiBrandVoice            String?
+  aiBrandVoice                  String?
   // Sector/ramo de actividade do workspace, usado pela IA Vendedora para escolher
   // tacticas e vocabulario adequados. Chaves alinhadas com sectorTemplates:
   // imobiliaria | clinica | escola | consultoria | outro.
-  sector                  String    @default("outro")
+  sector                        String    @default("outro")
   // Persona da IA Vendedora (configuravel por cliente do Klaru).
-  aiAgentName             String?
-  aiAgentRole             String?
+  aiAgentName                   String?
+  aiAgentRole                   String?
   // Instrucoes livres do utilizador (ex: "Sempre sugere visita guiada antes
   // de proposta"). Concatenadas ao system prompt da IA Vendedora.
-  aiAgentInstructions     String?
+  aiAgentInstructions           String?
   // Memoria consolidada pelo job nocturno a partir das correccoes humanas
   // e dos fechos de leads (preenchida pela Fase 4 do plano).
-  aiLearnedMemory         String?
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  aiLearnedMemory               String?
+  // === Fase 3 da IA Vendedora: execucao supervisionada ===
+  // Liga/desliga a geracao automatica de sugestoes quando chega mensagem.
+  aiSalesEnabled                Boolean   @default(false)
+  // Modo de operacao da IA Vendedora:
+  //   supervised  -> sugere, humano aprova/edita/descarta antes de enviar
+  //   auto        -> envia directamente sem aprovacao humana (para a Fase 4)
+  aiSalesMode                   String    @default("supervised")
+  // Quais conversas (chave: contactId) tem IA Vendedora ligada quando o modo
+  // global esta desligado. Array de strings. Decisao por conversa, conforme
+  // a escolha feita na Fase 2.
+  aiSalesEnabledConversationIds Json      @default("[]")
+  // Limite duro de mensagens fragmentadas por resposta da IA. Conforme decisao
+  // da Fase 2, default 4.
+  aiSalesMaxParts               Int       @default(4)
+  // Lista de palavras-trigger para handoff automatico (ex: "queixa", "reembolso").
+  // Array de strings, lowercase, comparadas em substring contra a mensagem
+  // recebida.
+  aiSalesHandoffTriggers        Json      @default("[]")
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
 
   users                User[]
   pipelines            Pipeline[]
@@ -147,6 +166,7 @@ model Workspace {
   systemEmailTemplates SystemEmailTemplate[]
   products             Product[]
   quotes               Quote[]
+  aiSalesSuggestions   AiSalesSuggestion[]
 
   @@map("workspaces")
 }
@@ -224,15 +244,16 @@ model Lead {
   contact      Contact?  @relation(fields: [contactId], references: [id])
   contactId    String?
 
-  tasks        Task[]
-  messages     Message[]
-  notes        Note[]
-  activities   Activity[]
-  tags         TagOnLead[]
-  customValues CustomFieldValue[]
-  files        File[]
-  csatRequests CsatRequest[]
-  quotes       Quote[]
+  tasks              Task[]
+  messages           Message[]
+  notes              Note[]
+  activities         Activity[]
+  tags               TagOnLead[]
+  customValues       CustomFieldValue[]
+  files              File[]
+  csatRequests       CsatRequest[]
+  quotes             Quote[]
+  aiSalesSuggestions AiSalesSuggestion[]
 
   @@map("leads")
 }
@@ -289,6 +310,7 @@ model Contact {
   csatRequests        CsatRequest[]
   tasks               Task[]
   quotes              Quote[]
+  aiSalesSuggestions  AiSalesSuggestion[]
 
   @@index([assignedToId])
   @@map("contacts")
@@ -327,6 +349,8 @@ model Message {
   replyToId String?
   replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies   Message[] @relation("MessageReplies")
+
+  aiSalesSuggestionsTriggered AiSalesSuggestion[] @relation("AiSuggestionTriggerMessage")
 
   // Indices essenciais para acelerar GET /messages (lista por contacto/lead)
   // e GET /messages/conversations (top recentes do workspace).
@@ -1098,4 +1122,76 @@ model QuoteItem {
 
   @@index([quoteId])
   @@map("quote_items")
+}
+
+// ==================== IA VENDEDORA: SUGESTOES ====================
+//
+// Cada vez que a IA Vendedora analisa uma conversa, produz uma sugestao
+// estruturada (uma ou mais partes de texto, possivelmente com produto
+// anexado, ou pedido de handoff). Em modo supervisionado fica PENDING ate
+// o humano aprovar/editar/descartar. Em modo auto (Fase 4) e enviada
+// directamente e nasce ja como SENT.
+//
+// Persistir cada sugestao serve para tres coisas:
+//   1. UI da Caixa de Entrada mostrar "tem sugestao pendente"
+//   2. Auditoria: ver o que a IA quis dizer, mesmo que tenha sido editada
+//   3. Aprendizagem futura: a Fase 4 vai cruzar correccoes humanas com
+//      sugestoes originais para alimentar aiLearnedMemory
+//
+model AiSalesSuggestion {
+  id               String    @id @default(cuid())
+  // === Origem ===
+  workspaceId      String
+  contactId        String
+  leadId           String?
+  // Mensagem inbound que disparou a sugestao (null se foi gerada manualmente)
+  triggerMessageId String?
+  // === Conteudo proposto pela IA ===
+  // Array de strings com as partes da resposta fragmentada (max 4 por config).
+  parts            Json
+  // Accao que a IA escolheu:
+  //   send_text      -> envia so o texto em parts
+  //   send_product   -> envia texto + anexa ficheiros do produto
+  //   handoff        -> passa para humano (parts pode ser mensagem de transicao)
+  //   wait           -> nao responde agora (ex: lead pediu para falar so amanha)
+  action           String    @default("send_text")
+  // Se action=send_product, qual produto e que ficheiros enviar.
+  productId        String?
+  productFileIds   Json      @default("[]")
+  // Justificativa interna: porque escolheu esta resposta (debug + auditoria).
+  reasoning        String?   @db.Text
+  // Chaves dos principios que a IA usou (string[]). Util para o painel.
+  principlesUsed   Json      @default("[]")
+  // Modelo e tokens usados (para custos/diagnostico).
+  modelUsed        String?
+  promptTokens     Int?
+  completionTokens Int?
+  // === Estado e decisao humana ===
+  // PENDING   -> a aguardar revisao humana
+  // APPROVED  -> enviada como esta (parts originais)
+  // EDITED    -> humano editou e enviou (finalParts != parts)
+  // DISCARDED -> humano rejeitou, nao enviou nada
+  // SENT      -> modo auto, enviada sem revisao
+  // FAILED    -> erro ao enviar
+  status           String    @default("PENDING")
+  // Se editada, as partes finais que foram efectivamente enviadas.
+  finalParts       Json?
+  // IDs das mensagens criadas ao enviar (string[], correspondem a Message.id).
+  sentMessageIds   Json      @default("[]")
+  decidedAt        DateTime?
+  decidedById      String?
+  errorDetail      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact        Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  lead           Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  triggerMessage Message?  @relation("AiSuggestionTriggerMessage", fields: [triggerMessageId], references: [id], onDelete: SetNull)
+  decidedBy      User?     @relation("AiSuggestionDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status, createdAt])
+  @@index([contactId, createdAt])
+  @@index([leadId, createdAt])
+  @@map("ai_sales_suggestions")
 }

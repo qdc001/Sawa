@@ -19,6 +19,16 @@ export type BuildPromptOptions = {
   activePrincipleKeys?: string[];
   // Limite de mensagens fragmentadas (default 4 conforme plano).
   maxFragments?: number;
+  // Catalogo de produtos disponiveis para a IA poder anexar via send_product.
+  // Quando vazio (ou ausente), o prompt nao convida a usar send_product.
+  productCatalog?: Array<{
+    id: string;
+    name: string;
+    description?: string | null;
+    unitPrice?: number | null;
+    currency?: string | null;
+    fileCount?: number;
+  }>;
 };
 
 export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOptions = {}): string {
@@ -95,15 +105,47 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
     `Pistas para prova social:\n${socialProofBlock}`
   );
 
+  // Catalogo de produtos disponivel para a IA escolher quando faz sentido
+  // anexar materiais (ficha tecnica, foto, PDF de proposta, etc.).
+  const catalog = (opts.productCatalog || []).filter((p) => p && p.id);
+  const catalogBlock = catalog.length === 0
+    ? null
+    : catalog.map((p) => {
+        const price = (p.unitPrice != null) ? ` | preco: ${p.unitPrice} ${p.currency || 'MZN'}` : '';
+        const files = (p.fileCount && p.fileCount > 0) ? ` | ${p.fileCount} ficheiro(s)` : ' | sem ficheiros';
+        const desc = p.description ? ` | ${String(p.description).slice(0, 120)}` : '';
+        return `- ${p.id} :: ${p.name}${desc}${price}${files}`;
+      }).join('\n');
+
+  if (catalogBlock) {
+    parts.push(
+      `Catalogo de produtos disponivel (id :: nome | descricao | preco | ficheiros):\n${catalogBlock}\n\n` +
+      `Quando o lead pedir informacao detalhada sobre um produto destes, podes responder com action="send_product" ` +
+      `e indicar o productId correspondente. Se o produto nao tiver ficheiros, prefere action="send_text".`
+    );
+  }
+
   parts.push(
-    `Regras de formato da resposta:\n` +
-    `- Devolves SEMPRE um JSON valido com a forma { "messages": string[], "principlesUsed": string[] }.\n` +
-    `- O array messages tem entre 1 e ${maxFragments} mensagens curtas, como se estivesses a digitar no WhatsApp.\n` +
-    `- Cada mensagem com 1 a 3 frases. Sem listas, sem markdown, sem emojis em excesso.\n` +
-    `- O array principlesUsed contem as chaves dos principios usados, escolhidas da lista que conheces.\n` +
-    `- Nunca inventas nomes, numeros ou casos de clientes. Se nao tens dado, omites.\n` +
-    `- Quando deves enviar ficheiros do catalogo, usas as tools disponiveis para o efeito.\n` +
-    `- Em caso de duvida grande, usa a tool de handoff para passar a conversa a um humano.`
+    `Regras de formato da resposta (cumprir a risca):\n` +
+    `- Devolves SEMPRE um unico objecto JSON valido (sem markdown, sem texto antes ou depois).\n` +
+    `- A forma exacta e: {\n` +
+    `    "action": "send_text" | "send_product" | "handoff" | "wait",\n` +
+    `    "parts": string[],          // entre 1 e ${maxFragments} mensagens curtas para enviar ao lead\n` +
+    `    "productId": string | null, // obrigatorio so se action="send_product", senao null\n` +
+    `    "principlesUsed": string[], // chaves dos principios escolhidos (ex: "voss_labeling")\n` +
+    `    "reasoning": string         // 1-2 frases explicando porque escolheste esta resposta (em PT-MZ)\n` +
+    `  }.\n` +
+    `- Cada mensagem em parts tem 1 a 3 frases, tom WhatsApp, natural, sem listas nem markdown.\n` +
+    `- Fragmenta a resposta em varias partes pequenas quando isso parecer mais humano (saudacao, pergunta, ` +
+    `proposta, fecho podem ser partes separadas).\n` +
+    `- Nao excedas ${maxFragments} partes. Se a mensagem couber em 1, usa 1.\n` +
+    `- Nunca inventas nomes de clientes, numeros, datas ou casos. Se nao sabes, omites.\n` +
+    `- action="handoff" quando o lead pede falar com humano, ameaca, pede reembolso, mostra raiva, ` +
+    `ou a duvida sai do teu dominio. Em handoff, parts pode conter uma frase de transicao curta.\n` +
+    `- action="wait" se o lead pediu para falar mais tarde ou se ainda nao ha nada substantivo a dizer. ` +
+    `Em wait, parts pode ser array vazio.\n` +
+    `- principlesUsed deve listar 2 a 4 chaves dos principios que orientaram a resposta. Nunca cites ` +
+    `principios pelo nome ao lead, sao so para auditoria interna.`
   );
 
   return parts.join('\n\n');

@@ -158,6 +158,99 @@ export async function callGroqWithLimiter(
   throw lastErr || Object.assign(new Error('Groq: esgotaram-se as tentativas'), { status: 502 });
 }
 
+// Variante em JSON-mode: forca a Groq a devolver JSON valido.
+// Util para o agente IA Vendedora, que precisa de output estruturado
+// (parts, action, productId, reasoning, principles).
+//
+// Diferencas para callGroqWithLimiter:
+//  - response_format: { type: "json_object" } passado a API
+//  - devolve o objecto ja parseado, nao a string crua
+//  - inclui contagem de tokens (usage) para auditoria/custos
+//  - tipa o resultado como T generico para o caller
+export async function callGroqJsonWithLimiter<T = any>(
+  apiKey: string,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  maxTokens: number,
+  temperature = 0.7,
+): Promise<{ json: T; raw: string; promptTokens?: number; completionTokens?: number }> {
+  // Sem cache: cada chamada do agente e contextual e o LRU partilhado
+  // poderia devolver respostas erradas para conversas diferentes.
+
+  let lastErr: GroqError | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    await waitForSlot();
+
+    let res: Response;
+    try {
+      res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          temperature,
+          messages,
+          response_format: { type: 'json_object' },
+        }),
+      });
+    } catch (e: any) {
+      lastErr = Object.assign(new Error(`Rede: ${e.message}`), { status: 502 });
+      if (attempt < MAX_RETRIES) await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+      continue;
+    }
+
+    if (res.ok) {
+      let data: any;
+      try { data = await res.json(); } catch {
+        throw Object.assign(new Error('Resposta invalida da Groq (nao-JSON envelope)'), { status: 502 });
+      }
+      const raw = data.choices?.[0]?.message?.content;
+      if (!raw) throw Object.assign(new Error('Groq devolveu resposta vazia'), { status: 502 });
+      let json: any;
+      try { json = JSON.parse(raw); } catch {
+        // O modelo nao respeitou o json_object. Devolvemos string solta envelopada.
+        throw Object.assign(new Error('Groq JSON-mode devolveu conteudo nao-JSON: ' + raw.slice(0, 200)), { status: 502 });
+      }
+      return {
+        json: json as T,
+        raw,
+        promptTokens: data.usage?.prompt_tokens,
+        completionTokens: data.usage?.completion_tokens,
+      };
+    }
+
+    let detail = `HTTP ${res.status}`;
+    let bodyText = '';
+    try {
+      bodyText = await res.text();
+      const j = JSON.parse(bodyText);
+      detail = j?.error?.message || j?.message || detail;
+    } catch {
+      if (bodyText) detail = bodyText.slice(0, 300);
+    }
+
+    if (res.status === 429) {
+      const retryAfterHeader = res.headers.get('retry-after');
+      const retryAfterMs = retryAfterHeader
+        ? Math.max(500, Number(retryAfterHeader) * 1000)
+        : 1000 * 2 ** (attempt + 1);
+      lastErr = Object.assign(new Error(`429: ${detail}`), { status: 429, retryAfterMs });
+      console.warn(`[groq-json] 429 (tentativa ${attempt + 1}/${MAX_RETRIES + 1}). A esperar ${retryAfterMs}ms.`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, retryAfterMs));
+        continue;
+      }
+      throw lastErr;
+    }
+
+    throw Object.assign(new Error(detail), { status: res.status });
+  }
+
+  throw lastErr || Object.assign(new Error('Groq JSON: esgotaram-se as tentativas'), { status: 502 });
+}
+
 // Diagnóstico
 export function getLimiterStats() {
   purgeOldTimestamps();
