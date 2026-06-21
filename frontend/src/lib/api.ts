@@ -331,6 +331,46 @@ export interface WorkspaceFull extends Workspace {
   _count?: { users: number; leads: number; contacts: number };
 }
 
+// Sugestao da IA Vendedora (Fase 3) que aguarda decisao do humano
+// (em modo supervisionado) ou ja foi enviada/descartada.
+export interface AiSalesSuggestion {
+  id: string;
+  workspaceId: string;
+  contactId: string;
+  leadId?: string | null;
+  triggerMessageId?: string | null;
+  parts: string[];
+  action: 'send_text' | 'send_product' | 'handoff' | 'wait';
+  productId?: string | null;
+  productFileIds?: string[];
+  reasoning?: string | null;
+  principlesUsed?: string[];
+  modelUsed?: string | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  status: 'PENDING' | 'APPROVED' | 'EDITED' | 'DISCARDED' | 'SENT' | 'FAILED';
+  finalParts?: string[];
+  sentMessageIds?: string[];
+  decidedAt?: string | null;
+  decidedById?: string | null;
+  errorDetail?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  contact?: { id: string; firstName: string; lastName?: string; phone?: string; whatsapp?: string };
+  lead?: { id: string; title: string; value?: number };
+  triggerMessage?: { id: string; content: string; createdAt: string; direction?: string };
+  decidedBy?: { id: string; name: string };
+}
+
+// Configuracao de runtime da IA Vendedora por workspace.
+export interface AiSalesRuntimeConfig {
+  aiSalesEnabled: boolean;
+  aiSalesMode: 'supervised' | 'auto';
+  aiSalesEnabledConversationIds: string[];
+  aiSalesMaxParts: number;
+  aiSalesHandoffTriggers: string[];
+}
+
 export interface Conversation {
   key: string;
   contact: {

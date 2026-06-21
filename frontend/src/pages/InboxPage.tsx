@@ -5,11 +5,12 @@ import {
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
   Inbox, Building2, User as UserIcon, Users as UsersIcon, Star, Archive, Edit3, Trash2,
   Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, Calendar,
-  ChevronLeft, ChevronRight, Smile,
+  ChevronLeft, ChevronRight, Smile, Bot, Power, BookOpen,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
   ConversationMeta, User, Tag as TagType,
+  AiSalesSuggestion, AiSalesRuntimeConfig,
 } from '../lib/api';
 import toast from 'react-hot-toast';
 import { useAuthStore, useUIStore } from '../store';
@@ -593,6 +594,18 @@ export default function InboxPage() {
             contactId: sel!.contact?.id, leadId: sel!.leadId, sendReceipt: true,
           }).catch(() => {});
         }
+        // Auto-trigger da IA Vendedora: mensagem inbound nova em conversa
+        // onde a IA esta ligada (global ou por conversa). Despoletado uma
+        // unica vez por mensagem (Set ref); o painel mostra-a quando chegar.
+        if (
+          msg.direction === 'INBOUND' && !msg.isInternal &&
+          salesConfigRef.current && sel?.contact?.id &&
+          (salesConfigRef.current.aiSalesEnabled || (salesConfigRef.current.aiSalesEnabledConversationIds || []).includes(sel.contact.id)) &&
+          !salesAutoTriggeredRef.current.has(msg.id)
+        ) {
+          salesAutoTriggeredRef.current.add(msg.id);
+          requestSalesSuggestionRef.current?.(sel.contact.id, sel.leadId, msg.id);
+        }
       }
       setConversations((prev) => {
         const idx = prev.findIndex((c) => c.contact?.id === msg.contactId);
@@ -690,6 +703,145 @@ export default function InboxPage() {
   const [aiSummary, setAiSummary] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+
+  // IA Vendedora (Fase 3): runtime config, sugestao pendente da conversa
+  // activa, modo edicao no painel e flag de "a IA esta a pensar" para
+  // mostrar indicador enquanto o backend devolve a sugestao.
+  const [salesConfig, setSalesConfig] = useState<AiSalesRuntimeConfig | null>(null);
+  const [salesSuggestion, setSalesSuggestion] = useState<AiSalesSuggestion | null>(null);
+  const [salesGenerating, setSalesGenerating] = useState(false);
+  const [salesEditing, setSalesEditing] = useState(false);
+  const [salesEditParts, setSalesEditParts] = useState<string[]>([]);
+  const [salesDeciding, setSalesDeciding] = useState<string | null>(null); // 'approve' | 'edit' | 'discard'
+  const salesAutoTriggeredRef = useRef<Set<string>>(new Set()); // ids de mensagens ja despoletadas
+  // Refs sincronizados com o state para uso dentro do handler do socket
+  // (que so e montado uma vez por workspace e nao captura updates).
+  const salesConfigRef = useRef<AiSalesRuntimeConfig | null>(null);
+  const requestSalesSuggestionRef = useRef<((contactId: string, leadId: string | null | undefined, triggerMessageId?: string | null) => void) | null>(null);
+
+  // Carrega config inicial da IA Vendedora (1x ao montar)
+  useEffect(() => {
+    if (!workspace?.id) return;
+    api.get('/sales-agent/runtime-config')
+      .then(({ data }) => setSalesConfig({
+        aiSalesEnabled: !!data.aiSalesEnabled,
+        aiSalesMode: data.aiSalesMode || 'supervised',
+        aiSalesEnabledConversationIds: Array.isArray(data.aiSalesEnabledConversationIds) ? data.aiSalesEnabledConversationIds : [],
+        aiSalesMaxParts: Number(data.aiSalesMaxParts) || 4,
+        aiSalesHandoffTriggers: Array.isArray(data.aiSalesHandoffTriggers) ? data.aiSalesHandoffTriggers : [],
+      }))
+      .catch(() => {/* silenciar: feature opcional */});
+  }, [workspace?.id]);
+
+  // Verifica se a IA Vendedora deve actuar nesta conversa.
+  // Activa se: a) toggle global ON; ou b) o contactId esta no array
+  // de conversas onde foi ligada manualmente.
+  const isSalesAiActiveForContact = (contactId?: string | null): boolean => {
+    if (!contactId || !salesConfig) return false;
+    if (salesConfig.aiSalesEnabled) return true;
+    return (salesConfig.aiSalesEnabledConversationIds || []).includes(contactId);
+  };
+
+  // Liga/desliga a IA Vendedora para uma conversa especifica.
+  // Faz PATCH /sales-agent/config com a nova lista.
+  const toggleSalesAiForContact = async (contactId: string) => {
+    if (!salesConfig) return;
+    const current = salesConfig.aiSalesEnabledConversationIds || [];
+    const next = current.includes(contactId)
+      ? current.filter((id) => id !== contactId)
+      : [...current, contactId];
+    try {
+      await api.patch('/sales-agent/config', { aiSalesEnabledConversationIds: next });
+      setSalesConfig({ ...salesConfig, aiSalesEnabledConversationIds: next });
+      toast.success(next.includes(contactId) ? 'IA Vendedora ligada nesta conversa' : 'IA Vendedora desligada');
+      if (!next.includes(contactId)) {
+        setSalesSuggestion(null);
+        setSalesEditing(false);
+      }
+    } catch {
+      toast.error('Erro a guardar');
+    }
+  };
+
+  // Pede uma sugestao ao backend para a conversa actualmente seleccionada.
+  const requestSalesSuggestion = async (contactId: string, leadId: string | null | undefined, triggerMessageId?: string | null) => {
+    if (salesGenerating) return;
+    setSalesGenerating(true);
+    setSalesEditing(false);
+    try {
+      const { data } = await api.post('/sales-agent/suggest', {
+        contactId,
+        leadId: leadId || undefined,
+        triggerMessageId: triggerMessageId || undefined,
+      });
+      setSalesSuggestion(data.suggestion);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Erro ao gerar sugestao';
+      toast.error(msg);
+    } finally {
+      setSalesGenerating(false);
+    }
+  };
+
+  const approveSalesSuggestion = async () => {
+    if (!salesSuggestion) return;
+    setSalesDeciding('approve');
+    try {
+      const { data } = await api.post(`/sales-agent/suggestions/${salesSuggestion.id}/approve`, {});
+      if (data?.dispatch?.error) {
+        toast.error(`Enviou parcial: ${data.dispatch.error}`);
+      } else {
+        toast.success(salesSuggestion.action === 'wait' ? 'Marcado como aprovado (sem envio)'
+          : salesSuggestion.action === 'handoff' ? 'Conversa atribuida'
+          : 'Enviado');
+      }
+      setSalesSuggestion(null);
+      setSalesEditing(false);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a aprovar');
+    } finally {
+      setSalesDeciding(null);
+    }
+  };
+
+  const editSalesSuggestion = async () => {
+    if (!salesSuggestion) return;
+    const parts = salesEditParts.map((p) => p.trim()).filter((p) => p.length > 0);
+    if (parts.length === 0) { toast.error('Pelo menos uma mensagem nao-vazia'); return; }
+    setSalesDeciding('edit');
+    try {
+      const { data } = await api.post(`/sales-agent/suggestions/${salesSuggestion.id}/edit`, { parts });
+      if (data?.dispatch?.error) toast.error(`Enviou parcial: ${data.dispatch.error}`);
+      else toast.success('Enviado (editado)');
+      setSalesSuggestion(null);
+      setSalesEditing(false);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a enviar editado');
+    } finally {
+      setSalesDeciding(null);
+    }
+  };
+
+  const discardSalesSuggestion = async () => {
+    if (!salesSuggestion) return;
+    setSalesDeciding('discard');
+    try {
+      await api.post(`/sales-agent/suggestions/${salesSuggestion.id}/discard`, {});
+      setSalesSuggestion(null);
+      setSalesEditing(false);
+      toast.success('Sugestao descartada');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a descartar');
+    } finally {
+      setSalesDeciding(null);
+    }
+  };
+
+  const startEditingSalesSuggestion = () => {
+    if (!salesSuggestion) return;
+    setSalesEditParts([...(salesSuggestion.parts || [])]);
+    setSalesEditing(true);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
@@ -830,6 +982,8 @@ export default function InboxPage() {
   // Sincroniza refs (usados em socket callbacks)
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { readReceiptsRef.current = readReceipts; }, [readReceipts]);
+  useEffect(() => { salesConfigRef.current = salesConfig; }, [salesConfig]);
+  useEffect(() => { requestSalesSuggestionRef.current = requestSalesSuggestion; });
 
   // Re-procura tarefa pendente/em curso para a conversa actual.
   // Procura em paralelo por contactId E leadId — a tarefa pode estar ligada a um ou outro.
@@ -858,6 +1012,22 @@ export default function InboxPage() {
     } catch { setExistingTask(null); }
   };
   useEffect(() => { refreshExistingTask(); /* eslint-disable-next-line */ }, [selected?.contact?.id, selected?.leadId]);
+
+  // Ao mudar de conversa, limpa qualquer sugestao em curso/mostrada.
+  // Tambem busca uma eventual sugestao PENDENTE para a nova conversa (foi
+  // gerada antes do humano abrir a conversa).
+  useEffect(() => {
+    setSalesSuggestion(null);
+    setSalesEditing(false);
+    setSalesGenerating(false);
+    const cid = selected?.contact?.id;
+    if (!cid || !salesConfig) return;
+    if (!isSalesAiActiveForContact(cid)) return;
+    api.get(`/sales-agent/suggestions?status=PENDING&contactId=${cid}&limit=1`)
+      .then(({ data }) => { if (Array.isArray(data) && data.length > 0) setSalesSuggestion(data[0]); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.contact?.id, salesConfig?.aiSalesEnabled, salesConfig?.aiSalesEnabledConversationIds]);
 
   useEffect(() => {
     if (!selected) { setMessages([]); return; }
@@ -1489,7 +1659,18 @@ export default function InboxPage() {
                   ) : selected.contact?.type === 'COMPANY' ? <Building2 size={16} /> : (selected.contact?.firstName?.[0] || '?').toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <p className="font-semibold text-sm truncate">{fullName(selected.contact)}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold text-sm truncate">{fullName(selected.contact)}</p>
+                    {selected.contact && isSalesAiActiveForContact(selected.contact.id) && (
+                      <span
+                        title="IA Vendedora activa nesta conversa"
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0"
+                        style={{ background: '#DCFCE7', color: '#166534' }}
+                      >
+                        <Bot size={10} /> IA
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5">
                     {selected.combined && selected.channels && selected.channels.length > 1 ? (
                       <div className="flex gap-0.5">
@@ -1545,6 +1726,33 @@ export default function InboxPage() {
                     <button onClick={() => { handleAISummary(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       <Sparkles size={14} style={{ color: 'var(--primary)' }} /> Resumir conversa (IA)
                     </button>
+                    {selected.contact && salesConfig && (
+                      <>
+                        <button
+                          onClick={() => { toggleSalesAiForContact(selected.contact!.id); setShowHeaderMenu(false); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left"
+                          title={salesConfig.aiSalesEnabled ? 'IA Vendedora globalmente activa' : 'Liga/desliga nesta conversa'}
+                        >
+                          <Bot size={14} style={{ color: isSalesAiActiveForContact(selected.contact.id) ? '#16A34A' : 'var(--text-muted)' }} />
+                          <span className="flex-1">IA Vendedora</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                            style={{ background: isSalesAiActiveForContact(selected.contact.id) ? '#DCFCE7' : 'var(--surface-3)',
+                              color: isSalesAiActiveForContact(selected.contact.id) ? '#166534' : 'var(--text-muted)' }}>
+                            {isSalesAiActiveForContact(selected.contact.id) ? 'ON' : 'OFF'}
+                          </span>
+                        </button>
+                        {isSalesAiActiveForContact(selected.contact.id) && (
+                          <button
+                            onClick={() => { requestSalesSuggestion(selected.contact!.id, selected.leadId); setShowHeaderMenu(false); }}
+                            disabled={salesGenerating}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left"
+                          >
+                            {salesGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} style={{ color: '#16A34A' }} />}
+                            Pedir sugestao agora
+                          </button>
+                        )}
+                      </>
+                    )}
                     {selected.contact?.whatsapp && (
                       <a href={`https://wa.me/${cleanPhone(selected.contact.whatsapp)}`} target="_blank" rel="noreferrer" className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100" onClick={() => setShowHeaderMenu(false)}>
                         <MessageCircle size={14} style={{ color: '#25D366' }} /> Abrir no WhatsApp
@@ -1813,6 +2021,160 @@ export default function InboxPage() {
               )}
               <div ref={messagesEndRef} />
             </div>
+
+            {/* Painel IA Vendedora (Fase 3): indicador "a pensar" + sugestao pendente */}
+            {selected && selected.contact && isSalesAiActiveForContact(selected.contact.id) && (salesGenerating || salesSuggestion) && (
+              <div className="px-4 py-3 flex-shrink-0" style={{ background: '#F0FDF4', borderTop: '1px solid #BBF7D0' }}>
+                {salesGenerating && !salesSuggestion ? (
+                  <div className="flex items-center gap-2 text-xs" style={{ color: '#166534' }}>
+                    <Loader2 size={14} className="animate-spin" />
+                    <Bot size={14} />
+                    <span>IA Vendedora a preparar resposta...</span>
+                  </div>
+                ) : salesSuggestion ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs">
+                      <Bot size={14} style={{ color: '#166534' }} />
+                      <span className="font-semibold" style={{ color: '#166534' }}>
+                        Sugestao da IA Vendedora
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: '#DCFCE7', color: '#166534' }}>
+                        {salesSuggestion.action === 'send_text' ? 'Responder' :
+                          salesSuggestion.action === 'send_product' ? 'Responder + produto' :
+                            salesSuggestion.action === 'handoff' ? 'Passar a humano' : 'Aguardar'}
+                      </span>
+                      {salesSuggestion.action === 'send_product' && salesSuggestion.productFileIds && salesSuggestion.productFileIds.length > 0 && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
+                          +{salesSuggestion.productFileIds.length} ficheiro(s)
+                        </span>
+                      )}
+                      <button onClick={() => { setSalesSuggestion(null); setSalesEditing(false); }} className="ml-auto p-0.5" title="Fechar (nao decide)">
+                        <X size={12} style={{ color: 'var(--text-muted)' }} />
+                      </button>
+                    </div>
+
+                    {/* Modo visualizacao */}
+                    {!salesEditing && (
+                      <>
+                        {salesSuggestion.parts && salesSuggestion.parts.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {salesSuggestion.parts.map((p, i) => (
+                              <div key={i} className="px-3 py-2 rounded-lg text-sm whitespace-pre-wrap"
+                                style={{ background: 'var(--surface)', color: 'var(--text-primary)', border: '1px solid #BBF7D0' }}>
+                                {p}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>
+                            {salesSuggestion.action === 'wait' ? 'Sem nada substantivo a dizer agora.' : 'Sem mensagens.'}
+                          </p>
+                        )}
+                        {salesSuggestion.reasoning && (
+                          <details className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                            <summary className="cursor-pointer hover:underline flex items-center gap-1">
+                              <BookOpen size={10} /> Porque escolheu isto
+                            </summary>
+                            <p className="mt-1 pl-3">{salesSuggestion.reasoning}</p>
+                            {salesSuggestion.principlesUsed && salesSuggestion.principlesUsed.length > 0 && (
+                              <p className="mt-1 pl-3">
+                                <span className="font-medium">Principios: </span>{salesSuggestion.principlesUsed.join(', ')}
+                              </p>
+                            )}
+                          </details>
+                        )}
+                      </>
+                    )}
+
+                    {/* Modo edicao */}
+                    {salesEditing && (
+                      <div className="space-y-1.5">
+                        {salesEditParts.map((p, i) => (
+                          <div key={i} className="flex items-start gap-2">
+                            <textarea
+                              value={p}
+                              onChange={(e) => {
+                                const next = [...salesEditParts];
+                                next[i] = e.target.value;
+                                setSalesEditParts(next);
+                              }}
+                              rows={2}
+                              className="flex-1 text-sm rounded-lg px-3 py-2 resize-none outline-none"
+                              style={{ background: 'var(--surface)', color: 'var(--text-primary)', border: '1px solid #BBF7D0' }}
+                              lang="pt-PT" spellCheck autoCorrect="on"
+                            />
+                            {salesEditParts.length > 1 && (
+                              <button onClick={() => setSalesEditParts(salesEditParts.filter((_, idx) => idx !== i))}
+                                className="p-1.5 rounded hover:bg-red-50" title="Remover parte">
+                                <Trash2 size={12} style={{ color: '#EF4444' }} />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {salesEditParts.length < (salesConfig?.aiSalesMaxParts || 4) && (
+                          <button onClick={() => setSalesEditParts([...salesEditParts, ''])}
+                            className="text-xs flex items-center gap-1" style={{ color: '#166534' }}>
+                            <Plus size={11} /> Adicionar parte
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Botoes de accao */}
+                    <div className="flex items-center gap-2 pt-1">
+                      {!salesEditing ? (
+                        <>
+                          <button onClick={approveSalesSuggestion} disabled={!!salesDeciding}
+                            className="text-xs px-3 py-1.5 rounded font-medium flex items-center gap-1 text-white"
+                            style={{ background: '#16A34A', opacity: salesDeciding ? 0.6 : 1 }}>
+                            {salesDeciding === 'approve' ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                            {salesSuggestion.action === 'wait' ? 'Aceitar' : salesSuggestion.action === 'handoff' ? 'Aceitar e atribuir' : 'Aprovar e enviar'}
+                          </button>
+                          {(salesSuggestion.action === 'send_text' || salesSuggestion.action === 'send_product') && salesSuggestion.parts && salesSuggestion.parts.length > 0 && (
+                            <button onClick={startEditingSalesSuggestion} disabled={!!salesDeciding}
+                              className="text-xs px-3 py-1.5 rounded font-medium flex items-center gap-1"
+                              style={{ background: 'var(--surface)', color: '#166534', border: '1px solid #BBF7D0' }}>
+                              <Edit3 size={11} /> Editar
+                            </button>
+                          )}
+                          <button onClick={discardSalesSuggestion} disabled={!!salesDeciding}
+                            className="text-xs px-3 py-1.5 rounded font-medium flex items-center gap-1"
+                            style={{ background: 'var(--surface)', color: '#B91C1C', border: '1px solid #FCA5A5' }}>
+                            {salesDeciding === 'discard' ? <Loader2 size={11} className="animate-spin" /> : <X size={11} />}
+                            Descartar
+                          </button>
+                          {selected.contact && (
+                            <button
+                              onClick={() => requestSalesSuggestion(selected.contact!.id, selected.leadId, salesSuggestion.triggerMessageId)}
+                              disabled={salesGenerating || !!salesDeciding}
+                              className="text-xs px-2 py-1.5 rounded font-medium flex items-center gap-1 ml-auto"
+                              style={{ background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
+                              title="Pedir nova sugestao"
+                            >
+                              <RefreshCw size={11} />
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={editSalesSuggestion} disabled={!!salesDeciding}
+                            className="text-xs px-3 py-1.5 rounded font-medium flex items-center gap-1 text-white"
+                            style={{ background: '#16A34A', opacity: salesDeciding ? 0.6 : 1 }}>
+                            {salesDeciding === 'edit' ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                            Enviar editado
+                          </button>
+                          <button onClick={() => setSalesEditing(false)} disabled={!!salesDeciding}
+                            className="text-xs px-3 py-1.5 rounded font-medium"
+                            style={{ background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
+                            Cancelar
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* Sugestões IA */}
             {aiSuggestions.length > 0 && (

@@ -89,6 +89,14 @@ export default function SettingsPage() {
   const [wsAssignmentNotifyEnabled, setWsAssignmentNotifyEnabled] = useState(true);
   const [testingAssignmentNotify, setTestingAssignmentNotify] = useState(false);
   const [savingWs, setSavingWs] = useState(false);
+
+  // IA Vendedora (Fase 3) - config de runtime
+  const [salesAiEnabled, setSalesAiEnabled] = useState(false);
+  const [salesAiMode, setSalesAiMode] = useState<'supervised' | 'auto'>('supervised');
+  const [salesAiMaxParts, setSalesAiMaxParts] = useState(4);
+  const [salesAiHandoffTriggers, setSalesAiHandoffTriggers] = useState<string[]>([]);
+  const [salesAiHandoffInput, setSalesAiHandoffInput] = useState('');
+  const [savingSalesAi, setSavingSalesAi] = useState(false);
   // Zona de perigo (reset de dados)
   const [resetMsgsLoading, setResetMsgsLoading] = useState(false);
   const [resetDataLoading, setResetDataLoading] = useState(false);
@@ -140,6 +148,13 @@ export default function SettingsPage() {
       setWsFiscalMonth(data.fiscalYearStartMonth || 1);
       setWsAiBrandVoice(data.aiBrandVoice || '');
       setWsAutoAssign(!!data.autoAssignEnabled);
+      // IA Vendedora runtime
+      api.get('/sales-agent/runtime-config').then(({ data: rc }) => {
+        setSalesAiEnabled(!!rc.aiSalesEnabled);
+        setSalesAiMode(rc.aiSalesMode === 'auto' ? 'auto' : 'supervised');
+        setSalesAiMaxParts(Number(rc.aiSalesMaxParts) || 4);
+        setSalesAiHandoffTriggers(Array.isArray(rc.aiSalesHandoffTriggers) ? rc.aiSalesHandoffTriggers : []);
+      }).catch(() => {});
       const tt = Array.isArray(data.taskTypes) && data.taskTypes.length > 0 ? data.taskTypes : DEFAULT_TASK_TYPES;
       const tp = Array.isArray(data.taskPriorities) && data.taskPriorities.length > 0 ? data.taskPriorities : DEFAULT_TASK_PRIORITIES;
       const ts = Array.isArray(data.taskStatuses) && data.taskStatuses.length > 0 ? data.taskStatuses : DEFAULT_TASK_STATUSES;
@@ -316,6 +331,31 @@ export default function SettingsPage() {
       toast.success('Password alterada');
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro'); }
     finally { setSavingPwd(false); }
+  };
+
+  const saveSalesAiConfig = async () => {
+    setSavingSalesAi(true);
+    try {
+      await api.patch('/sales-agent/config', {
+        aiSalesEnabled: salesAiEnabled,
+        aiSalesMode: salesAiMode,
+        aiSalesMaxParts: salesAiMaxParts,
+        aiSalesHandoffTriggers: salesAiHandoffTriggers,
+      });
+      toast.success('IA Vendedora actualizada');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a guardar IA Vendedora');
+    } finally {
+      setSavingSalesAi(false);
+    }
+  };
+
+  const addHandoffTrigger = () => {
+    const v = salesAiHandoffInput.trim().toLowerCase();
+    if (!v) return;
+    if (salesAiHandoffTriggers.includes(v)) { setSalesAiHandoffInput(''); return; }
+    setSalesAiHandoffTriggers([...salesAiHandoffTriggers, v]);
+    setSalesAiHandoffInput('');
   };
 
   const saveWorkspace = async () => {
@@ -824,6 +864,91 @@ export default function SettingsPage() {
             <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
               Quando uma mensagem nova chega sem responsável, atribui automaticamente ao agente com menos conversas activas.
             </p>
+          </div>
+
+          {/* IA Vendedora (Fase 3): runtime config */}
+          <div className="border-t pt-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">IA Vendedora</p>
+              <button
+                onClick={saveSalesAiConfig}
+                disabled={savingSalesAi}
+                className="btn btn-primary py-1.5 px-3 text-xs"
+              >
+                {savingSalesAi ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Guardar
+              </button>
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Define se a IA Vendedora actua em todas as conversas (global) ou apenas nas que ligares manualmente no Inbox. Em modo supervisionado, cada sugestao espera aprovacao humana antes de ser enviada.
+            </p>
+
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" checked={salesAiEnabled} onChange={(e) => setSalesAiEnabled(e.target.checked)} />
+              Activar IA Vendedora em todas as conversas
+            </label>
+            <p className="text-[11px] pl-6" style={{ color: 'var(--text-muted)' }}>
+              Se desligado, a IA so actua nas conversas que o utilizador liga no menu da conversa.
+            </p>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Modo de operacao</label>
+              <select value={salesAiMode} onChange={(e) => setSalesAiMode(e.target.value as 'supervised' | 'auto')} className="input-base">
+                <option value="supervised">Supervisionado (humano aprova antes de enviar)</option>
+                <option value="auto">Autonomo (envia automaticamente)</option>
+              </select>
+              {salesAiMode === 'auto' && (
+                <p className="text-[11px] mt-1" style={{ color: '#B45309' }}>
+                  Atencao: modo autonomo envia directamente para o WhatsApp do lead, sem aprovacao. So usa quando ja tiveres confianca nas respostas da IA.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Numero maximo de mensagens por resposta</label>
+              <select value={salesAiMaxParts} onChange={(e) => setSalesAiMaxParts(Number(e.target.value))} className="input-base">
+                {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n} {n === 1 ? 'mensagem' : 'mensagens'}</option>)}
+              </select>
+              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                A IA pode fragmentar a resposta em varias mensagens curtas para parecer mais natural.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Palavras que disparam passagem a humano</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {salesAiHandoffTriggers.length === 0 ? (
+                  <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Nenhuma definida. A IA decide com base no contexto.</p>
+                ) : (
+                  salesAiHandoffTriggers.map((t) => (
+                    <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                      style={{ background: 'var(--surface-2)', color: 'var(--text-primary)' }}>
+                      {t}
+                      <button
+                        onClick={() => setSalesAiHandoffTriggers(salesAiHandoffTriggers.filter((x) => x !== t))}
+                        className="hover:text-red-500"
+                      >
+                        <X size={11} />
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={salesAiHandoffInput}
+                  onChange={(e) => setSalesAiHandoffInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addHandoffTrigger(); } }}
+                  placeholder="ex: humano, gerente, reclamar..."
+                  className="input-base flex-1 text-sm"
+                />
+                <button onClick={addHandoffTrigger} className="btn py-1.5 px-3 text-xs" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>
+                  <Plus size={12} /> Adicionar
+                </button>
+              </div>
+              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                Quando uma destas palavras aparecer na mensagem do lead, a IA passa imediatamente a conversa a um humano.
+              </p>
+            </div>
           </div>
 
           <div className="border-t pt-4 space-y-4" style={{ borderColor: 'var(--border)' }}>
