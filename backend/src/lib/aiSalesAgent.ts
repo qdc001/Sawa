@@ -101,7 +101,13 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
       where: { id: opts.contactId },
       include: { tags: { include: { tag: true } } },
     }),
-    opts.leadId ? prisma.lead.findUnique({ where: { id: opts.leadId } }) : Promise.resolve(null),
+    opts.leadId ? prisma.lead.findUnique({
+      where: { id: opts.leadId },
+      include: {
+        pipeline: { select: { name: true } },
+        stage: { select: { name: true, position: true } },
+      },
+    }) : Promise.resolve(null),
     // Mensagens "publicas" (efectivamente trocadas com o lead)
     prisma.message.findMany({
       where: {
@@ -194,6 +200,14 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
   if (tagsArr.length > 0) leadContext.push(`Etiquetas: ${tagsArr.join(', ')}.`);
   if (lead) {
     leadContext.push(`Lead aberto: "${lead.title}"${lead.value ? `, valor estimado ${lead.value} ${lead.currency}` : ''}, prioridade ${lead.priority}, estado ${lead.status}.`);
+    // Pipeline + etapa actual. Permite ao admin escrever instrucoes
+    // condicionais por etapa (ex: "leads em Negociacao devem receber...")
+    // e a IA respeitar essa logica.
+    const pipelineName = (lead as any).pipeline?.name;
+    const stageName = (lead as any).stage?.name;
+    if (pipelineName || stageName) {
+      leadContext.push(`Pipeline: ${pipelineName || 'sem nome'} / Etapa actual: ${stageName || 'sem nome'}. Adapta o tom e o conteudo ao momento do funil em que este lead se encontra.`);
+    }
   }
   if (internalNotes.length > 0) {
     const notesLines = internalNotes.slice().reverse().map((n) => {

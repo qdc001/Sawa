@@ -225,11 +225,12 @@ export default function SalesAgentPage() {
               <h2 className="text-base font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Instruções específicas</h2>
               <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
                 Escreve aqui regras suas que a IA deve cumprir sempre. Tudo o que estiver aqui é injectado no prompt e tem prioridade alta.
+                A IA tem acesso ao <b>pipeline</b> e <b>etapa actual</b> do lead, ao <b>catálogo de produtos</b> (com ficheiros que pode enviar), ao histórico das últimas 30 mensagens e às notas internas da equipa. Podes escrever instruções condicionais por etapa.
               </p>
               <textarea
                 className="input-base w-full"
                 rows={12}
-                placeholder={`Ex:\n- Sempre sugere visita guiada antes de enviar proposta.\n- Nunca prometas prazos abaixo de 5 dias úteis.\n- Quando o lead mencionar família, oferece sempre a opção de marcação ao fim de semana.\n- Se o lead pedir desconto antes da terceira mensagem, redirige para "podemos falar disso quando tivermos o pacote definido".`}
+                placeholder={`Ex:\n- Sempre sugere visita guiada antes de enviar proposta.\n- Nunca prometas prazos abaixo de 5 dias úteis.\n- Se o lead pedir desconto antes da terceira mensagem, redirige para "podemos falar disso quando tivermos o pacote definido".\n\nCondicional por etapa do pipeline:\n- Etapa "Prospecção": faz 1 ou 2 perguntas de descoberta, não envies proposta.\n- Etapa "Qualificação": pergunta orçamento estimado e prazo de decisão.\n- Etapa "Negociação": envia o produto "Pacote Premium" e responde com tom mais directo.\n- Etapa "Fecho": confirma detalhes e marca próximo passo (visita, contrato, pagamento).`}
                 value={config.aiAgentInstructions || ''}
                 onChange={(e) => update({ aiAgentInstructions: e.target.value })}
                 maxLength={4000}
