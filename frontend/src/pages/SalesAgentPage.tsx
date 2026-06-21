@@ -233,10 +233,10 @@ export default function SalesAgentPage() {
                 placeholder={`Ex:\n- Sempre sugere visita guiada antes de enviar proposta.\n- Nunca prometas prazos abaixo de 5 dias úteis.\n- Se o lead pedir desconto antes da terceira mensagem, redirige para "podemos falar disso quando tivermos o pacote definido".\n\nCondicional por etapa do pipeline:\n- Etapa "Prospecção": faz 1 ou 2 perguntas de descoberta, não envies proposta.\n- Etapa "Qualificação": pergunta orçamento estimado e prazo de decisão.\n- Etapa "Negociação": envia o produto "Pacote Premium" e responde com tom mais directo.\n- Etapa "Fecho": confirma detalhes e marca próximo passo (visita, contrato, pagamento).`}
                 value={config.aiAgentInstructions || ''}
                 onChange={(e) => update({ aiAgentInstructions: e.target.value })}
-                maxLength={4000}
+                maxLength={8000}
               />
               <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-                {(config.aiAgentInstructions || '').length} / 4000 caracteres
+                {(config.aiAgentInstructions || '').length} / 8000 caracteres
               </p>
             </div>
           )}

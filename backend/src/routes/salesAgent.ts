@@ -77,7 +77,7 @@ router.patch('/config', async (req: AuthRequest, res: Response, next) => {
     if (aiAgentName !== undefined) data.aiAgentName = typeof aiAgentName === 'string' ? aiAgentName.trim().slice(0, 60) || null : null;
     if (aiAgentRole !== undefined) data.aiAgentRole = typeof aiAgentRole === 'string' ? aiAgentRole.trim().slice(0, 60) || null : null;
     if (aiBrandVoice !== undefined) data.aiBrandVoice = typeof aiBrandVoice === 'string' ? aiBrandVoice.trim().slice(0, 2000) || null : null;
-    if (aiAgentInstructions !== undefined) data.aiAgentInstructions = typeof aiAgentInstructions === 'string' ? aiAgentInstructions.trim().slice(0, 4000) || null : null;
+    if (aiAgentInstructions !== undefined) data.aiAgentInstructions = typeof aiAgentInstructions === 'string' ? aiAgentInstructions.trim().slice(0, 8000) || null : null;
     // Campos da Fase 3
     if (aiSalesEnabled !== undefined) data.aiSalesEnabled = !!aiSalesEnabled;
     if (aiSalesMode !== undefined) {
