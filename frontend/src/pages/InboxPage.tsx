@@ -639,17 +639,39 @@ export default function InboxPage() {
       if (sel?.contact?.id === data.contactId) setMessages([]);
     };
 
+    // IA Vendedora: backend acabou de criar uma sugestao para alguma conversa.
+    // Se for da conversa actualmente aberta, mostra-a no painel. Caso contrario,
+    // o utilizador pode encontra-la quando abrir a conversa em causa.
+    const onAiSalesSuggestion = (sug: AiSalesSuggestion) => {
+      const sel = selectedRef.current;
+      if (sel?.contact?.id === sug.contactId) {
+        setSalesSuggestion(sug);
+        setSalesGenerating(false);
+        setSalesEditing(false);
+      }
+    };
+
+    // IA Vendedora: alguem decidiu uma sugestao (aprovou/editou/descartou).
+    // Limpa o painel se a sugestao actual e a que foi decidida.
+    const onAiSalesDecided = (sug: AiSalesSuggestion) => {
+      setSalesSuggestion((prev) => (prev && prev.id === sug.id) ? null : prev);
+    };
+
     socket.on('presence:update', onPresence);
     socket.on('call:incoming', onCall);
     socket.on('message:new', onMessage);
     socket.on('message:updated', onMessageUpdated);
     socket.on('conversation:deleted', onConversationDeleted);
+    socket.on('aiSales:suggestion', onAiSalesSuggestion);
+    socket.on('aiSales:decided', onAiSalesDecided);
     return () => {
       socket.off('presence:update', onPresence);
       socket.off('call:incoming', onCall);
       socket.off('message:new', onMessage);
       socket.off('message:updated', onMessageUpdated);
       socket.off('conversation:deleted', onConversationDeleted);
+      socket.off('aiSales:suggestion', onAiSalesSuggestion);
+      socket.off('aiSales:decided', onAiSalesDecided);
     };
   }, [workspace?.id]);
 

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
+import { maybeTriggerSalesSuggestion } from '../lib/aiSalesAgent';
 import { analysePhone, nameFromPushOrPhone } from '../lib/phoneFormat';
 import { applyEvoContactToCrm } from './integrations';
 import fs from 'fs';
@@ -719,6 +720,12 @@ router.post('/evolution', async (req: Request, res: Response) => {
           type: 'message_received', workspaceId,
           entityType: 'message', entityId: saved.id,
         }).catch(() => {});
+
+        // Disparar IA Vendedora (gated por workspace.aiSalesEnabled ou conversa)
+        maybeTriggerSalesSuggestion({
+          workspaceId, contactId: contact.id, leadId: lead?.id,
+          triggerMessageId: saved.id, io,
+        });
 
         // Notificar por email opt-in
         notifyNewMessage(saved.id).catch(() => {});

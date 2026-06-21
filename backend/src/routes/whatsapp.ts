@@ -3,6 +3,7 @@ import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
+import { maybeTriggerSalesSuggestion } from '../lib/aiSalesAgent';
 
 import prisma from '../lib/prisma';
 import { getCreds, encryptForStore } from '../lib/integrationCrypto';
@@ -225,6 +226,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
             type: 'message_received', workspaceId,
             entityType: 'message', entityId: savedMessage.id,
           }).catch((e) => console.error('Automation message_received error:', e));
+
+          // Disparar IA Vendedora (gated por workspace.aiSalesEnabled ou conversa especifica)
+          maybeTriggerSalesSuggestion({
+            workspaceId, contactId: contact.id, leadId: lead?.id,
+            triggerMessageId: savedMessage.id, io,
+          });
 
           // Notificação opt-in por email
           notifyNewMessage(savedMessage.id).catch((e) => console.error('notifyNewMessage error:', e));

@@ -8,6 +8,7 @@ import {
 import api, {
   WorkspaceFull, AuditLog, TaskOption,
   DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES, DEFAULT_TASK_TITLES, DEFAULT_TASK_FIELD_LABELS, TaskFieldLabels,
+  AiSalesSuggestion,
 } from '../lib/api';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
@@ -949,6 +950,8 @@ export default function SettingsPage() {
                 Quando uma destas palavras aparecer na mensagem do lead, a IA passa imediatamente a conversa a um humano.
               </p>
             </div>
+
+            <SalesAiAuditPanel />
           </div>
 
           <div className="border-t pt-4 space-y-4" style={{ borderColor: 'var(--border)' }}>
@@ -1374,6 +1377,146 @@ function OptionListEditor({ title, options, defaults, onChange }: {
               <RotateCcw size={12} /> Repor padrão
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Painel de auditoria da IA Vendedora. Mostra historial de sugestoes
+// com filtros por estado, expande detalhe ao clicar. Usado dentro do
+// tab Workspace, na seccao IA Vendedora.
+function SalesAiAuditPanel() {
+  const [items, setItems] = useState<AiSalesSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<'PENDING' | 'APPROVED' | 'EDITED' | 'DISCARDED' | 'FAILED' | 'all'>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const load = () => {
+    setLoading(true);
+    api.get(`/sales-agent/suggestions?status=${status}&limit=100`)
+      .then(({ data }) => setItems(Array.isArray(data) ? data : []))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [status]);
+
+  const statusBadge = (s: string) => {
+    const map: Record<string, { bg: string; fg: string; label: string }> = {
+      PENDING: { bg: '#FEF3C7', fg: '#92400E', label: 'Pendente' },
+      APPROVED: { bg: '#DCFCE7', fg: '#166534', label: 'Aprovada' },
+      EDITED: { bg: '#DBEAFE', fg: '#1E40AF', label: 'Editada' },
+      DISCARDED: { bg: '#F1F5F9', fg: '#64748B', label: 'Descartada' },
+      SENT: { bg: '#DCFCE7', fg: '#166534', label: 'Enviada' },
+      FAILED: { bg: '#FEE2E2', fg: '#991B1B', label: 'Falhou' },
+    };
+    const c = map[s] || { bg: 'var(--surface-3)', fg: 'var(--text-muted)', label: s };
+    return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: c.bg, color: c.fg }}>{c.label}</span>;
+  };
+
+  const actionLabel = (a: string) => ({
+    send_text: 'Responder', send_product: 'Responder + produto', handoff: 'Passar a humano', wait: 'Aguardar',
+  } as Record<string, string>)[a] || a;
+
+  return (
+    <div className="border-t pt-4 space-y-2" style={{ borderColor: 'var(--border)' }}>
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold">Historial de sugestoes</p>
+        <div className="flex items-center gap-2">
+          <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="input-base text-xs py-1">
+            <option value="all">Todos</option>
+            <option value="PENDING">Pendentes</option>
+            <option value="APPROVED">Aprovadas</option>
+            <option value="EDITED">Editadas</option>
+            <option value="DISCARDED">Descartadas</option>
+            <option value="FAILED">Falhadas</option>
+          </select>
+          <button onClick={load} disabled={loading} className="btn py-1 px-2 text-xs" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
+            {loading ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+          </button>
+        </div>
+      </div>
+      {loading && items.length === 0 ? (
+        <div className="text-center py-6"><Loader2 size={16} className="animate-spin inline" /></div>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-center py-6" style={{ color: 'var(--text-muted)' }}>Sem sugestoes registadas.</p>
+      ) : (
+        <div className="space-y-1 max-h-96 overflow-y-auto">
+          {items.map((s) => {
+            const isOpen = expandedId === s.id;
+            const contactName = s.contact ? `${s.contact.firstName} ${s.contact.lastName || ''}`.trim() : 'Sem contacto';
+            const preview = (s.finalParts && s.finalParts.length > 0 ? s.finalParts : s.parts || [])[0] || '';
+            return (
+              <div key={s.id} className="rounded border" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+                <button
+                  onClick={() => setExpandedId(isOpen ? null : s.id)}
+                  className="w-full text-left p-2 flex items-center gap-2 hover:bg-slate-50"
+                >
+                  {statusBadge(s.status)}
+                  <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
+                    {actionLabel(s.action)}
+                  </span>
+                  <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{contactName}</span>
+                  <span className="text-xs truncate flex-1" style={{ color: 'var(--text-muted)' }}>{preview.slice(0, 80)}</span>
+                  <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--text-muted)' }}>
+                    {new Date(s.createdAt).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="p-3 space-y-2 text-xs" style={{ background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
+                    {s.triggerMessage && (
+                      <div>
+                        <span className="font-medium" style={{ color: 'var(--text-muted)' }}>Mensagem que disparou: </span>
+                        <span className="italic">"{s.triggerMessage.content?.slice(0, 200) || '(sem texto)'}"</span>
+                      </div>
+                    )}
+                    {(s.finalParts && s.finalParts.length > 0 ? s.finalParts : s.parts || []).length > 0 && (
+                      <div>
+                        <span className="font-medium" style={{ color: 'var(--text-muted)' }}>{s.finalParts && s.finalParts.length > 0 ? 'Enviado:' : 'Sugerido:'}</span>
+                        <div className="mt-1 space-y-1">
+                          {(s.finalParts && s.finalParts.length > 0 ? s.finalParts : s.parts || []).map((p, i) => (
+                            <div key={i} className="px-2 py-1 rounded whitespace-pre-wrap" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>{p}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {s.reasoning && (
+                      <div>
+                        <span className="font-medium" style={{ color: 'var(--text-muted)' }}>Raciocinio: </span>
+                        <span>{s.reasoning}</span>
+                      </div>
+                    )}
+                    {s.principlesUsed && s.principlesUsed.length > 0 && (
+                      <div>
+                        <span className="font-medium" style={{ color: 'var(--text-muted)' }}>Principios: </span>
+                        <span>{s.principlesUsed.join(', ')}</span>
+                      </div>
+                    )}
+                    {s.decidedBy && (
+                      <div>
+                        <span className="font-medium" style={{ color: 'var(--text-muted)' }}>Decidido por: </span>
+                        <span>{s.decidedBy.name}</span>
+                        {s.decidedAt && (
+                          <span style={{ color: 'var(--text-muted)' }}> em {new Date(s.decidedAt).toLocaleString('pt-PT')}</span>
+                        )}
+                      </div>
+                    )}
+                    {s.errorDetail && (
+                      <div style={{ color: '#991B1B' }}>
+                        <span className="font-medium">Erro: </span>{s.errorDetail}
+                      </div>
+                    )}
+                    {(s.modelUsed || s.promptTokens || s.completionTokens) && (
+                      <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        {s.modelUsed} · {s.promptTokens || 0} prompt tokens · {s.completionTokens || 0} completion tokens
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

@@ -235,6 +235,8 @@ router.post('/suggest', async (req: AuthRequest, res: Response, next) => {
         activePrincipleKeys: Array.isArray(activePrincipleKeys) ? activePrincipleKeys : undefined,
         model: typeof model === 'string' ? model : undefined,
       });
+      const io = (global as any).io;
+      if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('aiSales:suggestion', suggestion);
       res.json({ suggestion, normalized });
     } catch (e: any) {
       if (e instanceof AgentError) throw new AppError(e.message, e.status);
@@ -392,6 +394,8 @@ router.post('/suggestions/:id/approve', async (req: AuthRequest, res: Response, 
         where: { id: suggestion.id },
         data: { status: 'APPROVED', decidedAt: new Date(), decidedById: req.user!.id, finalParts: partsArr as any },
       });
+      const ioH = (global as any).io;
+      if (ioH) ioH.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);
       return res.json({ suggestion: updated, handoff: { assignedToId } });
     }
 
@@ -401,6 +405,8 @@ router.post('/suggestions/:id/approve', async (req: AuthRequest, res: Response, 
         where: { id: suggestion.id },
         data: { status: 'APPROVED', decidedAt: new Date(), decidedById: req.user!.id, finalParts: [] as any },
       });
+      const ioW = (global as any).io;
+      if (ioW) ioW.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);
       return res.json({ suggestion: updated });
     }
 
@@ -440,6 +446,7 @@ router.post('/suggestions/:id/approve', async (req: AuthRequest, res: Response, 
         errorDetail: dispatch.error || null,
       },
     });
+    if (io) io.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);
     res.json({ suggestion: updated, dispatch });
   } catch (e) { next(e); }
 });
@@ -500,6 +507,7 @@ router.post('/suggestions/:id/edit', async (req: AuthRequest, res: Response, nex
         errorDetail: dispatch.error || null,
       },
     });
+    if (io) io.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);
     res.json({ suggestion: updated, dispatch });
   } catch (e) { next(e); }
 });
@@ -524,6 +532,8 @@ router.post('/suggestions/:id/discard', async (req: AuthRequest, res: Response, 
         errorDetail: typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 500) : null,
       },
     });
+    const ioD = (global as any).io;
+    if (ioD) ioD.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);
     res.json({ suggestion: updated });
   } catch (e) { next(e); }
 });

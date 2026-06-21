@@ -227,3 +227,41 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
 
   return { suggestion: saved, normalized: suggestion };
 }
+
+// Helper para os webhooks de WhatsApp (Evolution + Cloud). Verifica se a
+// IA Vendedora esta activa para o contacto/workspace e, em caso afirmativo,
+// gera a sugestao em background e emite o evento socket aiSales:suggestion
+// para o frontend a actualizar sem polling. Nao lanca: erros sao loggados.
+export async function maybeTriggerSalesSuggestion(opts: {
+  workspaceId: string;
+  contactId: string;
+  leadId?: string | null;
+  triggerMessageId?: string | null;
+  io?: any;
+}): Promise<void> {
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: opts.workspaceId },
+      select: { aiSalesEnabled: true, aiSalesEnabledConversationIds: true, aiSalesMode: true },
+    });
+    if (!ws) return;
+    const enabledIds = Array.isArray(ws.aiSalesEnabledConversationIds)
+      ? (ws.aiSalesEnabledConversationIds as any[]).filter((x) => typeof x === 'string')
+      : [];
+    const active = ws.aiSalesEnabled || enabledIds.includes(opts.contactId);
+    if (!active) return;
+
+    const { suggestion } = await generateSalesSuggestion({
+      workspaceId: opts.workspaceId,
+      contactId: opts.contactId,
+      leadId: opts.leadId || null,
+      triggerMessageId: opts.triggerMessageId || null,
+    });
+
+    if (opts.io) {
+      opts.io.to(`workspace:${opts.workspaceId}`).emit('aiSales:suggestion', suggestion);
+    }
+  } catch (e: any) {
+    console.error('[aiSales] maybeTriggerSalesSuggestion failed:', e?.message || e);
+  }
+}
