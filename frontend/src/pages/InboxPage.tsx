@@ -1088,6 +1088,42 @@ export default function InboxPage() {
       .finally(() => setLoadingMsgs(false));
   }, [selectedKey]); // eslint-disable-line
 
+  // Polling defensivo: cada 8s refaz fetch silencioso das mensagens da
+  // conversa aberta. Garante que mesmo se o socket cair (proxy, cluster
+  // backend, suspensao do tab), as mensagens aparecem com max ~8s de delay.
+  // Faz merge inteligente: so adiciona ids novos, nao mexe nos existentes
+  // (evita flicker de scroll/animacoes). Pausa quando a tab esta escondida.
+  useEffect(() => {
+    if (!selected || !selected.contact?.id && !selected.leadId) return;
+    const params = new URLSearchParams();
+    if (selected.contact?.id) params.set('contactId', selected.contact.id);
+    else if (selected.leadId) params.set('leadId', selected.leadId!);
+    const url = `/messages?${params.toString()}`;
+    let cancelled = false;
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const { data } = await api.get(url);
+        if (cancelled || !Array.isArray(data)) return;
+        let fresh: Message[] = data;
+        if (!selected.combined) fresh = fresh.filter((m) => m.channel === selected.channel || m.isInternal);
+        setMessages((prev) => {
+          if (prev.length === 0) return fresh;
+          const seen = new Set(prev.map((m) => m.id));
+          const toAdd = fresh.filter((m) => !seen.has(m.id));
+          // tambem actualiza status (read/delivered) das que ja temos
+          const updated = prev.map((m) => {
+            const f = fresh.find((x) => x.id === m.id);
+            return f && (f.status !== m.status || f.readAt !== m.readAt || f.editedAt !== m.editedAt) ? f : m;
+          });
+          return toAdd.length === 0 ? updated : [...updated, ...toAdd];
+        });
+      } catch { /* silencioso */ }
+    };
+    const id = setInterval(tick, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [selectedKey]); // eslint-disable-line
+
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   // Nota: não seleccionamos nenhuma conversa automaticamente.

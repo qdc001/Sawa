@@ -25,6 +25,11 @@ export function getSocket(): Socket | null {
     reconnectionDelayMax: 5000,
     timeout: 20000,
   });
+  // Logs minimos para diagnostico. Verificar no DevTools Console.
+  socket.on('connect', () => console.log('[socket] connected', socket?.id));
+  socket.on('disconnect', (reason) => console.log('[socket] disconnected:', reason));
+  socket.on('connect_error', (err) => console.warn('[socket] connect_error:', err.message));
+  socket.on('reconnect_attempt', (n) => console.log('[socket] reconnect_attempt', n));
   return socket;
 }
 
