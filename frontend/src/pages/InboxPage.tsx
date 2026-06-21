@@ -662,6 +662,16 @@ export default function InboxPage() {
       setSalesSuggestion((prev) => (prev && prev.id === sug.id) ? null : prev);
     };
 
+    // IA Vendedora: outro utilizador reiniciou o contexto deste contacto.
+    // Se a conversa actual e essa, limpa qualquer sugestao em ecra.
+    const onAiSalesContextReset = (data: { contactId: string }) => {
+      const sel = selectedRef.current;
+      if (sel?.contact?.id === data.contactId) {
+        setSalesSuggestion(null);
+        setSalesEditing(false);
+      }
+    };
+
     socket.on('presence:update', onPresence);
     socket.on('call:incoming', onCall);
     socket.on('message:new', onMessage);
@@ -669,6 +679,7 @@ export default function InboxPage() {
     socket.on('conversation:deleted', onConversationDeleted);
     socket.on('aiSales:suggestion', onAiSalesSuggestion);
     socket.on('aiSales:decided', onAiSalesDecided);
+    socket.on('aiSales:contextReset', onAiSalesContextReset);
     return () => {
       socket.off('connect', joinRoom);
       socket.off('presence:update', onPresence);
@@ -678,6 +689,7 @@ export default function InboxPage() {
       socket.off('conversation:deleted', onConversationDeleted);
       socket.off('aiSales:suggestion', onAiSalesSuggestion);
       socket.off('aiSales:decided', onAiSalesDecided);
+      socket.off('aiSales:contextReset', onAiSalesContextReset);
     };
   }, [workspace?.id]);
 
@@ -869,6 +881,21 @@ export default function InboxPage() {
     if (!salesSuggestion) return;
     setSalesEditParts([...(salesSuggestion.parts || [])]);
     setSalesEditing(true);
+  };
+
+  // "Esquece" o historico anterior. Cria um marker server-side e o agente
+  // passa a ler so mensagens criadas depois deste momento. Sugestoes PENDING
+  // sao descartadas no backend.
+  const resetSalesAiContext = async (contactId: string, leadId?: string | null) => {
+    if (!window.confirm('Reiniciar o contexto da IA Vendedora para este contacto? A IA vai esquecer todas as mensagens anteriores e a proxima resposta sera como se fosse a primeira interaccao.')) return;
+    try {
+      const { data } = await api.post('/sales-agent/reset-context', { contactId, leadId: leadId || undefined });
+      setSalesSuggestion(null);
+      setSalesEditing(false);
+      toast.success(`Contexto reiniciado${data?.discardedSuggestions ? ` (${data.discardedSuggestions} sugestao(oes) pendente(s) descartada(s))` : ''}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a reiniciar contexto');
+    }
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1504,7 +1531,10 @@ export default function InboxPage() {
 
   // Pesquisa local nas mensagens
   const filteredMessages = useMemo(() => {
-    let list = messages;
+    // Esconde marker de reset de contexto da IA Vendedora (mensagem
+    // interna tecnica, nao tem valor visual). Em vez dela mostramos
+    // um divisor "Contexto da IA reiniciado" no proprio chat.
+    let list = messages.filter((m) => !(m.isInternal && m.content === '__AI_CONTEXT_RESET__'));
     if (advSearchType) list = list.filter((m) => m.type === advSearchType);
     if (advSearchFrom) {
       const from = new Date(advSearchFrom).getTime();
@@ -1815,6 +1845,14 @@ export default function InboxPage() {
                             Pedir sugestao agora
                           </button>
                         )}
+                        <button
+                          onClick={() => { resetSalesAiContext(selected.contact!.id, selected.leadId); setShowHeaderMenu(false); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left"
+                          title="A IA passa a esquecer todas as mensagens anteriores deste contacto"
+                        >
+                          <RefreshCw size={14} style={{ color: '#F59E0B' }} />
+                          <span className="flex-1">Reiniciar contexto da IA</span>
+                        </button>
                       </>
                     )}
                     {selected.contact?.whatsapp && (

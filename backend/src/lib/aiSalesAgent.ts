@@ -22,6 +22,14 @@ const MAX_HISTORY = 30; // ultimas N mensagens a incluir no prompt (era 15)
 const MAX_INTERNAL_NOTES = 10; // notas internas mais recentes a injectar como contexto
 const MAX_PRODUCTS_IN_CATALOG = 30; // truncar catalogo para nao estourar tokens
 
+// Marker que serve de "ponto de reset" da memoria contextual da IA.
+// Quando este endpoint reset-context e chamado, gravamos uma Message com
+// isInternal=true e content=AI_RESET_MARKER. Em geracoes seguintes, a IA
+// so ve mensagens criadas DEPOIS do marker mais recente (como se a
+// conversa comecasse do zero). Util para testes e para recomecar do zero
+// sem apagar dados de auditoria.
+export const AI_RESET_MARKER = '__AI_CONTEXT_RESET__';
+
 export type GenerateOptions = {
   workspaceId: string;
   contactId: string;
@@ -91,6 +99,20 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
 
   const model = opts.model || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
+  // 0. Verificar se ha um marker de reset de contexto. Se sim, a IA so
+  //    considera mensagens e notas criadas DEPOIS desse marker (como se
+  //    a conversa comecasse do zero a partir desse ponto).
+  const resetMarker = await prisma.message.findFirst({
+    where: {
+      contactId: opts.contactId,
+      isInternal: true,
+      content: AI_RESET_MARKER,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
+  const sinceFilter = resetMarker ? { gt: resetMarker.createdAt } : undefined;
+
   // 1. Carrega contexto: workspace, contacto (com tags), lead, ultimas mensagens
   //    publicas (que foram para o WhatsApp), notas internas da equipa e produtos.
   //    Separar mensagens de notas internas evita que a IA confunda observacoes
@@ -115,17 +137,21 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
         ...(opts.leadId ? { OR: [{ leadId: opts.leadId }, { leadId: null }] } : {}),
         type: { in: ['TEXT', 'TEMPLATE', 'IMAGE', 'AUDIO', 'DOCUMENT', 'INTERACTIVE'] as any },
         isInternal: false,
+        ...(sinceFilter ? { createdAt: sinceFilter } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: MAX_HISTORY,
       include: { sentBy: { select: { name: true } } },
     }),
     // Notas internas que a equipa deixou sobre esta conversa
+    // (exclui o proprio marker de reset para nao poluir o contexto)
     prisma.message.findMany({
       where: {
         contactId: opts.contactId,
         ...(opts.leadId ? { OR: [{ leadId: opts.leadId }, { leadId: null }] } : {}),
         isInternal: true,
+        content: { not: AI_RESET_MARKER },
+        ...(sinceFilter ? { createdAt: sinceFilter } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: MAX_INTERNAL_NOTES,

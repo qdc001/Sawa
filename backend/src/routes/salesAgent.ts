@@ -5,7 +5,7 @@ import prisma from '../lib/prisma';
 import { buildSalesSystemPrompt } from '../lib/buildSalesSystemPrompt';
 import { SALES_PRINCIPLES, SOURCE_BOOKS, DEFAULT_ACTIVE_PRINCIPLES } from '../data/salesKnowledge';
 import { SECTOR_KNOWLEDGE, listSectorKeys } from '../data/sectorKnowledge';
-import { generateSalesSuggestion, AgentError } from '../lib/aiSalesAgent';
+import { generateSalesSuggestion, AgentError, AI_RESET_MARKER } from '../lib/aiSalesAgent';
 import { dispatchSalesParts } from '../lib/autoDispatchSalesSuggestion';
 import { consolidateWorkspaceMemory } from '../lib/salesLearningConsolidator';
 
@@ -525,6 +525,65 @@ router.post('/consolidate-now', async (req: AuthRequest, res: Response, next) =>
     requireAdmin(req);
     const result = await consolidateWorkspaceMemory(req.user!.workspaceId);
     res.json(result);
+  } catch (e) { next(e); }
+});
+
+// POST /api/sales-agent/reset-context
+// "Esquece" o historico anterior da IA Vendedora para um contacto especifico.
+// Cria uma Message marker (isInternal=true, content=__AI_CONTEXT_RESET__) que
+// serve de ponto de corte: geracoes futuras so consideram mensagens criadas
+// DEPOIS deste momento. Util para testes (numero pessoal usado varias vezes)
+// e para recomecar uma conversa do zero apos uma mudanca de produto/posicionamento.
+//
+// Tambem descarta sugestoes PENDING desse contacto para o painel nao mostrar
+// uma sugestao baseada em historico ja "esquecido".
+//
+// Body: { contactId: string, leadId?: string }
+router.post('/reset-context', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, leadId } = req.body || {};
+    if (!contactId || typeof contactId !== 'string') {
+      throw new AppError('contactId obrigatorio', 400);
+    }
+    const contact = await prisma.contact.findFirst({
+      where: { id: contactId, workspaceId: req.user!.workspaceId },
+    });
+    if (!contact) throw new AppError('Contacto nao encontrado neste workspace', 404);
+
+    // 1. Cria o marker como mensagem interna
+    const marker = await prisma.message.create({
+      data: {
+        content: AI_RESET_MARKER,
+        channel: 'INTERNAL',
+        type: 'TEXT',
+        direction: 'OUTBOUND',
+        status: 'SENT',
+        contactId,
+        leadId: leadId || null,
+        isInternal: true,
+        sentById: req.user!.id,
+      },
+    });
+
+    // 2. Descarta sugestoes PENDENTES desse contacto (para nao mostrar
+    //    sugestao baseada em contexto ja esquecido)
+    const discarded = await prisma.aiSalesSuggestion.updateMany({
+      where: { workspaceId: req.user!.workspaceId, contactId, status: 'PENDING' },
+      data: {
+        status: 'DISCARDED', decidedAt: new Date(), decidedById: req.user!.id,
+        errorDetail: 'Descartada por reset de contexto',
+      },
+    });
+
+    // 3. Emite socket para o frontend limpar o painel + adicionar a "mensagem" marker
+    const io = (global as any).io;
+    if (io) {
+      io.to(`workspace:${req.user!.workspaceId}`).emit('aiSales:contextReset', {
+        contactId, leadId: leadId || null, at: marker.createdAt,
+      });
+    }
+
+    res.json({ ok: true, markerId: marker.id, at: marker.createdAt, discardedSuggestions: discarded.count });
   } catch (e) { next(e); }
 });
 
