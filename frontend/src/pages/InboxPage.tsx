@@ -901,6 +901,18 @@ export default function InboxPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
 
+  // Auto-resize do composer: ajusta a altura ao conteudo, limitado a 5
+  // linhas (~120px). Reposiciona em cada keystroke via useEffect.
+  useEffect(() => {
+    const el = draftRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    // line-height ~20px + padding vertical ~16px => 5 linhas = 116px
+    const maxHeight = 120;
+    el.style.height = Math.min(el.scrollHeight, maxHeight) + 'px';
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [draft]);
+
   useEffect(() => setSearch(globalSearchQuery || ''), [globalSearchQuery]);
 
   // Preserva conversas "virtuais" (criadas via ?contactId=X mas sem mensagens ainda) ao recarregar.
@@ -2417,7 +2429,7 @@ export default function InboxPage() {
                   </div>
                   <textarea
                     ref={draftRef}
-                    className="flex-1 text-sm resize-none outline-none min-h-[36px] max-h-32"
+                    className="flex-1 text-sm resize-none outline-none min-h-[36px]"
                     style={{ color: 'var(--text-primary)', background: 'transparent' }}
                     placeholder={isInternalNote ? 'Nota interna (só visível para a equipa)...' : `Mensagem para ${fullName(selected.contact)}... (/atalho para snippets)`}
                     value={draft}
