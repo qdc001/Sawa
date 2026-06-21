@@ -9,6 +9,7 @@
 
 import prisma from './prisma';
 import { sendWhatsAppOut, sendWhatsAppPresence } from './whatsappSend';
+import { triggerAutomations } from './automationEngine';
 
 // Pausa proporcional ao comprimento da proxima mensagem para simular
 // digitacao humana. Limites razoaveis: minimo 800ms (mostra typing pelo
@@ -69,6 +70,11 @@ export async function dispatchSalesParts(opts: {
       io.to(`workspace:${workspaceId}`).emit('message:new', msg);
       if (leadId) io.to(`lead:${leadId}`).emit('message:new', msg);
     }
+    // Despoletar automacoes message_sent (ex: mover etapa ao enviar PDF)
+    triggerAutomations({
+      type: 'message_sent', workspaceId,
+      entityType: 'message', entityId: msg.id,
+    }).catch((e) => console.error('Automation message_sent (sales) error:', e));
     if (!result.ok) {
       return { sentMessageIds, failedAt: i, error: result.error };
     }
@@ -107,6 +113,11 @@ export async function dispatchSalesParts(opts: {
       io.to(`workspace:${workspaceId}`).emit('message:new', msg);
       if (leadId) io.to(`lead:${leadId}`).emit('message:new', msg);
     }
+    // Despoletar automacoes message_sent (ex: mover etapa ao enviar PDF)
+    triggerAutomations({
+      type: 'message_sent', workspaceId,
+      entityType: 'message', entityId: msg.id,
+    }).catch((e) => console.error('Automation message_sent (sales) error:', e));
     if (!result.ok) {
       return { sentMessageIds, failedAt: parts.length, error: result.error };
     }

@@ -682,7 +682,7 @@ export interface ChatbotSession {
 export type AutomationTriggerType =
   | 'lead_created' | 'lead_stage_changed' | 'lead_won' | 'lead_lost' | 'lead_assigned' | 'lead_stagnant'
   | 'task_created' | 'task_completed' | 'task_overdue'
-  | 'message_received' | 'no_response'
+  | 'message_received' | 'message_sent' | 'no_response'
   | 'contact_created'
   | 'schedule';
 

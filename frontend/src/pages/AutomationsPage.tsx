@@ -24,6 +24,7 @@ const TRIGGERS: { type: AutomationTriggerType; label: string; icon: string; enti
   { type: 'task_completed', label: 'Tarefa concluída', icon: '✅', entity: 'task' },
   { type: 'task_overdue', label: 'Tarefa atrasada', icon: '⏰', entity: 'task' },
   { type: 'message_received', label: 'Mensagem recebida', icon: '💬', entity: 'message' },
+  { type: 'message_sent', label: 'Mensagem enviada (eu ou IA)', icon: '📤', entity: 'message' },
   { type: 'no_response', label: 'Sem resposta há X minutos', icon: '🔕', entity: 'message' },
   { type: 'contact_created', label: 'Contacto criado', icon: '👥', entity: 'contact' },
   { type: 'schedule', label: 'Horário agendado (cron)', icon: '⏱️', entity: 'lead' },
@@ -80,6 +81,12 @@ const FIELD_SUGGESTIONS: Record<string, { value: string; label: string }[]> = {
   message: [
     { value: 'channel', label: 'channel' },
     { value: 'content', label: 'content' },
+    { value: 'type', label: 'type (TEXT/IMAGE/VIDEO/AUDIO/DOCUMENT)' },
+    { value: 'direction', label: 'direction (INBOUND/OUTBOUND)' },
+    { value: 'mediaType', label: 'mediaType (ex: application/pdf)' },
+    { value: 'sentById', label: 'sentById (vazio = enviada pela IA)' },
+    { value: 'lead.stage.name', label: 'lead.stage.name' },
+    { value: 'lead.pipeline.name', label: 'lead.pipeline.name' },
     { value: 'contact.country', label: 'contact.country' },
   ],
   contact: [

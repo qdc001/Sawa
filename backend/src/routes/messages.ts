@@ -369,6 +369,16 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     if (message.leadId) io.to(`lead:${message.leadId}`).emit('message:new', message);
     io.to(`workspace:${req.user!.workspaceId}`).emit('message:new', message);
 
+    // Disparar automacoes message_sent so para mensagens OUTBOUND nao-internas
+    // (notas internas nao sao mensagens reais, nao devem despoletar regras).
+    if (!message.isInternal && message.direction === 'OUTBOUND') {
+      const { triggerAutomations } = await import('../lib/automationEngine');
+      triggerAutomations({
+        type: 'message_sent', workspaceId: req.user!.workspaceId,
+        entityType: 'message', entityId: message.id,
+      }).catch((e) => console.error('Automation message_sent error:', e));
+    }
+
     if (sendError) {
       return res.status(201).json({ ...message, sendError });
     }

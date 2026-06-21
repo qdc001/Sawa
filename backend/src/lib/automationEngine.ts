@@ -4,14 +4,15 @@
  * Estrutura de uma Automation:
  *   trigger     -> { type: 'lead_created'|'lead_stage_changed'|'lead_won'|'lead_lost'|'lead_assigned'
  *                    |'task_created'|'task_completed'|'task_overdue'
- *                    |'message_received'|'tag_added'|'contact_created', params?: {...} }
+ *                    |'message_received'|'message_sent'|'tag_added'|'contact_created', params?: {...} }
  *   conditions  -> [{ field, op, value }]   (AND lógico entre todas)
  *   actions     -> [{ type, params }]       (executadas em sequência)
  *
  * Eventos disparados pelos endpoints (chamando triggerAutomations):
  *   - leads.ts (POST/PATCH/move) -> lead_created, lead_stage_changed, lead_won, lead_lost, lead_assigned
  *   - tasks.ts (POST/PATCH)      -> task_created, task_completed
- *   - messages.ts                -> message_received
+ *   - messages.ts                -> message_received / message_sent
+ *   - autoDispatchSalesSuggestion (IA) -> message_sent
  *   - contacts.ts (POST)         -> contact_created
  *   - cron interno               -> task_overdue
  *
