@@ -8,7 +8,111 @@
 // e marca o status como SENT.
 
 import prisma from './prisma';
-import { sendWhatsAppOut } from './whatsappSend';
+import { sendWhatsAppOut, sendWhatsAppPresence } from './whatsappSend';
+
+// Pausa proporcional ao comprimento da proxima mensagem para simular
+// digitacao humana. Limites razoaveis: minimo 800ms (mostra typing pelo
+// menos esse tempo), maximo 4500ms (nao deixa o lead a aguardar demais).
+// Calculo: base 600ms + 30ms por caracter.
+function typingDelayFor(text: string): number {
+  const len = (text || '').length;
+  const computed = 600 + len * 30;
+  return Math.max(800, Math.min(4500, computed));
+}
+
+// Helper publico para ser reutilizado tambem por dispatchSuggestion no
+// router (Fase 3): envia partes em sequencia com presence "composing"
+// antes de cada uma e pausa proporcional ao tamanho da proxima mensagem.
+// Cria entradas Message com direction OUTBOUND e emite socket message:new.
+//
+// sentById=null marca envio automatico (modo auto); humano define o seu id
+// quando vier de aprovacao manual.
+export async function dispatchSalesParts(opts: {
+  workspaceId: string;
+  contactId: string;
+  contactPhone: string;
+  leadId: string | null;
+  parts: string[];
+  productFiles: Array<{ id: string; url: string; type: string; name?: string | null }>;
+  sentById: string | null;
+  io: any;
+}): Promise<{ sentMessageIds: string[]; failedAt?: number; error?: string }> {
+  const { workspaceId, contactId, contactPhone, leadId, parts, productFiles, sentById, io } = opts;
+  const sentMessageIds: string[] = [];
+
+  for (let i = 0; i < parts.length; i++) {
+    const text = parts[i];
+    // Presence: "a escrever" + pausa proporcional ao texto.
+    await sendWhatsAppPresence(workspaceId, contactPhone, 'composing', typingDelayFor(text));
+    await new Promise((r) => setTimeout(r, typingDelayFor(text)));
+
+    const result = await sendWhatsAppOut(workspaceId, contactPhone, text, 'TEXT');
+    // Limpa typing apos enviar (no caso de haver mais partes, a proxima
+    // iteracao volta a marcar composing).
+    sendWhatsAppPresence(workspaceId, contactPhone, 'paused').catch(() => {});
+
+    const msg = await prisma.message.create({
+      data: {
+        content: text,
+        type: 'TEXT',
+        direction: 'OUTBOUND',
+        channel: 'WHATSAPP',
+        status: result.ok ? 'SENT' : 'FAILED',
+        externalId: result.externalId,
+        contactId,
+        leadId: leadId || undefined,
+        sentById: sentById || undefined,
+      },
+    });
+    sentMessageIds.push(msg.id);
+    if (io) {
+      io.to(`workspace:${workspaceId}`).emit('message:new', msg);
+      if (leadId) io.to(`lead:${leadId}`).emit('message:new', msg);
+    }
+    if (!result.ok) {
+      return { sentMessageIds, failedAt: i, error: result.error };
+    }
+  }
+
+  // Anexos de produto: tambem com pequena pausa entre cada para nao
+  // bombardear o destinatario.
+  for (const file of productFiles) {
+    const mtype = file.type?.startsWith('image/') ? 'IMAGE'
+      : file.type?.startsWith('video/') ? 'VIDEO'
+      : file.type?.startsWith('audio/') ? 'AUDIO'
+      : 'DOCUMENT';
+    await sendWhatsAppPresence(workspaceId, contactPhone, 'composing', 1500);
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const result = await sendWhatsAppOut(workspaceId, contactPhone, file.name || 'Anexo', mtype, file.url, file.name || undefined);
+    sendWhatsAppPresence(workspaceId, contactPhone, 'paused').catch(() => {});
+
+    const msg = await prisma.message.create({
+      data: {
+        content: file.name || 'Anexo',
+        type: mtype as any,
+        direction: 'OUTBOUND',
+        channel: 'WHATSAPP',
+        status: result.ok ? 'SENT' : 'FAILED',
+        externalId: result.externalId,
+        mediaUrl: file.url,
+        mediaType: file.type,
+        contactId,
+        leadId: leadId || undefined,
+        sentById: sentById || undefined,
+      },
+    });
+    sentMessageIds.push(msg.id);
+    if (io) {
+      io.to(`workspace:${workspaceId}`).emit('message:new', msg);
+      if (leadId) io.to(`lead:${leadId}`).emit('message:new', msg);
+    }
+    if (!result.ok) {
+      return { sentMessageIds, failedAt: parts.length, error: result.error };
+    }
+  }
+  return { sentMessageIds };
+}
 
 export async function autoDispatchSuggestion(suggestionId: string, io: any): Promise<void> {
   const suggestion = await prisma.aiSalesSuggestion.findUnique({
@@ -40,75 +144,26 @@ export async function autoDispatchSuggestion(suggestionId: string, io: any): Pro
     }
   }
 
-  const sentMessageIds: string[] = [];
-  let errorDetail: string | null = null;
-
-  // Envia partes em sequencia com pausa entre fragmentos
-  for (let i = 0; i < partsArr.length; i++) {
-    const text = partsArr[i];
-    const result = await sendWhatsAppOut(suggestion.workspaceId, phone, text, 'TEXT');
-    const msg = await prisma.message.create({
-      data: {
-        content: text,
-        type: 'TEXT',
-        direction: 'OUTBOUND',
-        channel: 'WHATSAPP',
-        status: result.ok ? 'SENT' : 'FAILED',
-        externalId: result.externalId,
-        contactId: suggestion.contactId,
-        leadId: suggestion.leadId || undefined,
-        // sentById fica null: marca envio automatico pela IA
-      },
-    });
-    sentMessageIds.push(msg.id);
-    if (io) {
-      io.to(`workspace:${suggestion.workspaceId}`).emit('message:new', msg);
-      if (suggestion.leadId) io.to(`lead:${suggestion.leadId}`).emit('message:new', msg);
-    }
-    if (!result.ok) { errorDetail = result.error || 'Falha desconhecida'; break; }
-    if (i < partsArr.length - 1) await new Promise((r) => setTimeout(r, 700));
-  }
-
-  // Anexos
-  if (!errorDetail) {
-    for (const file of productFiles) {
-      const mtype = file.type?.startsWith('image/') ? 'IMAGE'
-        : file.type?.startsWith('video/') ? 'VIDEO'
-        : file.type?.startsWith('audio/') ? 'AUDIO'
-        : 'DOCUMENT';
-      const result = await sendWhatsAppOut(suggestion.workspaceId, phone, file.name || 'Anexo', mtype, file.url, file.name || undefined);
-      const msg = await prisma.message.create({
-        data: {
-          content: file.name || 'Anexo',
-          type: mtype as any,
-          direction: 'OUTBOUND',
-          channel: 'WHATSAPP',
-          status: result.ok ? 'SENT' : 'FAILED',
-          externalId: result.externalId,
-          mediaUrl: file.url,
-          mediaType: file.type,
-          contactId: suggestion.contactId,
-          leadId: suggestion.leadId || undefined,
-        },
-      });
-      sentMessageIds.push(msg.id);
-      if (io) {
-        io.to(`workspace:${suggestion.workspaceId}`).emit('message:new', msg);
-        if (suggestion.leadId) io.to(`lead:${suggestion.leadId}`).emit('message:new', msg);
-      }
-      if (!result.ok) { errorDetail = result.error || 'Falha em anexo'; break; }
-    }
-  }
+  const dispatch = await dispatchSalesParts({
+    workspaceId: suggestion.workspaceId,
+    contactId: suggestion.contactId,
+    contactPhone: phone,
+    leadId: suggestion.leadId,
+    parts: partsArr,
+    productFiles,
+    sentById: null, // modo automatico
+    io,
+  });
 
   const updated = await prisma.aiSalesSuggestion.update({
     where: { id: suggestion.id },
     data: {
-      status: errorDetail ? 'FAILED' : 'SENT',
+      status: dispatch.error ? 'FAILED' : 'SENT',
       decidedAt: new Date(),
       // decidedById fica null: marca decisao automatica pela IA
       finalParts: partsArr as any,
-      sentMessageIds: sentMessageIds as any,
-      errorDetail,
+      sentMessageIds: dispatch.sentMessageIds as any,
+      errorDetail: dispatch.error || null,
     },
   });
   if (io) io.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);

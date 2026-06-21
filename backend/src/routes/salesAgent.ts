@@ -6,7 +6,7 @@ import { buildSalesSystemPrompt } from '../lib/buildSalesSystemPrompt';
 import { SALES_PRINCIPLES, SOURCE_BOOKS, DEFAULT_ACTIVE_PRINCIPLES } from '../data/salesKnowledge';
 import { SECTOR_KNOWLEDGE, listSectorKeys } from '../data/sectorKnowledge';
 import { generateSalesSuggestion, AgentError } from '../lib/aiSalesAgent';
-import { sendWhatsAppOut } from '../lib/whatsappSend';
+import { dispatchSalesParts } from '../lib/autoDispatchSalesSuggestion';
 import { consolidateWorkspaceMemory } from '../lib/salesLearningConsolidator';
 
 const router = Router();
@@ -294,7 +294,9 @@ router.get('/suggestions/:id', async (req: AuthRequest, res: Response, next) => 
   } catch (e) { next(e); }
 });
 
-// Helper interno: envia as partes via WhatsApp e cria entradas Message.
+// Wrapper compatibilidade: usa dispatchSalesParts (autoDispatchSalesSuggestion.ts)
+// que ja inclui presence "composing" + pausa proporcional ao tamanho da proxima
+// mensagem para simular digitacao humana.
 async function dispatchSuggestion(
   workspaceId: string,
   contactPhone: string,
@@ -305,66 +307,9 @@ async function dispatchSuggestion(
   sentById: string | null,
   io: any,
 ): Promise<{ sentMessageIds: string[]; failedAt?: number; error?: string }> {
-  const sentMessageIds: string[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    const text = parts[i];
-    const result = await sendWhatsAppOut(workspaceId, contactPhone, text, 'TEXT');
-    const msg = await prisma.message.create({
-      data: {
-        content: text,
-        type: 'TEXT',
-        direction: 'OUTBOUND',
-        channel: 'WHATSAPP',
-        status: result.ok ? 'SENT' : 'FAILED',
-        externalId: result.externalId,
-        contactId,
-        leadId: leadId || undefined,
-        sentById: sentById || undefined,
-      },
-    });
-    sentMessageIds.push(msg.id);
-    if (io) {
-      io.to(`workspace:${workspaceId}`).emit('message:new', msg);
-      if (leadId) io.to(`lead:${leadId}`).emit('message:new', msg);
-    }
-    if (!result.ok) {
-      return { sentMessageIds, failedAt: i, error: result.error };
-    }
-    // Pequeno intervalo entre fragmentos para parecer mais natural
-    if (i < parts.length - 1) await new Promise((r) => setTimeout(r, 700));
-  }
-  // Anexos de produto (se houver)
-  for (const file of productFiles) {
-    const mtype = file.type?.startsWith('image/') ? 'IMAGE'
-      : file.type?.startsWith('video/') ? 'VIDEO'
-      : file.type?.startsWith('audio/') ? 'AUDIO'
-      : 'DOCUMENT';
-    const result = await sendWhatsAppOut(workspaceId, contactPhone, file.name || 'Anexo', mtype, file.url, file.name || undefined);
-    const msg = await prisma.message.create({
-      data: {
-        content: file.name || 'Anexo',
-        type: mtype as any,
-        direction: 'OUTBOUND',
-        channel: 'WHATSAPP',
-        status: result.ok ? 'SENT' : 'FAILED',
-        externalId: result.externalId,
-        mediaUrl: file.url,
-        mediaType: file.type,
-        contactId,
-        leadId: leadId || undefined,
-        sentById: sentById || undefined,
-      },
-    });
-    sentMessageIds.push(msg.id);
-    if (io) {
-      io.to(`workspace:${workspaceId}`).emit('message:new', msg);
-      if (leadId) io.to(`lead:${leadId}`).emit('message:new', msg);
-    }
-    if (!result.ok) {
-      return { sentMessageIds, failedAt: parts.length, error: result.error };
-    }
-  }
-  return { sentMessageIds };
+  return dispatchSalesParts({
+    workspaceId, contactId, contactPhone, leadId, parts, productFiles, sentById, io,
+  });
 }
 
 // POST /api/sales-agent/suggestions/:id/approve

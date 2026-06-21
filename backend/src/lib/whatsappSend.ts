@@ -108,3 +108,33 @@ export async function sendWhatsAppOut(
 
   return { ok: false, error: 'Sem integracao WhatsApp activa' };
 }
+
+// Envia "presence" (typing indicator) ao destinatario via Evolution API.
+// Estados validos: 'composing' (a escrever), 'recording', 'paused', 'available'.
+// WhatsApp Cloud (Meta) nao expoe presence directo via API: para esse canal
+// esta funcao e no-op silencioso. Usa-se na IA Vendedora para mostrar ao
+// lead que esta a ser preparada uma resposta.
+export async function sendWhatsAppPresence(
+  workspaceId: string,
+  phone: string,
+  presence: 'composing' | 'recording' | 'paused' | 'available',
+  delayMs?: number,
+): Promise<void> {
+  try {
+    const evo = await prisma.integration.findFirst({
+      where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+    });
+    if (!evo) return;
+    const creds: any = getCreds(evo);
+    if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return;
+    const isGroupJid = typeof phone === 'string' && phone.includes('@g.us');
+    const destination = isGroupJid ? phone : String(phone).replace(/\D/g, '');
+    await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/sendPresence/${creds.instanceName}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+      body: JSON.stringify({ number: destination, presence, delay: delayMs ?? 1200 }),
+    });
+  } catch {
+    // Best-effort: nunca bloqueia o envio.
+  }
+}

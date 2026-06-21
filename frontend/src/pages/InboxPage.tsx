@@ -537,7 +537,12 @@ export default function InboxPage() {
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
-    if (workspace?.id) socket.emit('join:workspace', workspace.id);
+    // Re-emite join:workspace SEMPRE que ha (re)conexao. Sem isto, apos
+    // qualquer queda transitoria de rede o cliente fica fora da room e
+    // novas mensagens deixam de aparecer em tempo real ate F5.
+    const joinRoom = () => { if (workspace?.id) socket.emit('join:workspace', workspace.id); };
+    joinRoom();
+    socket.on('connect', joinRoom);
 
     const onPresence = (data: { contactId: string; state: string }) => {
       setPresenceMap((prev) => ({ ...prev, [data.contactId]: data.state }));
@@ -665,6 +670,7 @@ export default function InboxPage() {
     socket.on('aiSales:suggestion', onAiSalesSuggestion);
     socket.on('aiSales:decided', onAiSalesDecided);
     return () => {
+      socket.off('connect', joinRoom);
       socket.off('presence:update', onPresence);
       socket.off('call:incoming', onCall);
       socket.off('message:new', onMessage);
