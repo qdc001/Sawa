@@ -724,7 +724,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
         // Disparar IA Vendedora (gated por workspace.aiSalesEnabled ou conversa)
         maybeTriggerSalesSuggestion({
           workspaceId, contactId: contact.id, leadId: lead?.id,
-          triggerMessageId: saved.id, io,
+          triggerMessageId: saved.id, triggerMessageContent: content, io,
         });
 
         // Notificar por email opt-in

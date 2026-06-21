@@ -18,7 +18,8 @@ import { buildSalesSystemPrompt } from './buildSalesSystemPrompt';
 import { callGroqJsonWithLimiter } from './groqLimiter';
 import { SALES_PRINCIPLES, DEFAULT_ACTIVE_PRINCIPLES } from '../data/salesKnowledge';
 
-const MAX_HISTORY = 15; // ultimas N mensagens a incluir no prompt
+const MAX_HISTORY = 30; // ultimas N mensagens a incluir no prompt (era 15)
+const MAX_INTERNAL_NOTES = 10; // notas internas mais recentes a injectar como contexto
 const MAX_PRODUCTS_IN_CATALOG = 30; // truncar catalogo para nao estourar tokens
 
 export type GenerateOptions = {
@@ -90,19 +91,39 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
 
   const model = opts.model || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
-  // 1. Carrega contexto: workspace, contacto, lead, ultimas mensagens, produtos.
-  const [workspace, contact, lead, messages, products] = await Promise.all([
+  // 1. Carrega contexto: workspace, contacto (com tags), lead, ultimas mensagens
+  //    publicas (que foram para o WhatsApp), notas internas da equipa e produtos.
+  //    Separar mensagens de notas internas evita que a IA confunda observacoes
+  //    privadas com texto trocado com o lead.
+  const [workspace, contact, lead, messages, internalNotes, products] = await Promise.all([
     prisma.workspace.findUnique({ where: { id: opts.workspaceId } }),
-    prisma.contact.findUnique({ where: { id: opts.contactId } }),
+    prisma.contact.findUnique({
+      where: { id: opts.contactId },
+      include: { tags: { include: { tag: true } } },
+    }),
     opts.leadId ? prisma.lead.findUnique({ where: { id: opts.leadId } }) : Promise.resolve(null),
+    // Mensagens "publicas" (efectivamente trocadas com o lead)
     prisma.message.findMany({
       where: {
         contactId: opts.contactId,
         ...(opts.leadId ? { OR: [{ leadId: opts.leadId }, { leadId: null }] } : {}),
         type: { in: ['TEXT', 'TEMPLATE', 'IMAGE', 'AUDIO', 'DOCUMENT', 'INTERACTIVE'] as any },
+        isInternal: false,
       },
       orderBy: { createdAt: 'desc' },
       take: MAX_HISTORY,
+      include: { sentBy: { select: { name: true } } },
+    }),
+    // Notas internas que a equipa deixou sobre esta conversa
+    prisma.message.findMany({
+      where: {
+        contactId: opts.contactId,
+        ...(opts.leadId ? { OR: [{ leadId: opts.leadId }, { leadId: null }] } : {}),
+        isInternal: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: MAX_INTERNAL_NOTES,
+      include: { sentBy: { select: { name: true } } },
     }),
     prisma.product.findMany({
       where: { workspaceId: opts.workspaceId, isActive: true },
@@ -146,27 +167,45 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
   });
 
   // 4. Monta o historico (ordem cronologica, mais antigo primeiro).
+  // As mensagens OUTBOUND podem ter sido enviadas por agentes humanos OU por
+  // sugestoes anteriores da IA. Marcamos com [<nome>] quando ha sentBy para a
+  // IA perceber o tom usado por outros e nao se repetir.
   const history = messages.slice().reverse().map((m) => {
     const role = m.direction === 'INBOUND' ? 'user' : 'assistant';
-    // Para mensagens nao-texto, usa um placeholder util.
     let content = m.content || '';
     if (!content && m.type === 'AUDIO') content = m.transcription || '[audio]';
     if (!content && m.type === 'IMAGE') content = '[imagem enviada]';
     if (!content && m.type === 'DOCUMENT') content = '[documento enviado]';
     if (!content) content = `[${m.type}]`;
+    // Prefixo curto para outbound de agentes humanos (ajuda a IA a perceber
+    // que ja respondeu alguem e a nao repetir).
+    if (m.direction === 'OUTBOUND' && (m as any).sentBy?.name) {
+      content = `(${(m as any).sentBy.name}) ${content}`;
+    }
     return { role, content: content.slice(0, 2000) };
   });
 
-  // 5. Bloco de contexto curto sobre o lead (se houver).
+  // 5. Bloco de contexto sobre contacto, lead, tags e notas internas.
   const contactName = [contact.firstName, contact.lastName].filter(Boolean).join(' ');
   const leadContext: string[] = [];
   leadContext.push(`Contacto: ${contactName || 'sem nome'}${contact.company ? ` (${contact.company})` : ''}.`);
+  if ((contact as any).email) leadContext.push(`Email: ${(contact as any).email}.`);
+  const tagsArr = ((contact as any).tags || []).map((t: any) => t.tag?.name).filter(Boolean);
+  if (tagsArr.length > 0) leadContext.push(`Etiquetas: ${tagsArr.join(', ')}.`);
   if (lead) {
     leadContext.push(`Lead aberto: "${lead.title}"${lead.value ? `, valor estimado ${lead.value} ${lead.currency}` : ''}, prioridade ${lead.priority}, estado ${lead.status}.`);
   }
+  if (internalNotes.length > 0) {
+    const notesLines = internalNotes.slice().reverse().map((n) => {
+      const who = (n as any).sentBy?.name || 'Equipa';
+      const when = new Date(n.createdAt).toLocaleDateString('pt-PT');
+      return `- (${when}, ${who}) ${String(n.content || '').slice(0, 300)}`;
+    });
+    leadContext.push(`Notas internas da equipa sobre este contacto (privadas, NUNCA mencionar ao lead):\n${notesLines.join('\n')}`);
+  }
   const contextMessage = {
     role: 'system',
-    content: `Contexto do lead actual:\n${leadContext.join('\n')}`,
+    content: `Contexto desta conversa:\n${leadContext.join('\n')}`,
   };
 
   // 6. Chama Groq em modo JSON.
@@ -228,21 +267,68 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
   return { suggestion: saved, normalized: suggestion };
 }
 
+// Verifica se uma mensagem do lead contem alguma palavra-chave de handoff
+// definida pelo workspace. Comparacao case-insensitive e match em qualquer
+// posicao da string. Devolve a palavra encontrada (para auditoria) ou null.
+function detectHandoffTrigger(messageContent: string, triggers: string[]): string | null {
+  if (!messageContent || triggers.length === 0) return null;
+  const text = messageContent.toLowerCase();
+  for (const t of triggers) {
+    const w = String(t).toLowerCase().trim();
+    if (w && text.includes(w)) return w;
+  }
+  return null;
+}
+
+// Cria uma sugestao curto-circuito de handoff sem chamar a Groq. Util quando
+// o lead usa uma palavra-chave que o owner definiu como gatilho imediato.
+async function createHandoffShortCircuit(opts: {
+  workspaceId: string;
+  contactId: string;
+  leadId?: string | null;
+  triggerMessageId?: string | null;
+  triggerWord: string;
+}) {
+  return prisma.aiSalesSuggestion.create({
+    data: {
+      workspaceId: opts.workspaceId,
+      contactId: opts.contactId,
+      leadId: opts.leadId || null,
+      triggerMessageId: opts.triggerMessageId || null,
+      parts: ['Vou passar a um colega humano agora mesmo.'] as any,
+      action: 'handoff',
+      productId: null,
+      productFileIds: [] as any,
+      reasoning: `Palavra-chave "${opts.triggerWord}" disparou handoff imediato (sem consultar IA).`,
+      principlesUsed: [] as any,
+      modelUsed: 'handoff-rule',
+      promptTokens: null,
+      completionTokens: null,
+      status: 'PENDING',
+    },
+  });
+}
+
 // Helper para os webhooks de WhatsApp (Evolution + Cloud). Verifica se a
 // IA Vendedora esta activa para o contacto/workspace e, em caso afirmativo,
 // gera a sugestao em background e emite o evento socket aiSales:suggestion
 // para o frontend a actualizar sem polling. Nao lanca: erros sao loggados.
+//
+// Em modo autonomo (aiSalesMode='auto'), aprova e despoleta o envio
+// automaticamente quando a accao for send_text ou send_product. Handoff
+// e wait ficam sempre PENDING para o humano confirmar (preservar controlo).
 export async function maybeTriggerSalesSuggestion(opts: {
   workspaceId: string;
   contactId: string;
   leadId?: string | null;
   triggerMessageId?: string | null;
+  triggerMessageContent?: string | null;
   io?: any;
 }): Promise<void> {
   try {
     const ws = await prisma.workspace.findUnique({
       where: { id: opts.workspaceId },
-      select: { aiSalesEnabled: true, aiSalesEnabledConversationIds: true, aiSalesMode: true },
+      select: { aiSalesEnabled: true, aiSalesEnabledConversationIds: true, aiSalesMode: true, aiSalesHandoffTriggers: true },
     });
     if (!ws) return;
     const enabledIds = Array.isArray(ws.aiSalesEnabledConversationIds)
@@ -251,7 +337,28 @@ export async function maybeTriggerSalesSuggestion(opts: {
     const active = ws.aiSalesEnabled || enabledIds.includes(opts.contactId);
     if (!active) return;
 
-    const { suggestion } = await generateSalesSuggestion({
+    // Curto-circuito: palavras de handoff disparam imediatamente, sem Groq.
+    const handoffTriggers = Array.isArray(ws.aiSalesHandoffTriggers)
+      ? (ws.aiSalesHandoffTriggers as any[]).filter((x) => typeof x === 'string')
+      : [];
+    const triggerWord = opts.triggerMessageContent
+      ? detectHandoffTrigger(opts.triggerMessageContent, handoffTriggers)
+      : null;
+    if (triggerWord) {
+      const sug = await createHandoffShortCircuit({
+        workspaceId: opts.workspaceId,
+        contactId: opts.contactId,
+        leadId: opts.leadId || null,
+        triggerMessageId: opts.triggerMessageId || null,
+        triggerWord,
+      });
+      if (opts.io) {
+        opts.io.to(`workspace:${opts.workspaceId}`).emit('aiSales:suggestion', sug);
+      }
+      return;
+    }
+
+    const { suggestion, normalized } = await generateSalesSuggestion({
       workspaceId: opts.workspaceId,
       contactId: opts.contactId,
       leadId: opts.leadId || null,
@@ -260,6 +367,17 @@ export async function maybeTriggerSalesSuggestion(opts: {
 
     if (opts.io) {
       opts.io.to(`workspace:${opts.workspaceId}`).emit('aiSales:suggestion', suggestion);
+    }
+
+    // Modo autonomo: aprova e despacha automaticamente accoes nao-criticas.
+    // Handoff e wait nao sao auto-despachados: humano deve confirmar.
+    if (ws.aiSalesMode === 'auto' && (normalized.action === 'send_text' || normalized.action === 'send_product')) {
+      try {
+        const { autoDispatchSuggestion } = await import('./autoDispatchSalesSuggestion');
+        await autoDispatchSuggestion(suggestion.id, opts.io);
+      } catch (e: any) {
+        console.error('[aiSales] auto-dispatch failed:', e?.message || e);
+      }
     }
   } catch (e: any) {
     console.error('[aiSales] maybeTriggerSalesSuggestion failed:', e?.message || e);

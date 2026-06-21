@@ -53,6 +53,7 @@ import { processExpiredDelays } from './lib/chatbotEngine';
 import { checkOverdueTasks, processScheduledAutomations, checkNoResponseConversations, checkStagnantLeads } from './lib/automationEngine';
 import { checkEvolutionInstances } from './lib/evolutionMonitor';
 import { runDailyDigests } from './lib/dailyTaskDigest';
+import { runDailyLearningConsolidation } from './lib/salesLearningConsolidator';
 
 const app = express();
 const httpServer = createServer(app);
@@ -210,6 +211,12 @@ setTimeout(() => {
 setInterval(() => {
   runDailyDigests().catch((e) => console.error('runDailyDigests error:', e));
 }, 60_000);
+
+// IA Vendedora: consolidação nocturna da memória aprendida (Fase 4).
+// Roda 1x por hora; a própria função só executa quando a hora local é 02.
+setInterval(() => {
+  runDailyLearningConsolidation().catch((e) => console.error('runDailyLearningConsolidation error:', e));
+}, 60 * 60_000);
 
 (global as any).io = io;
 export { io };

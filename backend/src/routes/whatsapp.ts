@@ -230,7 +230,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           // Disparar IA Vendedora (gated por workspace.aiSalesEnabled ou conversa especifica)
           maybeTriggerSalesSuggestion({
             workspaceId, contactId: contact.id, leadId: lead?.id,
-            triggerMessageId: savedMessage.id, io,
+            triggerMessageId: savedMessage.id, triggerMessageContent: content, io,
           });
 
           // Notificação opt-in por email

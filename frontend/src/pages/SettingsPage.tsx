@@ -951,6 +951,7 @@ export default function SettingsPage() {
               </p>
             </div>
 
+            <SalesAiLearnedMemoryPanel />
             <SalesAiAuditPanel />
           </div>
 
@@ -1378,6 +1379,107 @@ function OptionListEditor({ title, options, defaults, onChange }: {
             </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Painel de memoria aprendida pela IA Vendedora. Mostra o texto consolidado
+// pelo job nocturno (lib/salesLearningConsolidator) e permite editar
+// manualmente ou despoletar a consolidacao sob demanda.
+function SalesAiLearnedMemoryPanel() {
+  const [memory, setMemory] = useState('');
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [consolidating, setConsolidating] = useState(false);
+
+  const load = () => {
+    api.get('/sales-agent/learned-memory')
+      .then(({ data }) => {
+        setMemory(data.aiLearnedMemory || '');
+        setUpdatedAt(data.updatedAt || null);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(load, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.patch('/sales-agent/learned-memory', { aiLearnedMemory: memory });
+      toast.success('Memoria actualizada');
+      setEditing(false);
+      load();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a guardar');
+    } finally { setSaving(false); }
+  };
+
+  const consolidateNow = async () => {
+    setConsolidating(true);
+    try {
+      const { data } = await api.post('/sales-agent/consolidate-now', {});
+      if (data.updated) {
+        toast.success(`Memoria actualizada a partir de ${data.samples} amostras`);
+        load();
+      } else {
+        toast(`Sem actualizacao: ${data.reason || 'sem dados suficientes'}`, { icon: 'i' });
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a consolidar');
+    } finally { setConsolidating(false); }
+  };
+
+  return (
+    <div className="border-t pt-4 space-y-2" style={{ borderColor: 'var(--border)' }}>
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold">Memoria aprendida</p>
+        <div className="flex items-center gap-2">
+          <button onClick={consolidateNow} disabled={consolidating} className="btn py-1 px-2 text-xs"
+            style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
+            {consolidating ? <Loader2 size={11} className="animate-spin" /> : <Activity size={11} />}
+            Consolidar agora
+          </button>
+          {!editing ? (
+            <button onClick={() => setEditing(true)} className="btn py-1 px-2 text-xs"
+              style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
+              Editar
+            </button>
+          ) : (
+            <>
+              <button onClick={save} disabled={saving} className="btn btn-primary py-1 px-2 text-xs">
+                {saving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />} Guardar
+              </button>
+              <button onClick={() => { setEditing(false); load(); }} className="btn py-1 px-2 text-xs"
+                style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
+                Cancelar
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+        Padroes que a IA aprendeu com as edicoes que fizeste nas ultimas semanas. Sao injectados no prompt em cada nova sugestao. O job automatico corre todas as noites as 02:00. Podes editar manualmente para refinar.
+      </p>
+      {editing ? (
+        <textarea
+          value={memory}
+          onChange={(e) => setMemory(e.target.value)}
+          rows={8}
+          className="input-base w-full text-xs"
+          placeholder="A IA aprende a partir das edicoes que fizeres nas sugestoes. Se ainda nao houver dados, este campo fica vazio."
+        />
+      ) : (
+        <div className="p-3 rounded text-xs whitespace-pre-wrap" style={{ background: 'var(--surface-2)', color: 'var(--text-primary)', minHeight: 60 }}>
+          {memory.trim() || <span style={{ color: 'var(--text-muted)' }}>Ainda sem memoria consolidada. Apos algumas edicoes, o job nocturno comeca a popular este campo.</span>}
+        </div>
+      )}
+      {updatedAt && !editing && (
+        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+          Workspace actualizada em {new Date(updatedAt).toLocaleString('pt-PT')}.
+        </p>
       )}
     </div>
   );

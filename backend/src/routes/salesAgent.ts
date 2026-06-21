@@ -7,6 +7,7 @@ import { SALES_PRINCIPLES, SOURCE_BOOKS, DEFAULT_ACTIVE_PRINCIPLES } from '../da
 import { SECTOR_KNOWLEDGE, listSectorKeys } from '../data/sectorKnowledge';
 import { generateSalesSuggestion, AgentError } from '../lib/aiSalesAgent';
 import { sendWhatsAppOut } from '../lib/whatsappSend';
+import { consolidateWorkspaceMemory } from '../lib/salesLearningConsolidator';
 
 const router = Router();
 
@@ -535,6 +536,50 @@ router.post('/suggestions/:id/discard', async (req: AuthRequest, res: Response, 
     const ioD = (global as any).io;
     if (ioD) ioD.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);
     res.json({ suggestion: updated });
+  } catch (e) { next(e); }
+});
+
+// GET /api/sales-agent/learned-memory
+// Devolve a memoria aprendida actual do workspace (texto livre) e ultima
+// data de actualizacao (deduzida do updatedAt do workspace).
+router.get('/learned-memory', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: req.user!.workspaceId },
+      select: { aiLearnedMemory: true, updatedAt: true },
+    });
+    res.json({
+      aiLearnedMemory: ws?.aiLearnedMemory || '',
+      updatedAt: ws?.updatedAt || null,
+    });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/sales-agent/learned-memory
+// Permite ao admin editar manualmente a memoria aprendida (substituir
+// ou limpar). Util quando o output da consolidacao automatica precisa
+// de afinacao humana.
+router.patch('/learned-memory', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const text = typeof req.body?.aiLearnedMemory === 'string' ? req.body.aiLearnedMemory : '';
+    const updated = await prisma.workspace.update({
+      where: { id: req.user!.workspaceId },
+      data: { aiLearnedMemory: text.slice(0, 2000) || null },
+      select: { aiLearnedMemory: true, updatedAt: true },
+    });
+    res.json(updated);
+  } catch (e) { next(e); }
+});
+
+// POST /api/sales-agent/consolidate-now
+// Forca a consolidacao da memoria do workspace actual fora da janela
+// nocturna. Devolve resultado (updated, samples, reason).
+router.post('/consolidate-now', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const result = await consolidateWorkspaceMemory(req.user!.workspaceId);
+    res.json(result);
   } catch (e) { next(e); }
 });
 
