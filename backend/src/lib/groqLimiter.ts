@@ -91,6 +91,26 @@ export function getApiKeyPoolStatus() {
   });
 }
 
+// Modelo de fallback usado quando o modelo principal esgota TPD em TODAS as
+// chaves do pool. Pode ser configurado via env GROQ_MODEL_FALLBACK. Tipico:
+// principal = llama-3.3-70b-versatile (qualidade alta, 100K TPD)
+// fallback  = meta-llama/llama-4-scout-17b-16e-instruct (qualidade ok, 500K TPD)
+const FALLBACK_MODEL: string | null = (process.env.GROQ_MODEL_FALLBACK || '').trim() || null;
+
+// Marca um modelo como esgotado em todas as chaves ate ao reset diario, para
+// evitar redescobrir o mesmo problema em cada pedido durante o dia.
+const modelExhaustedUntil = new Map<string, number>();
+
+function isModelExhausted(model: string): boolean {
+  const until = modelExhaustedUntil.get(model);
+  return !!(until && until > Date.now());
+}
+
+function markModelExhausted(model: string): void {
+  modelExhaustedUntil.set(model, nextResetMs());
+  console.warn(`[groq] modelo ${model} marcado como TPD esgotado em todas as chaves ate ${new Date(nextResetMs()).toISOString()}`);
+}
+
 // Token bucket: timestamps dos pedidos no último minuto.
 const requestTimestamps: number[] = [];
 
@@ -157,6 +177,13 @@ export async function callGroqWithLimiter(
   maxTokens: number,
   temperature = 0.7,
 ): Promise<string> {
+  // Se este modelo ja esta marcado como esgotado em todas as chaves, salta
+  // directo para o fallback (se existir) sem perder tempo a pedir.
+  if (isModelExhausted(model) && FALLBACK_MODEL && model !== FALLBACK_MODEL && !isModelExhausted(FALLBACK_MODEL)) {
+    console.warn(`[groq] modelo ${model} pre-marcado como esgotado, a usar fallback ${FALLBACK_MODEL}`);
+    return callGroqWithLimiter(apiKey, FALLBACK_MODEL, messages, maxTokens, temperature);
+  }
+
   // 1. Cache lookup
   const cacheKey = hashKey({ model, messages, maxTokens });
   const cached = cacheGet(cacheKey);
@@ -224,7 +251,14 @@ export async function callGroqWithLimiter(
           currentKey = next;
           continue; // refaz a tentativa com a nova chave (nao conta como retry exhaustivo)
         }
-        console.warn(`[groq] todas as chaves do pool esgotadas. A falhar.`);
+        // Todas as chaves esgotadas para este modelo: marca o modelo e
+        // tenta o fallback (se configurado e ainda nao esgotado).
+        markModelExhausted(model);
+        if (FALLBACK_MODEL && model !== FALLBACK_MODEL && !isModelExhausted(FALLBACK_MODEL)) {
+          console.warn(`[groq] todas as chaves esgotadas para ${model}, a usar fallback ${FALLBACK_MODEL}`);
+          return callGroqWithLimiter(apiKey, FALLBACK_MODEL, messages, maxTokens, temperature);
+        }
+        console.warn(`[groq] todas as chaves do pool esgotadas e sem fallback disponivel. A falhar.`);
         throw Object.assign(new Error(`429: ${detail}`), { status: 429, dailyExhausted: true });
       }
       // Rate limit transiente (RPM/TPM). Backoff capado a 30s.
@@ -265,6 +299,12 @@ export async function callGroqJsonWithLimiter<T = any>(
 ): Promise<{ json: T; raw: string; promptTokens?: number; completionTokens?: number }> {
   // Sem cache: cada chamada do agente e contextual e o LRU partilhado
   // poderia devolver respostas erradas para conversas diferentes.
+
+  // Salta directo para fallback se o modelo principal ja esta esgotado.
+  if (isModelExhausted(model) && FALLBACK_MODEL && model !== FALLBACK_MODEL && !isModelExhausted(FALLBACK_MODEL)) {
+    console.warn(`[groq-json] modelo ${model} pre-marcado como esgotado, a usar fallback ${FALLBACK_MODEL}`);
+    return callGroqJsonWithLimiter<T>(apiKey, FALLBACK_MODEL, messages, maxTokens, temperature);
+  }
 
   let currentKey: string = apiKey;
   if (exhaustedUntil.get(currentKey)) {
@@ -336,7 +376,12 @@ export async function callGroqJsonWithLimiter<T = any>(
           currentKey = next;
           continue;
         }
-        console.warn(`[groq-json] todas as chaves do pool esgotadas. A falhar.`);
+        markModelExhausted(model);
+        if (FALLBACK_MODEL && model !== FALLBACK_MODEL && !isModelExhausted(FALLBACK_MODEL)) {
+          console.warn(`[groq-json] todas as chaves esgotadas para ${model}, a usar fallback ${FALLBACK_MODEL}`);
+          return callGroqJsonWithLimiter<T>(apiKey, FALLBACK_MODEL, messages, maxTokens, temperature);
+        }
+        console.warn(`[groq-json] todas as chaves esgotadas e sem fallback. A falhar.`);
         throw Object.assign(new Error(`429: ${detail}`), { status: 429, dailyExhausted: true });
       }
       const retryAfterHeader = res.headers.get('retry-after');
