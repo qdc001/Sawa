@@ -8,7 +8,7 @@
 // badge laranja e podem ser desactivadas em massa se o admin quiser rever.
 
 import { useEffect, useRef, useState } from 'react';
-import { Send, Loader2, Sparkles, Trash2, Power, RefreshCw, GraduationCap, Bot, User as UserIcon, Plus, Wand2, MessageCircle } from 'lucide-react';
+import { Send, Loader2, Sparkles, Trash2, Power, RefreshCw, GraduationCap, Bot, User as UserIcon, Plus, Wand2, MessageCircle, History, X, Clock } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 
@@ -49,6 +49,48 @@ interface Stats {
   mostUsed: Array<{ id: string; situation: string; timesApplied: number; lastAppliedAt: string | null }>;
 }
 
+interface ConversationSummary {
+  id: string;
+  title: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// PT europeu/mocambicano, DD/MM/YYYY HH:MM
+function fmtDateTime(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
+}
+
+function fmtTime(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function fmtRelative(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const diffMs = Date.now() - d.getTime();
+  const min = Math.round(diffMs / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return `ha ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `ha ${h}h`;
+  const days = Math.round(h / 24);
+  if (days < 7) return `ha ${days} dia${days > 1 ? 's' : ''}`;
+  return fmtDateTime(iso);
+}
+
 const SOURCE_LABEL: Record<RuleSource, string> = {
   coach_chat: 'Ensinada',
   auto_learned: 'Auto-aprendida',
@@ -75,6 +117,11 @@ export default function AiCoachingPanel() {
   const [autoLearning, setAutoLearning] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
 
+  // Historico de sessoes
+  const [history, setHistory] = useState<ConversationSummary[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [loadingConv, setLoadingConv] = useState(false);
+
   const loadRules = async () => {
     setLoadingRules(true);
     try {
@@ -95,8 +142,43 @@ export default function AiCoachingPanel() {
     } catch { /* nao bloqueia */ }
   };
 
+  const loadHistory = async () => {
+    try {
+      const { data } = await api.get('/ai-coaching/conversations');
+      setHistory(data.conversations || []);
+    } catch { /* nao bloqueia */ }
+  };
+
+  const openConversation = async (id: string) => {
+    setLoadingConv(true);
+    try {
+      const { data } = await api.get(`/ai-coaching/conversations/${id}`);
+      const conv = data.conversation;
+      setConversationId(conv.id);
+      setChat(Array.isArray(conv.messages) ? conv.messages : []);
+      setShowHistory(false);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao abrir sessao');
+    } finally { setLoadingConv(false); }
+  };
+
+  const deleteConversation = async (id: string) => {
+    if (!confirm('Apagar esta sessao do historico?')) return;
+    try {
+      await api.delete(`/ai-coaching/conversations/${id}`);
+      setHistory((h) => h.filter((c) => c.id !== id));
+      if (conversationId === id) {
+        setConversationId(null);
+        setChat([]);
+      }
+      toast.success('Sessao apagada');
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao apagar sessao');
+    }
+  };
+
   useEffect(() => { loadRules(); }, [filterSource, filterActive]);
-  useEffect(() => { loadStats(); }, []);
+  useEffect(() => { loadStats(); loadHistory(); }, []);
 
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
@@ -116,6 +198,7 @@ export default function AiCoachingPanel() {
       });
       setConversationId(data.conversationId);
       setChat(data.messages || next);
+      loadHistory();
       if ((data.newRules || []).length > 0) {
         toast.success(`${data.newRules.length} regra(s) criada(s)`);
         loadRules();
@@ -179,7 +262,7 @@ export default function AiCoachingPanel() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
       {/* Chat com o coach */}
-      <div className="card p-0 lg:col-span-3 flex flex-col" style={{ minHeight: 560, maxHeight: 720 }}>
+      <div className="card p-0 lg:col-span-3 flex flex-col relative" style={{ minHeight: 560, maxHeight: 720 }}>
         <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center gap-2">
             <GraduationCap size={18} style={{ color: 'var(--primary)' }} />
@@ -190,14 +273,69 @@ export default function AiCoachingPanel() {
               </p>
             </div>
           </div>
-          <button
-            onClick={newSession}
-            className="text-xs px-2 py-1 rounded hover:bg-black/5 flex items-center gap-1"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <Plus size={12} /> Nova sessao
-          </button>
+          <div className="flex gap-1">
+            <button
+              onClick={() => { setShowHistory((v) => !v); if (!showHistory) loadHistory(); }}
+              className="text-xs px-2 py-1 rounded hover:bg-black/5 flex items-center gap-1"
+              style={{ color: showHistory ? 'var(--primary)' : 'var(--text-secondary)' }}
+              title="Ver sessoes anteriores"
+            >
+              <History size={12} /> Historico {history.length > 0 && <span className="opacity-60">({history.length})</span>}
+            </button>
+            <button
+              onClick={newSession}
+              className="text-xs px-2 py-1 rounded hover:bg-black/5 flex items-center gap-1"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <Plus size={12} /> Nova sessao
+            </button>
+          </div>
         </div>
+
+        {/* Painel de historico de sessoes (overlay) */}
+        {showHistory && (
+          <div
+            className="absolute top-[60px] right-3 z-10 rounded-lg shadow-lg w-80 max-h-[480px] flex flex-col"
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+          >
+            <div className="px-3 py-2 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Sessoes anteriores</p>
+              <button onClick={() => setShowHistory(false)} className="p-0.5 rounded hover:bg-black/5">
+                <X size={12} style={{ color: 'var(--text-muted)' }} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {history.length === 0 ? (
+                <p className="text-xs text-center py-6" style={{ color: 'var(--text-muted)' }}>Sem sessoes ainda.</p>
+              ) : (
+                history.map((c) => (
+                  <div
+                    key={c.id}
+                    className="px-3 py-2 border-b cursor-pointer hover:bg-black/[0.03] flex items-start justify-between gap-2"
+                    style={{ borderColor: 'var(--border)', background: conversationId === c.id ? 'var(--primary-light)' : 'transparent' }}
+                    onClick={() => openConversation(c.id)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                        {c.title || 'Sem titulo'}
+                      </p>
+                      <p className="text-[10px] flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        <Clock size={9} /> {fmtDateTime(c.updatedAt)} ({fmtRelative(c.updatedAt)})
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteConversation(c.id); }}
+                      className="p-1 rounded hover:bg-black/5"
+                      title="Apagar"
+                    >
+                      <Trash2 size={11} style={{ color: '#DC2626' }} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
 
         <div ref={chatRef} className="flex-1 overflow-y-auto p-4 space-y-3" style={{ background: 'var(--surface-2)' }}>
           {chat.length === 0 && (
@@ -235,19 +373,26 @@ export default function AiCoachingPanel() {
                   ? <UserIcon size={14} color="#fff" />
                   : <Bot size={14} style={{ color: 'var(--primary)' }} />}
               </div>
-              <div
-                className="max-w-[75%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap"
-                style={{
-                  background: m.role === 'user' ? 'var(--primary)' : 'var(--surface)',
-                  color: m.role === 'user' ? '#fff' : 'var(--text-primary)',
-                  border: m.role === 'user' ? 'none' : '1px solid var(--border)',
-                }}
-              >
-                {m.content}
-                {(m.rulesCreated && m.rulesCreated.length > 0) && (
-                  <div className="mt-2 pt-2 border-t border-white/20 text-[11px] flex items-center gap-1" style={{ color: m.role === 'user' ? '#fff' : 'var(--primary)' }}>
-                    <Wand2 size={11} /> {m.rulesCreated.length} regra(s) gravada(s)
-                  </div>
+              <div className={`max-w-[75%] flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div
+                  className="px-3 py-2 rounded-lg text-sm whitespace-pre-wrap"
+                  style={{
+                    background: m.role === 'user' ? 'var(--primary)' : 'var(--surface)',
+                    color: m.role === 'user' ? '#fff' : 'var(--text-primary)',
+                    border: m.role === 'user' ? 'none' : '1px solid var(--border)',
+                  }}
+                >
+                  {m.content}
+                  {(m.rulesCreated && m.rulesCreated.length > 0) && (
+                    <div className="mt-2 pt-2 border-t border-white/20 text-[11px] flex items-center gap-1" style={{ color: m.role === 'user' ? '#fff' : 'var(--primary)' }}>
+                      <Wand2 size={11} /> {m.rulesCreated.length} regra(s) gravada(s){m.createdAt ? ` em ${fmtDateTime(m.createdAt)}` : ''}
+                    </div>
+                  )}
+                </div>
+                {m.createdAt && (
+                  <span className="text-[10px] mt-0.5 px-1" style={{ color: 'var(--text-muted)' }} title={fmtDateTime(m.createdAt)}>
+                    {fmtTime(m.createdAt)}
+                  </span>
                 )}
               </div>
             </div>
@@ -417,9 +562,12 @@ export default function AiCoachingPanel() {
                         ))}
                       </div>
                     )}
-                    <div className="mt-2 flex items-center gap-3 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                    <div className="mt-2 flex items-center gap-3 text-[10px] flex-wrap" style={{ color: 'var(--text-muted)' }}>
+                      <span className="flex items-center gap-0.5" title={`Gravada em ${fmtDateTime(r.createdAt)}`}>
+                        <Clock size={9} /> {fmtDateTime(r.createdAt)}
+                      </span>
                       {r.category && <span>cat: {r.category}</span>}
-                      <span>usada {r.timesApplied}x</span>
+                      <span>usada {r.timesApplied}x{r.lastAppliedAt ? ` (ultima ${fmtRelative(r.lastAppliedAt)})` : ''}</span>
                       {r.source === 'auto_learned' && <span>conf {(r.confidence * 100).toFixed(0)}%</span>}
                     </div>
                   </div>
