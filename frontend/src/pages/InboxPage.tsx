@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
@@ -1974,34 +1974,73 @@ export default function InboxPage() {
                   {convSearch ? 'Nenhuma mensagem corresponde' : 'Sem mensagens'}
                 </p>
               ) : (
-                filteredMessages.map((msg) => {
+                filteredMessages.map((msg, idx) => {
                   const out = msg.direction === 'OUTBOUND';
                   const isMe = !!msg.sentBy?.id;
                   const isEditing = editingMessage?.id === msg.id;
 
+                  // Separador de data entre mensagens de dias diferentes
+                  const prev = idx > 0 ? filteredMessages[idx - 1] : null;
+                  const curDate = new Date(msg.createdAt);
+                  const prevDate = prev ? new Date(prev.createdAt) : null;
+                  const sameDay = prevDate
+                    && prevDate.getFullYear() === curDate.getFullYear()
+                    && prevDate.getMonth() === curDate.getMonth()
+                    && prevDate.getDate() === curDate.getDate();
+                  const showSeparator = !sameDay;
+                  const today = new Date();
+                  const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+                  const diffDays = Math.floor((today.getTime() - curDate.getTime()) / 86400000);
+                  const isToday = today.toDateString() === curDate.toDateString();
+                  const isYesterday = yesterday.toDateString() === curDate.toDateString();
+                  const separatorLabel = isToday
+                    ? 'Hoje'
+                    : isYesterday
+                      ? 'Ontem'
+                      : diffDays < 7
+                        ? curDate.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: '2-digit' })
+                        : curDate.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                  const fullDateLabel = curDate.toLocaleString('pt-PT', { dateStyle: 'full', timeStyle: 'short' });
+
+                  const dateSeparator = showSeparator ? (
+                    <div className="flex justify-center my-2" key={`sep-${msg.id}`}>
+                      <span
+                        className="text-[11px] px-2.5 py-0.5 rounded-full font-medium uppercase tracking-wide"
+                        style={{ background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
+                      >
+                        {separatorLabel}
+                      </span>
+                    </div>
+                  ) : null;
+
                   if (msg.isInternal) {
                     return (
-                      <div key={msg.id} className="flex justify-center group">
-                        <div className="max-w-md px-4 py-2 rounded-lg text-xs flex items-start gap-2"
-                          style={{ background: '#FEF3C7', border: '1px dashed #F59E0B', color: '#92400E' }}>
-                          <Lock size={11} className="mt-0.5 flex-shrink-0" />
-                          <div className="flex-1">
-                            <p className="font-medium">Nota interna · {msg.sentBy?.name}</p>
-                            <p className="whitespace-pre-wrap mt-0.5">{msg.content}</p>
-                            <p className="text-[10px] opacity-70 mt-1">{new Date(msg.createdAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}</p>
+                      <Fragment key={msg.id}>
+                        {dateSeparator}
+                        <div className="flex justify-center group">
+                          <div className="max-w-md px-4 py-2 rounded-lg text-xs flex items-start gap-2"
+                            style={{ background: '#FEF3C7', border: '1px dashed #F59E0B', color: '#92400E' }}>
+                            <Lock size={11} className="mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <p className="font-medium">Nota interna · {msg.sentBy?.name}</p>
+                              <p className="whitespace-pre-wrap mt-0.5">{msg.content}</p>
+                              <p className="text-[10px] opacity-70 mt-1" title={fullDateLabel}>{new Date(msg.createdAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}</p>
+                            </div>
+                            {isMe && (
+                              <button onClick={() => deleteMessage(msg)} className="opacity-0 group-hover:opacity-100">
+                                <Trash2 size={11} />
+                              </button>
+                            )}
                           </div>
-                          {isMe && (
-                            <button onClick={() => deleteMessage(msg)} className="opacity-0 group-hover:opacity-100">
-                              <Trash2 size={11} />
-                            </button>
-                          )}
                         </div>
-                      </div>
+                      </Fragment>
                     );
                   }
 
                   return (
-                    <div key={msg.id} className={`flex ${out ? 'justify-end' : 'justify-start'} group`}>
+                    <Fragment key={msg.id}>
+                      {dateSeparator}
+                    <div className={`flex ${out ? 'justify-end' : 'justify-start'} group`}>
                       <div className="max-w-md relative">
                         {/* Quote (replyTo) */}
                         {msg.replyTo && (
@@ -2101,7 +2140,7 @@ export default function InboxPage() {
                           )}
                           <div className="flex items-center justify-end gap-1 mt-1 text-xs" style={{ color: out ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
                             {selected.combined && <ChannelBadge channel={msg.channel} size={9} />}
-                            <span>{new Date(msg.createdAt).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span title={fullDateLabel}>{new Date(msg.createdAt).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                             {msg.editedAt && <span title="Editada">(ed.)</span>}
                             {out && (msg.status === 'READ' ? <CheckCheck size={12} style={{ color: '#A5F3FC' }} /> : msg.status === 'DELIVERED' ? <CheckCheck size={12} /> : <Check size={12} />)}
                           </div>
@@ -2130,6 +2169,7 @@ export default function InboxPage() {
                         )}
                       </div>
                     </div>
+                    </Fragment>
                   );
                 })
               )}
