@@ -26,10 +26,69 @@ const MAX_RETRIES = 3;
 const MAX_RETRY_AFTER_MS = 30_000;
 
 // Detecta limites diarios irrecuperaveis (TPD). Quando esgotado, nao adianta
-// retry: a quota so refresca dali a horas. Devolve true para falhar imediato.
+// retry com a mesma chave: a quota so refresca dali a horas. Em vez disso,
+// rodamos para a proxima chave do pool, se houver.
 function isDailyQuotaExhausted(detail: string): boolean {
   const d = detail.toLowerCase();
   return d.includes('tokens per day') || d.includes('tpd') || d.includes('requests per day') || d.includes('rpd');
+}
+
+// =====================================================================
+// Pool de chaves Groq com rotacao automatica em TPD esgotado
+// =====================================================================
+//
+// Configuracao: GROQ_API_KEY (obrigatoria) + GROQ_API_KEY_2..GROQ_API_KEY_10
+// (opcionais). Cada uma deve ser de uma conta Groq diferente para o limite
+// TPD ser independente.
+
+const API_KEY_POOL: string[] = (() => {
+  const keys: string[] = [];
+  const first = process.env.GROQ_API_KEY;
+  if (first && first.trim()) keys.push(first.trim());
+  for (let i = 2; i <= 10; i++) {
+    const k = process.env[`GROQ_API_KEY_${i}`];
+    if (k && k.trim()) keys.push(k.trim());
+  }
+  return keys;
+})();
+
+// Chave -> timestamp ms ate quando esta marcada como esgotada (TPD).
+// Reset diario na Groq e a meia-noite UTC.
+const exhaustedUntil = new Map<string, number>();
+
+function nextResetMs(): number {
+  const now = new Date();
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) + 60_000;
+}
+
+export function markKeyExhausted(key: string): void {
+  exhaustedUntil.set(key, nextResetMs());
+  console.warn(`[groq] chave ${key.slice(0, 12)}... marcada como TPD esgotada ate ${new Date(nextResetMs()).toISOString()}`);
+}
+
+// Devolve a primeira chave saudavel do pool, opcionalmente excluindo uma.
+// Devolve null se todas estao esgotadas.
+export function getActiveApiKey(skip?: string): string | null {
+  const now = Date.now();
+  for (const k of API_KEY_POOL) {
+    if (skip && k === skip) continue;
+    const until = exhaustedUntil.get(k);
+    if (until && until > now) continue;
+    return k;
+  }
+  return null;
+}
+
+export function getApiKeyPoolStatus() {
+  const now = Date.now();
+  return API_KEY_POOL.map((k) => {
+    const until = exhaustedUntil.get(k);
+    return {
+      keyPreview: `${k.slice(0, 8)}...${k.slice(-4)}`,
+      healthy: !until || until <= now,
+      exhaustedUntil: until && until > now ? new Date(until).toISOString() : null,
+    };
+  });
 }
 
 // Token bucket: timestamps dos pedidos no último minuto.
@@ -103,9 +162,19 @@ export async function callGroqWithLimiter(
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
+  // Resolve a chave actual a usar: se a passada esta marcada como esgotada,
+  // tenta a proxima saudavel do pool antes de comecar.
+  let currentKey: string = apiKey;
+  if (exhaustedUntil.get(currentKey)) {
+    const alt = getActiveApiKey(currentKey);
+    if (alt) currentKey = alt;
+  }
+
   let lastErr: GroqError | null = null;
+  const triedKeys = new Set<string>();
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    triedKeys.add(currentKey);
     // 2. Esperar slot do nosso rate limit interno
     await waitForSlot();
 
@@ -114,12 +183,11 @@ export async function callGroqWithLimiter(
     try {
       res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentKey}` },
         body: JSON.stringify({ model, max_tokens: maxTokens, temperature, messages }),
       });
     } catch (e: any) {
       lastErr = Object.assign(new Error(`Rede: ${e.message}`), { status: 502 });
-      // Backoff e tentar de novo
       if (attempt < MAX_RETRIES) await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
       continue;
     }
@@ -147,13 +215,19 @@ export async function callGroqWithLimiter(
     }
 
     if (res.status === 429) {
-      // Quota diaria esgotada: nao vale a pena retry (so refresca dali a horas).
       if (isDailyQuotaExhausted(detail)) {
-        console.warn(`[groq] 429 quota diaria esgotada. A falhar imediato sem retry.`);
+        markKeyExhausted(currentKey);
+        // Tenta rotar para a proxima chave saudavel do pool (que ainda nao tentamos)
+        const next = getActiveApiKey();
+        if (next && !triedKeys.has(next)) {
+          console.warn(`[groq] a rodar para chave alternativa ${next.slice(0, 12)}...`);
+          currentKey = next;
+          continue; // refaz a tentativa com a nova chave (nao conta como retry exhaustivo)
+        }
+        console.warn(`[groq] todas as chaves do pool esgotadas. A falhar.`);
         throw Object.assign(new Error(`429: ${detail}`), { status: 429, dailyExhausted: true });
       }
-      // Rate limit transiente. Honra header retry-after capado a 30s para nao
-      // prender o worker; senao backoff 2s/4s/8s.
+      // Rate limit transiente (RPM/TPM). Backoff capado a 30s.
       const retryAfterHeader = res.headers.get('retry-after');
       const retryAfterMs = retryAfterHeader
         ? Math.min(MAX_RETRY_AFTER_MS, Math.max(500, Number(retryAfterHeader) * 1000))
@@ -167,7 +241,6 @@ export async function callGroqWithLimiter(
       throw lastErr;
     }
 
-    // Outro erro — não vale a pena retry
     throw Object.assign(new Error(detail), { status: res.status });
   }
 
@@ -193,16 +266,24 @@ export async function callGroqJsonWithLimiter<T = any>(
   // Sem cache: cada chamada do agente e contextual e o LRU partilhado
   // poderia devolver respostas erradas para conversas diferentes.
 
+  let currentKey: string = apiKey;
+  if (exhaustedUntil.get(currentKey)) {
+    const alt = getActiveApiKey(currentKey);
+    if (alt) currentKey = alt;
+  }
+
   let lastErr: GroqError | null = null;
+  const triedKeys = new Set<string>();
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    triedKeys.add(currentKey);
     await waitForSlot();
 
     let res: Response;
     try {
       res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentKey}` },
         body: JSON.stringify({
           model,
           max_tokens: maxTokens,
@@ -226,7 +307,6 @@ export async function callGroqJsonWithLimiter<T = any>(
       if (!raw) throw Object.assign(new Error('Groq devolveu resposta vazia'), { status: 502 });
       let json: any;
       try { json = JSON.parse(raw); } catch {
-        // O modelo nao respeitou o json_object. Devolvemos string solta envelopada.
         throw Object.assign(new Error('Groq JSON-mode devolveu conteudo nao-JSON: ' + raw.slice(0, 200)), { status: 502 });
       }
       return {
@@ -249,7 +329,14 @@ export async function callGroqJsonWithLimiter<T = any>(
 
     if (res.status === 429) {
       if (isDailyQuotaExhausted(detail)) {
-        console.warn(`[groq-json] 429 quota diaria esgotada. A falhar imediato sem retry.`);
+        markKeyExhausted(currentKey);
+        const next = getActiveApiKey();
+        if (next && !triedKeys.has(next)) {
+          console.warn(`[groq-json] a rodar para chave alternativa ${next.slice(0, 12)}...`);
+          currentKey = next;
+          continue;
+        }
+        console.warn(`[groq-json] todas as chaves do pool esgotadas. A falhar.`);
         throw Object.assign(new Error(`429: ${detail}`), { status: 429, dailyExhausted: true });
       }
       const retryAfterHeader = res.headers.get('retry-after');
@@ -279,5 +366,6 @@ export function getLimiterStats() {
     requestsInLastMinute: requestTimestamps.length,
     cacheSize: cache.size,
     cacheTtlMin: CACHE_TTL_MS / 60_000,
+    apiKeyPool: getApiKeyPoolStatus(),
   };
 }
