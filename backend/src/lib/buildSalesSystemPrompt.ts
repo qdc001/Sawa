@@ -29,6 +29,15 @@ export type BuildPromptOptions = {
     currency?: string | null;
     fileCount?: number;
   }>;
+  // Regras de coaching ja seleccionadas como relevantes para esta interaccao.
+  // Sao injectadas como bloco de "instrucoes situacionais" para a IA seguir.
+  coachingRules?: Array<{
+    situation: string;
+    recommendedAction: string;
+    tone?: string | null;
+    category?: string | null;
+    examples?: Array<{ leadMessage: string; aiResponse: string }>;
+  }>;
 };
 
 export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOptions = {}): string {
@@ -122,6 +131,25 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
       `Catalogo de produtos disponivel (id :: nome | descricao | preco | ficheiros):\n${catalogBlock}\n\n` +
       `Quando o lead pedir informacao detalhada sobre um produto destes, podes responder com action="send_product" ` +
       `e indicar o productId correspondente. Se o produto nao tiver ficheiros, prefere action="send_text".`
+    );
+  }
+
+  // Regras situacionais ensinadas pelo admin atraves do coach ou aprendidas
+  // automaticamente a partir de conversas com sinal positivo. Tem prioridade
+  // sobre os principios genericos quando a situacao se encaixa.
+  const rules = (opts.coachingRules || []).filter((r) => r && r.situation && r.recommendedAction);
+  if (rules.length > 0) {
+    const rulesBlock = rules.map((r, i) => {
+      const tone = r.tone ? ` (tom: ${r.tone})` : '';
+      const exs = (r.examples || []).slice(0, 2).map((e) =>
+        `   Exemplo: lead diz "${e.leadMessage.slice(0, 200)}" -> respondes algo como "${e.aiResponse.slice(0, 300)}"`
+      ).join('\n');
+      return `${i + 1}. Quando ${r.situation}${tone}:\n   ${r.recommendedAction}${exs ? `\n${exs}` : ''}`;
+    }).join('\n\n');
+
+    parts.push(
+      `Regras situacionais especificas deste workspace (PRIORIDADE ALTA, cumprir sempre que a situacao se encaixar):\n\n${rulesBlock}\n\n` +
+      `Quando varias regras se aplicam, combina-as com bom senso. Quando nenhuma se aplica, segue os principios gerais acima.`
     );
   }
 

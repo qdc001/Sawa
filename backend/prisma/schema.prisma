@@ -167,6 +167,8 @@ model Workspace {
   products             Product[]
   quotes               Quote[]
   aiSalesSuggestions   AiSalesSuggestion[]
+  aiCoachingRules      AiCoachingRule[]
+  aiCoachConversations AiCoachConversation[]
 
   @@map("workspaces")
 }
@@ -1194,4 +1196,78 @@ model AiSalesSuggestion {
   @@index([contactId, createdAt])
   @@index([leadId, createdAt])
   @@map("ai_sales_suggestions")
+}
+
+// ==================== IA VENDEDORA: TREINADOR CONVERSACIONAL ====================
+//
+// Regras de coaching que o admin ensina a IA atraves de conversa ou que sao
+// geradas automaticamente pelo job nocturno a partir de conversas reais com
+// sinal positivo (lead avancou de etapa, fechou negocio, etc).
+//
+// Sao injectadas no system prompt da IA Vendedora, ordenadas por prioridade
+// e filtradas por palavras-chave da mensagem do lead quando o conjunto activo
+// e grande.
+model AiCoachingRule {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+
+  // Situacao em que a regra se aplica (ex: "lead pergunta o preco antes de ver o produto")
+  situation          String   @db.Text
+  // Accao/resposta recomendada para a IA seguir nesse caso
+  recommendedAction  String   @db.Text
+  // Exemplos opcionais (array JSON: [{ leadMessage, aiResponse }])
+  examples           Json     @default("[]")
+  // Tom especifico para esta regra (ex: "mais empatico", "mais directo"). Opcional.
+  tone               String?
+  // Categoria livre para agrupamento (ex: "preco", "objeccao", "boas-vindas")
+  category           String?
+  // Palavras-chave (lowercase) para filtro rapido por relevancia
+  keywords           String[] @default([])
+
+  // Origem da regra:
+  //   coach_chat    -> ensinada pelo admin via chat com o coach
+  //   auto_learned  -> gerada pelo job nocturno a partir de conversas reais
+  //   manual        -> criada directamente no painel
+  source             String   @default("coach_chat")
+  // Confianca (0-1). 1.0 para regras ensinadas, < 1.0 para auto-aprendidas.
+  confidence         Float    @default(1.0)
+  // Se a regra esta activa no prompt da IA
+  isActive           Boolean  @default(true)
+  // Prioridade: regras com prioridade mais alta sao incluidas primeiro
+  priority           Int      @default(0)
+
+  // Contadores de uso para o painel
+  timesApplied       Int      @default(0)
+  lastAppliedAt      DateTime?
+  // IDs de conversas/mensagens das quais a regra foi derivada (auto-learning)
+  derivedFromConvIds String[] @default([])
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  createdById        String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, isActive, priority])
+  @@index([workspaceId, source])
+  @@map("ai_coaching_rules")
+}
+
+// Histórico das conversas do admin com o coach (meta-IA que ajuda a treinar
+// a IA Vendedora). Cada documento e uma sessao com array de mensagens.
+model AiCoachConversation {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  // Titulo curto gerado da primeira mensagem
+  title          String?
+  // Array JSON de mensagens: [{ role: "user"|"assistant"|"system", content: string, createdAt: string, rulesCreated?: string[] }]
+  messages       Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdById    String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, updatedAt])
+  @@map("ai_coach_conversations")
 }

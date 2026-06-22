@@ -40,6 +40,7 @@ import productRoutes from './routes/products';
 import quoteRoutes from './routes/quotes';
 import sectorTemplateRoutes from './routes/sectorTemplates';
 import salesAgentRoutes from './routes/salesAgent';
+import aiCoachingRoutes from './routes/aiCoaching';
 import billingRoutes from './routes/billing';
 
 
@@ -54,6 +55,7 @@ import { checkOverdueTasks, processScheduledAutomations, checkNoResponseConversa
 import { checkEvolutionInstances } from './lib/evolutionMonitor';
 import { runDailyDigests } from './lib/dailyTaskDigest';
 import { runDailyLearningConsolidation } from './lib/salesLearningConsolidator';
+import { runDailyAutoLearn } from './lib/aiCoach';
 
 const app = express();
 const httpServer = createServer(app);
@@ -150,6 +152,7 @@ app.use('/api/products', authMiddleware, productRoutes);
 app.use('/api/quotes', authMiddleware, quoteRoutes);
 app.use('/api/sector-templates', authMiddleware, sectorTemplateRoutes);
 app.use('/api/sales-agent', authMiddleware, salesAgentRoutes);
+app.use('/api/ai-coaching', authMiddleware, aiCoachingRoutes);
 app.use('/api/billing', authMiddleware, billingRoutes);
 
 
@@ -217,6 +220,13 @@ setInterval(() => {
 setInterval(() => {
   runDailyLearningConsolidation().catch((e) => console.error('runDailyLearningConsolidation error:', e));
 }, 60 * 60_000);
+
+// Coach IA: auto-aprendizagem nocturna de regras a partir de conversas com
+// sinal positivo. Corre a cada 15 min e a propria funcao so executa entre
+// as 02:30 e as 02:59.
+setInterval(() => {
+  runDailyAutoLearn().catch((e) => console.error('runDailyAutoLearn error:', e));
+}, 15 * 60_000);
 
 (global as any).io = io;
 export { io };

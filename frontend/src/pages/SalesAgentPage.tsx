@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Building2, MessageSquare, Brain, ChevronRight } from 'lucide-react';
+import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Building2, MessageSquare, Brain, ChevronRight, GraduationCap } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
+import AiCoachingPanel from '../components/AiCoachingPanel';
 
 type SectorKey = 'imobiliaria' | 'clinica' | 'escola' | 'consultoria' | 'outro';
 
@@ -38,7 +39,7 @@ interface KnowledgePreview {
   stats: { principlesAvailable: number; principlesActive: number; sectorsAvailable: number };
 }
 
-type Tab = 'persona' | 'sector' | 'instructions' | 'memory';
+type Tab = 'persona' | 'sector' | 'instructions' | 'coach' | 'memory';
 
 export default function SalesAgentPage() {
   const [tab, setTab] = useState<Tab>('persona');
@@ -123,6 +124,7 @@ export default function SalesAgentPage() {
           { id: 'persona', label: 'Persona', icon: Sparkles },
           { id: 'sector', label: 'Sector', icon: Building2 },
           { id: 'instructions', label: 'Instruções', icon: MessageSquare },
+          { id: 'coach', label: 'Treinar IA', icon: GraduationCap },
           { id: 'memory', label: 'Memória aprendida', icon: Brain },
         ] as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
           <button
@@ -140,6 +142,9 @@ export default function SalesAgentPage() {
         ))}
       </div>
 
+      {tab === 'coach' ? (
+        <AiCoachingPanel />
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-5">
           {tab === 'persona' && (
@@ -326,6 +331,7 @@ export default function SalesAgentPage() {
           )}
         </aside>
       </div>
+      )}
     </div>
   );
 }

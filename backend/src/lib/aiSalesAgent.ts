@@ -17,6 +17,7 @@ import prisma from './prisma';
 import { buildSalesSystemPrompt } from './buildSalesSystemPrompt';
 import { callGroqJsonWithLimiter } from './groqLimiter';
 import { SALES_PRINCIPLES, DEFAULT_ACTIVE_PRINCIPLES } from '../data/salesKnowledge';
+import { selectRelevantRules, markRulesApplied } from './aiCoach';
 
 const MAX_HISTORY = 30; // ultimas N mensagens a incluir no prompt (era 15)
 const MAX_INTERNAL_NOTES = 10; // notas internas mais recentes a injectar como contexto
@@ -185,6 +186,12 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
     ? opts.activePrincipleKeys
     : DEFAULT_ACTIVE_PRINCIPLES;
 
+  // Regras situacionais ensinadas pelo coach ou auto-aprendidas. Seleccionamos
+  // as mais relevantes para a ultima mensagem do lead, para nao estourar tokens.
+  const lastInboundMsg = messages.find((m) => m.direction === 'INBOUND');
+  const lastInboundText = lastInboundMsg?.content || lastInboundMsg?.transcription || '';
+  const coachingRules = await selectRelevantRules(opts.workspaceId, lastInboundText, 20).catch(() => []);
+
   const systemPrompt = buildSalesSystemPrompt(workspace, {
     activePrincipleKeys: activeKeys,
     maxFragments: maxParts,
@@ -195,6 +202,13 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
       unitPrice: p.unitPrice,
       currency: p.currency,
       fileCount: (p as any)._count?.files || 0,
+    })),
+    coachingRules: coachingRules.map((r) => ({
+      situation: r.situation,
+      recommendedAction: r.recommendedAction,
+      tone: r.tone,
+      category: r.category,
+      examples: Array.isArray(r.examples) ? (r.examples as any[]).filter((e) => e && e.leadMessage && e.aiResponse) : [],
     })),
   });
 
@@ -268,6 +282,12 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
 
   // 7. Normaliza e persiste.
   const suggestion = normalizeSuggestion(groqResult.json, maxParts);
+
+  // Marca as regras de coaching que foram alimentadas ao prompt como aplicadas
+  // (so para o painel "regras mais usadas"; nao bloqueia em caso de erro)
+  if (coachingRules.length > 0) {
+    markRulesApplied(coachingRules.map((r) => r.id)).catch(() => {});
+  }
 
   const saved = await prisma.aiSalesSuggestion.create({
     data: {
