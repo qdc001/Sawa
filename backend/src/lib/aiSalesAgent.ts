@@ -397,6 +397,23 @@ export async function maybeTriggerSalesSuggestion(opts: {
     const active = ws.aiSalesEnabled || enabledIds.includes(opts.contactId);
     if (!active) return;
 
+    // Guarda contra corrida: se a ultima mensagem nao-interna da conversa ja
+    // for OUTBOUND (humano respondeu, ou IA acabou de enviar em modo auto),
+    // nao geramos nova sugestao. So sugerimos quando a bola esta do nosso lado.
+    const lastMsg = await prisma.message.findFirst({
+      where: {
+        contactId: opts.contactId,
+        ...(opts.leadId ? { OR: [{ leadId: opts.leadId }, { leadId: null }] } : {}),
+        isInternal: false,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, direction: true },
+    });
+    if (lastMsg && lastMsg.direction === 'OUTBOUND') {
+      console.log(`[aiSales] skip contact=${opts.contactId}: ultima mensagem ja e OUTBOUND`);
+      return;
+    }
+
     // Curto-circuito: palavras de handoff disparam imediatamente, sem Groq.
     const handoffTriggers = Array.isArray(ws.aiSalesHandoffTriggers)
       ? (ws.aiSalesHandoffTriggers as any[]).filter((x) => typeof x === 'string')
