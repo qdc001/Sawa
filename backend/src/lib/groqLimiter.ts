@@ -20,6 +20,17 @@ const RPM_LIMIT = Number(process.env.GROQ_RPM || 25);
 const CACHE_TTL_MS = 10 * 60_000; // 10 min
 const CACHE_MAX_ENTRIES = 200;
 const MAX_RETRIES = 3;
+// Cap absoluto do backoff entre tentativas (30s). A Groq por vezes devolve
+// retry-after de varios minutos (quando o limite TPD diario foi atingido),
+// o que prende o worker. Preferimos falhar rapido e deixar o caller decidir.
+const MAX_RETRY_AFTER_MS = 30_000;
+
+// Detecta limites diarios irrecuperaveis (TPD). Quando esgotado, nao adianta
+// retry: a quota so refresca dali a horas. Devolve true para falhar imediato.
+function isDailyQuotaExhausted(detail: string): boolean {
+  const d = detail.toLowerCase();
+  return d.includes('tokens per day') || d.includes('tpd') || d.includes('requests per day') || d.includes('rpd');
+}
 
 // Token bucket: timestamps dos pedidos no último minuto.
 const requestTimestamps: number[] = [];
@@ -136,11 +147,16 @@ export async function callGroqWithLimiter(
     }
 
     if (res.status === 429) {
-      // Rate limit do lado da Groq mesmo com o nosso buffer.
-      // Honra header retry-after se vier; senão backoff 2s/4s/8s.
+      // Quota diaria esgotada: nao vale a pena retry (so refresca dali a horas).
+      if (isDailyQuotaExhausted(detail)) {
+        console.warn(`[groq] 429 quota diaria esgotada. A falhar imediato sem retry.`);
+        throw Object.assign(new Error(`429: ${detail}`), { status: 429, dailyExhausted: true });
+      }
+      // Rate limit transiente. Honra header retry-after capado a 30s para nao
+      // prender o worker; senao backoff 2s/4s/8s.
       const retryAfterHeader = res.headers.get('retry-after');
       const retryAfterMs = retryAfterHeader
-        ? Math.max(500, Number(retryAfterHeader) * 1000)
+        ? Math.min(MAX_RETRY_AFTER_MS, Math.max(500, Number(retryAfterHeader) * 1000))
         : 1000 * 2 ** (attempt + 1);
       lastErr = Object.assign(new Error(`429: ${detail}`), { status: 429, retryAfterMs });
       console.warn(`[groq] 429 rate limit (tentativa ${attempt + 1}/${MAX_RETRIES + 1}). A esperar ${retryAfterMs}ms.`);
@@ -232,9 +248,13 @@ export async function callGroqJsonWithLimiter<T = any>(
     }
 
     if (res.status === 429) {
+      if (isDailyQuotaExhausted(detail)) {
+        console.warn(`[groq-json] 429 quota diaria esgotada. A falhar imediato sem retry.`);
+        throw Object.assign(new Error(`429: ${detail}`), { status: 429, dailyExhausted: true });
+      }
       const retryAfterHeader = res.headers.get('retry-after');
       const retryAfterMs = retryAfterHeader
-        ? Math.max(500, Number(retryAfterHeader) * 1000)
+        ? Math.min(MAX_RETRY_AFTER_MS, Math.max(500, Number(retryAfterHeader) * 1000))
         : 1000 * 2 ** (attempt + 1);
       lastErr = Object.assign(new Error(`429: ${detail}`), { status: 429, retryAfterMs });
       console.warn(`[groq-json] 429 (tentativa ${attempt + 1}/${MAX_RETRIES + 1}). A esperar ${retryAfterMs}ms.`);

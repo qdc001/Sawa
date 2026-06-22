@@ -1163,7 +1163,35 @@ export default function InboxPage() {
     return () => { cancelled = true; clearInterval(id); };
   }, [selectedKey]); // eslint-disable-line
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  // Auto-scroll inteligente: so vai ao fundo quando ha mesmo mensagem nova
+  // (compara por id da ultima mensagem, nao por referencia do array) E quando
+  // o utilizador ja estava perto do fundo. Evita arrastar para baixo a cada
+  // polling de 8s ou quando o utilizador subiu para ler historico antigo.
+  const lastMsgIdRef = useRef<string | null>(null);
+  const prevSelectedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const lastId = messages.length > 0 ? messages[messages.length - 1].id : null;
+    const prevId = lastMsgIdRef.current;
+    const conversationChanged = prevSelectedKeyRef.current !== selectedKey;
+    lastMsgIdRef.current = lastId;
+    prevSelectedKeyRef.current = selectedKey;
+
+    if (!lastId) return;
+    // Mudou de conversa: scroll instantaneo para o fundo
+    if (conversationChanged) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      return;
+    }
+    // Mesma conversa, mesma ultima mensagem: nao mexer (polling sem novidade)
+    if (lastId === prevId) return;
+    // Chegou mensagem nova: so faz scroll se o utilizador estiver perto do fundo
+    const container = messagesEndRef.current?.parentElement;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom < 220) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, selectedKey]);
 
   // Nota: não seleccionamos nenhuma conversa automaticamente.
   // O utilizador deve clicar na conversa que quer abrir. Isto evita abrir
