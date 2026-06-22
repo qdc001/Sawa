@@ -369,6 +369,34 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     if (message.leadId) io.to(`lead:${message.leadId}`).emit('message:new', message);
     io.to(`workspace:${req.user!.workspaceId}`).emit('message:new', message);
 
+    // Sugestoes da IA Vendedora ficam obsoletas quando o humano envia mensagem
+    // manual: descarta-as para nao aparecerem como sugestao desactualizada no
+    // Inbox da proxima vez que se abre a conversa.
+    if (!message.isInternal && message.direction === 'OUTBOUND' && message.contactId) {
+      try {
+        const obsolete = await prisma.aiSalesSuggestion.findMany({
+          where: { contactId: message.contactId, status: 'PENDING' },
+          select: { id: true },
+        });
+        if (obsolete.length > 0) {
+          await prisma.aiSalesSuggestion.updateMany({
+            where: { id: { in: obsolete.map((s) => s.id) } },
+            data: {
+              status: 'DISCARDED',
+              decidedAt: new Date(),
+              decidedById: req.user!.id,
+              errorDetail: 'superseded: humano enviou mensagem manual',
+            },
+          });
+          for (const s of obsolete) {
+            io.to(`workspace:${req.user!.workspaceId}`).emit('aiSales:decided', { id: s.id, status: 'DISCARDED' });
+          }
+        }
+      } catch (e: any) {
+        console.error('[aiSales] auto-discard PENDING failed:', e?.message || e);
+      }
+    }
+
     // Disparar automacoes message_sent so para mensagens OUTBOUND nao-internas
     // (notas internas nao sao mensagens reais, nao devem despoletar regras).
     if (!message.isInternal && message.direction === 'OUTBOUND') {

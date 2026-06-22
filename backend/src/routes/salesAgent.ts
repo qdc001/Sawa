@@ -273,6 +273,40 @@ router.get('/suggestions', async (req: AuthRequest, res: Response, next) => {
         decidedBy: { select: { id: true, name: true } },
       },
     });
+
+    // Defensiva: se a query e por PENDING + contactId, descartar lazy as
+    // sugestoes obsoletas (que ficaram pendentes mas ja ha mensagem OUTBOUND
+    // posterior do humano ou da IA). Cobre sugestoes antigas, anteriores ao
+    // auto-discard no envio.
+    if (status === 'PENDING' && contactId && items.length > 0) {
+      const filtered: typeof items = [];
+      for (const sug of items) {
+        const triggerAt = sug.triggerMessage?.createdAt || sug.createdAt;
+        const laterOutbound = await prisma.message.findFirst({
+          where: {
+            contactId,
+            direction: 'OUTBOUND',
+            isInternal: false,
+            createdAt: { gt: triggerAt },
+          },
+          select: { id: true },
+        });
+        if (laterOutbound) {
+          await prisma.aiSalesSuggestion.update({
+            where: { id: sug.id },
+            data: {
+              status: 'DISCARDED',
+              decidedAt: new Date(),
+              errorDetail: 'superseded: ja existe mensagem OUTBOUND posterior',
+            },
+          });
+          continue;
+        }
+        filtered.push(sug);
+      }
+      return res.json(filtered);
+    }
+
     res.json(items);
   } catch (e) { next(e); }
 });
