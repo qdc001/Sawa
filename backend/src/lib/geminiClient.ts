@@ -20,6 +20,77 @@ const cache = new Map<string, { value: string; expiresAt: number }>();
 const CACHE_TTL_MS = 10 * 60_000;
 const CACHE_MAX_ENTRIES = 200;
 
+// =====================================================================
+// Pool de chaves Gemini com rotacao automatica em quota diaria esgotada
+// =====================================================================
+//
+// Configuracao: GEMINI_API_KEY (obrigatoria) + GEMINI_API_KEY_2..GEMINI_API_KEY_10
+// (opcionais). Cada chave deve vir de uma conta Google diferente para que o
+// limite diario seja independente.
+
+const API_KEY_POOL: string[] = (() => {
+  const keys: string[] = [];
+  const first = process.env.GEMINI_API_KEY;
+  if (first && first.trim()) keys.push(first.trim());
+  for (let i = 2; i <= 10; i++) {
+    const k = process.env[`GEMINI_API_KEY_${i}`];
+    if (k && k.trim()) keys.push(k.trim());
+  }
+  return keys;
+})();
+
+// Chave -> timestamp ms ate quando esta marcada como esgotada (quota diaria).
+// Gemini reseta a meia-noite no fuso horario de Pacifico (PT), aproximadamente
+// 08:00 UTC. Para simplificar e ser conservador, usamos meia-noite UTC + 8h.
+const exhaustedUntil = new Map<string, number>();
+
+function nextResetMs(): number {
+  const now = new Date();
+  // Proxima meia-noite UTC + 8h (cobre o reset em PT). Conservador.
+  const utcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  return utcMidnight + 8 * 60 * 60_000;
+}
+
+function markGeminiKeyExhausted(key: string): void {
+  exhaustedUntil.set(key, nextResetMs());
+  console.warn(`[gemini] chave ${key.slice(0, 12)}... marcada como esgotada ate ${new Date(nextResetMs()).toISOString()}`);
+}
+
+function getActiveGeminiKey(skip?: string): string | null {
+  const now = Date.now();
+  for (const k of API_KEY_POOL) {
+    if (skip && k === skip) continue;
+    const until = exhaustedUntil.get(k);
+    if (until && until > now) continue;
+    return k;
+  }
+  return null;
+}
+
+export function getGeminiKeyPoolStatus() {
+  const now = Date.now();
+  return API_KEY_POOL.map((k) => {
+    const until = exhaustedUntil.get(k);
+    return {
+      keyPreview: `${k.slice(0, 8)}...${k.slice(-4)}`,
+      healthy: !until || until <= now,
+      exhaustedUntil: until && until > now ? new Date(until).toISOString() : null,
+    };
+  });
+}
+
+// Detecta erros que indicam que a quota diaria desta chave esta esgotada.
+// Gemini devolve 429 com mensagens que mencionam "quota" ou "exceeded".
+// Para distinguir de RPM transiente (que tambem da 429), tentamos detectar
+// PerDay/Daily ou ausencia de retry-after curto.
+function isGeminiQuotaExhausted(detail: string, retryAfterMs: number | null): boolean {
+  const d = detail.toLowerCase();
+  if (d.includes('perday') || d.includes('per day') || d.includes('daily') || d.includes('quota')) return true;
+  // Se o servidor pede para esperar mais de 5 minutos, e quota diaria
+  if (retryAfterMs && retryAfterMs > 5 * 60_000) return true;
+  return false;
+}
+
 function purgeOldTimestamps() {
   const cutoff = Date.now() - 60_000;
   while (requestTimestamps.length > 0 && requestTimestamps[0] < cutoff) requestTimestamps.shift();
@@ -100,15 +171,20 @@ function toGeminiBody(messages: LlmMsg[], temperature: number, maxTokens: number
 }
 
 async function geminiRequest(model: string, body: any): Promise<{ raw: string; promptTokens?: number; completionTokens?: number }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw Object.assign(new Error('GEMINI_API_KEY nao configurada'), { status: 500 });
+  if (API_KEY_POOL.length === 0) {
+    throw Object.assign(new Error('GEMINI_API_KEY nao configurada'), { status: 500 });
+  }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
+  // Resolve a primeira chave saudavel do pool.
+  let currentKey = getActiveGeminiKey() || API_KEY_POOL[0];
+  const triedKeys = new Set<string>();
 
   let lastErr: any = null;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    triedKeys.add(currentKey);
     await waitForSlot();
     let res: Response;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${currentKey}`;
     try {
       res = await fetch(url, {
         method: 'POST',
@@ -153,6 +229,21 @@ async function geminiRequest(model: string, body: any): Promise<{ raw: string; p
       const retryAfterMs = retryAfterHeader
         ? Math.min(MAX_RETRY_AFTER_MS, Math.max(500, Number(retryAfterHeader) * 1000))
         : 1000 * 2 ** (attempt + 1);
+
+      // Se parece quota diaria desta chave, marca como esgotada e tenta a proxima
+      if (isGeminiQuotaExhausted(detail, retryAfterMs)) {
+        markGeminiKeyExhausted(currentKey);
+        const next = getActiveGeminiKey();
+        if (next && !triedKeys.has(next)) {
+          console.warn(`[gemini] a rodar para chave alternativa ${next.slice(0, 12)}...`);
+          currentKey = next;
+          continue;
+        }
+        console.warn(`[gemini] todas as chaves do pool esgotadas. A falhar.`);
+        throw Object.assign(new Error(`429: ${detail}`), { status: 429, dailyExhausted: true });
+      }
+
+      // 429 transiente (RPM). Backoff curto.
       lastErr = Object.assign(new Error(`429: ${detail}`), { status: 429, retryAfterMs });
       console.warn(`[gemini] 429 (tentativa ${attempt + 1}/${MAX_RETRIES + 1}). A esperar ${retryAfterMs}ms.`);
       if (attempt < MAX_RETRIES) {
@@ -203,6 +294,6 @@ export function getGeminiStats() {
     rpmLimit: RPM_LIMIT,
     requestsInLastMinute: requestTimestamps.length,
     cacheSize: cache.size,
-    apiKeyConfigured: !!process.env.GEMINI_API_KEY,
+    apiKeyPool: getGeminiKeyPoolStatus(),
   };
 }
