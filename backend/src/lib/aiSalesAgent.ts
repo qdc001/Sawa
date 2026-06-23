@@ -276,7 +276,7 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
       0.5,
     );
   } catch (e: any) {
-    throw new AgentError(`Groq falhou: ${e?.message || e}`, e?.status || 502);
+    throw new AgentError(`${providerLabel.toUpperCase()} falhou: ${e?.message || e}`, e?.status || 502);
   }
 
   // 7. Normaliza e persiste.

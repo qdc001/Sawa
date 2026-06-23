@@ -253,6 +253,17 @@ async function geminiRequest(model: string, body: any): Promise<{ raw: string; p
       throw lastErr;
     }
 
+    if (res.status >= 500 && res.status < 600) {
+      const backoffMs = Math.min(10_000, 1000 * 2 ** attempt);
+      lastErr = Object.assign(new Error(`${res.status}: ${detail}`), { status: res.status });
+      console.warn(`[gemini] ${res.status} transiente (tentativa ${attempt + 1}/${MAX_RETRIES + 1}). A esperar ${backoffMs}ms.`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, backoffMs));
+        continue;
+      }
+      throw lastErr;
+    }
+
     throw Object.assign(new Error(detail), { status: res.status });
   }
   throw lastErr || Object.assign(new Error('Gemini: esgotaram-se as tentativas'), { status: 502 });

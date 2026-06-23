@@ -275,6 +275,19 @@ export async function callGroqWithLimiter(
       throw lastErr;
     }
 
+    // 500/502/503 sao tipicamente transientes do lado da Groq (alta demanda,
+    // restart de instancia). Retry com backoff antes de desistir.
+    if (res.status >= 500 && res.status < 600) {
+      const backoffMs = Math.min(10_000, 1000 * 2 ** attempt);
+      lastErr = Object.assign(new Error(`${res.status}: ${detail}`), { status: res.status });
+      console.warn(`[groq] ${res.status} transiente (tentativa ${attempt + 1}/${MAX_RETRIES + 1}). A esperar ${backoffMs}ms.`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, backoffMs));
+        continue;
+      }
+      throw lastErr;
+    }
+
     throw Object.assign(new Error(detail), { status: res.status });
   }
 
@@ -392,6 +405,17 @@ export async function callGroqJsonWithLimiter<T = any>(
       console.warn(`[groq-json] 429 (tentativa ${attempt + 1}/${MAX_RETRIES + 1}). A esperar ${retryAfterMs}ms.`);
       if (attempt < MAX_RETRIES) {
         await new Promise((r) => setTimeout(r, retryAfterMs));
+        continue;
+      }
+      throw lastErr;
+    }
+
+    if (res.status >= 500 && res.status < 600) {
+      const backoffMs = Math.min(10_000, 1000 * 2 ** attempt);
+      lastErr = Object.assign(new Error(`${res.status}: ${detail}`), { status: res.status });
+      console.warn(`[groq-json] ${res.status} transiente (tentativa ${attempt + 1}/${MAX_RETRIES + 1}). A esperar ${backoffMs}ms.`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, backoffMs));
         continue;
       }
       throw lastErr;
