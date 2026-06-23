@@ -12,7 +12,7 @@
 import crypto from 'crypto';
 
 const RPM_LIMIT = Number(process.env.GEMINI_RPM || 10);
-const MAX_RETRIES = 3;
+const MAX_RETRIES = Number(process.env.GEMINI_MAX_RETRIES || 5);
 const MAX_RETRY_AFTER_MS = 30_000;
 
 const requestTimestamps: number[] = [];
@@ -254,7 +254,9 @@ async function geminiRequest(model: string, body: any): Promise<{ raw: string; p
     }
 
     if (res.status >= 500 && res.status < 600) {
-      const backoffMs = Math.min(10_000, 1000 * 2 ** attempt);
+      // Backoff mais agressivo para 5xx (alta demanda no 2.5-flash e comum).
+      // Sequencia: 2s, 4s, 8s, 16s, 25s. Total ~55s antes de desistir.
+      const backoffMs = Math.min(25_000, 2000 * 2 ** attempt);
       lastErr = Object.assign(new Error(`${res.status}: ${detail}`), { status: res.status });
       console.warn(`[gemini] ${res.status} transiente (tentativa ${attempt + 1}/${MAX_RETRIES + 1}). A esperar ${backoffMs}ms.`);
       if (attempt < MAX_RETRIES) {
