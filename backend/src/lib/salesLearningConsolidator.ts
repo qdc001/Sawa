@@ -14,7 +14,7 @@
 //   - Falha silenciosamente (log) para nao matar o scheduler
 
 import prisma from './prisma';
-import { callGroqWithLimiter } from './groqLimiter';
+import { callLlm } from './llmProvider';
 
 const WINDOW_DAYS = 30;
 const MIN_SAMPLES = 5;
@@ -68,10 +68,6 @@ function buildConsolidationPrompt(samples: EditedSample[], existingMemory: strin
 
 // Consolida 1 workspace. Devolve true se actualizou a memoria.
 export async function consolidateWorkspaceMemory(workspaceId: string): Promise<{ updated: boolean; samples: number; reason?: string }> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return { updated: false, samples: 0, reason: 'GROQ_API_KEY ausente' };
-  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
-
   const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60_000);
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -104,12 +100,12 @@ export async function consolidateWorkspaceMemory(workspaceId: string): Promise<{
   const prompt = buildConsolidationPrompt(samples, ws.aiLearnedMemory);
   let raw: string;
   try {
-    raw = await callGroqWithLimiter(apiKey, model, [
+    raw = await callLlm(null, [
       { role: 'system', content: 'Es um analista breve e directo. Devolves apenas a lista de ensinamentos pedida.' },
       { role: 'user', content: prompt },
     ], 600, 0.3);
   } catch (e: any) {
-    return { updated: false, samples: samples.length, reason: `Groq falhou: ${e?.message || e}` };
+    return { updated: false, samples: samples.length, reason: `LLM falhou: ${e?.message || e}` };
   }
 
   // Limpa e normaliza a saida da Groq

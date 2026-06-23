@@ -291,17 +291,13 @@ function isWithinBusinessHours(flow: any, now: Date = new Date()): boolean {
   return true;
 }
 
-// ── Chamada à API de IA (Groq, com rate limiter partilhado) ────────
-import { callGroqWithLimiter } from './groqLimiter';
+// ── Chamada à API de IA (Groq ou Gemini conforme LLM_PROVIDER) ────────
+import { callLlm } from './llmProvider';
 async function callAi(systemPrompt: string, history: { role: string; content: string }[]): Promise<string> {
-  const apiKey = process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return '[IA não configurada]';
-  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
   try {
-    return await callGroqWithLimiter(
-      apiKey,
-      model,
-      [{ role: 'system', content: systemPrompt }, ...history],
+    return await callLlm(
+      null,
+      [{ role: 'system', content: systemPrompt }, ...history as any],
       400,
       0.7,
     );

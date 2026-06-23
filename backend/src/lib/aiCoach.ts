@@ -21,7 +21,7 @@
 //   }
 
 import prisma from './prisma';
-import { callGroqJsonWithLimiter, callGroqWithLimiter } from './groqLimiter';
+import { callLlm, callLlmJson } from './llmProvider';
 import { AiCoachingRule } from '@prisma/client';
 
 const COACH_MAX_HISTORY = 20;
@@ -187,10 +187,6 @@ export type CoachReplyOptions = {
 };
 
 export async function coachReply(opts: CoachReplyOptions): Promise<CoachReply> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error('GROQ_API_KEY nao configurada');
-  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
-
   const ws = await prisma.workspace.findUnique({
     where: { id: opts.workspaceId },
     select: { aiAgentName: true, aiAgentRole: true, sector: true },
@@ -213,12 +209,12 @@ export async function coachReply(opts: CoachReplyOptions): Promise<CoachReply> {
   // Recorta o histórico mais recente para não estourar tokens
   const recent = opts.history.slice(-COACH_MAX_HISTORY).filter((m) => m.role !== 'system');
   const messages = [
-    { role: 'system', content: systemPrompt },
-    ...recent.map((m) => ({ role: m.role, content: String(m.content || '').slice(0, 4000) })),
-    { role: 'user', content: opts.userMessage.slice(0, 4000) },
+    { role: 'system' as const, content: systemPrompt },
+    ...recent.map((m) => ({ role: m.role as 'user' | 'assistant', content: String(m.content || '').slice(0, 4000) })),
+    { role: 'user' as const, content: opts.userMessage.slice(0, 4000) },
   ];
 
-  const result = await callGroqJsonWithLimiter(apiKey, model, messages, 1000, 0.4);
+  const result = await callLlmJson(null, messages, 1000, 0.4);
   return normalizeCoachReply(result.json);
 }
 
@@ -395,10 +391,6 @@ function buildAutoLearnPrompt(samples: LearnSample[]): string {
 }
 
 export async function autoLearnFromConversations(workspaceId: string): Promise<{ created: number; samples: number; reason?: string }> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return { created: 0, samples: 0, reason: 'GROQ_API_KEY ausente' };
-  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
-
   const since = new Date(Date.now() - AUTO_LEARN_WINDOW_HOURS * 60 * 60_000);
 
   // Sugestoes APPROVED ou SENT nas ultimas 24h (sinal positivo)
@@ -433,12 +425,12 @@ export async function autoLearnFromConversations(workspaceId: string): Promise<{
 
   let raw: string;
   try {
-    raw = await callGroqWithLimiter(apiKey, model, [
+    raw = await callLlm(null, [
       { role: 'system', content: 'Es um analista breve. Devolves apenas JSON valido conforme pedido.' },
       { role: 'user', content: buildAutoLearnPrompt(samples.slice(0, 30)) },
     ], 1200, 0.3);
   } catch (e: any) {
-    return { created: 0, samples: samples.length, reason: `Groq falhou: ${e?.message || e}` };
+    return { created: 0, samples: samples.length, reason: `LLM falhou: ${e?.message || e}` };
   }
 
   // O modelo pode embrulhar em markdown; tenta extrair JSON.

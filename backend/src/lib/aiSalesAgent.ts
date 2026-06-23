@@ -15,7 +15,7 @@
 
 import prisma from './prisma';
 import { buildSalesSystemPrompt } from './buildSalesSystemPrompt';
-import { callGroqJsonWithLimiter } from './groqLimiter';
+import { callLlmJson, getActiveLlmProvider } from './llmProvider';
 import { SALES_PRINCIPLES, DEFAULT_ACTIVE_PRINCIPLES } from '../data/salesKnowledge';
 import { selectRelevantRules, markRulesApplied } from './aiCoach';
 
@@ -95,10 +95,10 @@ function normalizeSuggestion(raw: any, maxParts: number): AgentSuggestion {
 }
 
 export async function generateSalesSuggestion(opts: GenerateOptions) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new AgentError('GROQ_API_KEY nao configurada no ambiente', 500);
-
-  const model = opts.model || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+  // Provider e modelo sao determinados pela camada llmProvider.
+  // Aceita override de modelo via opts.model; senao usa o default activo.
+  const model = opts.model || null;
+  const providerLabel = getActiveLlmProvider();
 
   // 0. Verificar se ha um marker de reset de contexto. Se sim, a IA so
   //    considera mensagens e notas criadas DEPOIS desse marker (como se
@@ -262,16 +262,15 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
     content: `Contexto desta conversa:\n${leadContext.join('\n')}`,
   };
 
-  // 6. Chama Groq em modo JSON.
+  // 6. Chama o LLM activo (Groq ou Gemini) em modo JSON.
   let groqResult: { json: any; raw: string; promptTokens?: number; completionTokens?: number };
   try {
-    groqResult = await callGroqJsonWithLimiter(
-      apiKey,
+    groqResult = await callLlmJson(
       model,
       [
         { role: 'system', content: systemPrompt },
-        contextMessage,
-        ...history,
+        contextMessage as any,
+        ...history as any,
       ],
       800,
       0.5,
@@ -301,7 +300,7 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
       productFileIds: [] as any,
       reasoning: suggestion.reasoning,
       principlesUsed: suggestion.principlesUsed as any,
-      modelUsed: model,
+      modelUsed: `${providerLabel}:${model || 'default'}`,
       promptTokens: groqResult.promptTokens || null,
       completionTokens: groqResult.completionTokens || null,
       status: 'PENDING',

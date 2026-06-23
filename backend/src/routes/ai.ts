@@ -1,7 +1,8 @@
 import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
-import { callGroqWithLimiter, getLimiterStats } from '../lib/groqLimiter';
+import { getLimiterStats } from '../lib/groqLimiter';
+import { callLlm, getLlmStats } from '../lib/llmProvider';
 
 import prisma from '../lib/prisma';
 const router = Router();
@@ -61,7 +62,8 @@ async function callGroq(
   }
 
   try {
-    return await callGroqWithLimiter(apiKey, AI_MODEL, messages, maxTokens, 0.7);
+    // Aceita Groq ou Gemini conforme a env LLM_PROVIDER (default groq).
+    return await callLlm(null, messages as any, maxTokens, 0.7);
   } catch (e: any) {
     const status = e?.status || 502;
     const detail = e?.message || 'Erro desconhecido';
@@ -438,13 +440,10 @@ Responde APENAS em JSON: {"action":"a próxima acção concreta numa frase","why
 });
 
 router.get('/status', (_req: AuthRequest, res: Response) => {
-  const hasKey = !!(process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY);
+  const hasKey = !!(process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY);
   res.json({
-    provider: 'groq',
-    model: AI_MODEL,
     configured: hasKey,
-    usingFallbackKey: !process.env.GROQ_API_KEY && !!process.env.ANTHROPIC_API_KEY,
-    limiter: getLimiterStats(),
+    llm: getLlmStats(),
   });
 });
 
