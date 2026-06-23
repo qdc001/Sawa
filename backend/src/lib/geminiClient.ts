@@ -154,11 +154,17 @@ function toGeminiBody(messages: LlmMsg[], temperature: number, maxTokens: number
     turns.unshift({ role: 'user', parts: [{ text: '(continuar)' }] });
   }
 
+  // Gemini 2.5-flash usa "thinking tokens" internos por defeito que consomem
+  // do maxOutputTokens. Para JSON estruturado nao precisamos de raciocinio
+  // intermedio: desactivamos para nao truncar a resposta visivel.
+  // Em modo texto deixamos thinking activo (qualidade ligeiramente melhor).
   const body: any = {
     contents: turns,
     generationConfig: {
       temperature,
-      maxOutputTokens: maxTokens,
+      // Damos uma margem extra (1.5x) para compensar overhead do Gemini com
+      // tokens de seguranca, formatos, etc.
+      maxOutputTokens: Math.max(maxTokens, Math.ceil(maxTokens * 1.5)),
     },
   };
   if (systemTexts.length > 0) {
@@ -166,6 +172,7 @@ function toGeminiBody(messages: LlmMsg[], temperature: number, maxTokens: number
   }
   if (jsonMode) {
     body.generationConfig.responseMimeType = 'application/json';
+    body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
   }
   return body;
 }
@@ -207,6 +214,11 @@ async function geminiRequest(model: string, body: any): Promise<{ raw: string; p
       }
       const text = candidate?.content?.parts?.map((p: any) => p?.text || '').filter(Boolean).join('') || '';
       if (!text) throw Object.assign(new Error('Gemini devolveu resposta vazia'), { status: 502 });
+      // MAX_TOKENS significa resposta truncada. Em modo texto pode ser ok,
+      // mas em JSON normalmente quebra o parse. Log para diagnostico.
+      if (finish === 'MAX_TOKENS') {
+        console.warn(`[gemini] resposta truncada por MAX_TOKENS (${text.length} chars). Considera subir maxOutputTokens.`);
+      }
       return {
         raw: text,
         promptTokens: data.usageMetadata?.promptTokenCount,
