@@ -154,17 +154,17 @@ function toGeminiBody(messages: LlmMsg[], temperature: number, maxTokens: number
     turns.unshift({ role: 'user', parts: [{ text: '(continuar)' }] });
   }
 
-  // Gemini 2.5-flash usa "thinking tokens" internos por defeito que consomem
-  // do maxOutputTokens. Para JSON estruturado nao precisamos de raciocinio
-  // intermedio: desactivamos para nao truncar a resposta visivel.
-  // Em modo texto deixamos thinking activo (qualidade ligeiramente melhor).
+  // Gemini 2.5-flash gasta tokens em "thinking" interno por defeito. Para
+  // garantir que a resposta visivel cabe, damos um orcamento generoso:
+  //   - JSON mode: thinking desactivado + 4x o pedido do caller
+  //   - Texto: thinking activo, mas 4x o pedido (gemini-2.5 gasta muito)
+  // Cap absoluto a 8192 (limite tipico do modelo).
+  const expandedMax = Math.min(8192, Math.max(maxTokens, maxTokens * 4));
   const body: any = {
     contents: turns,
     generationConfig: {
       temperature,
-      // Damos uma margem extra (1.5x) para compensar overhead do Gemini com
-      // tokens de seguranca, formatos, etc.
-      maxOutputTokens: Math.max(maxTokens, Math.ceil(maxTokens * 1.5)),
+      maxOutputTokens: expandedMax,
     },
   };
   if (systemTexts.length > 0) {
@@ -172,6 +172,8 @@ function toGeminiBody(messages: LlmMsg[], temperature: number, maxTokens: number
   }
   if (jsonMode) {
     body.generationConfig.responseMimeType = 'application/json';
+    // thinkingBudget=0 desactiva o raciocinio interno (suportado em 2.5-flash).
+    // Se o modelo nao suportar, e ignorado silenciosamente.
     body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
   }
   return body;
@@ -215,9 +217,13 @@ async function geminiRequest(model: string, body: any): Promise<{ raw: string; p
       const text = candidate?.content?.parts?.map((p: any) => p?.text || '').filter(Boolean).join('') || '';
       if (!text) throw Object.assign(new Error('Gemini devolveu resposta vazia'), { status: 502 });
       // MAX_TOKENS significa resposta truncada. Em modo texto pode ser ok,
-      // mas em JSON normalmente quebra o parse. Log para diagnostico.
+      // mas em JSON normalmente quebra o parse. Log para diagnostico, incluindo
+      // contagens reais (thinking + visible) e uma amostra da resposta crua.
       if (finish === 'MAX_TOKENS') {
-        console.warn(`[gemini] resposta truncada por MAX_TOKENS (${text.length} chars). Considera subir maxOutputTokens.`);
+        const promptT = data.usageMetadata?.promptTokenCount;
+        const candT = data.usageMetadata?.candidatesTokenCount;
+        const thoughtT = data.usageMetadata?.thoughtsTokenCount;
+        console.warn(`[gemini] MAX_TOKENS atingido. prompt=${promptT} thinking=${thoughtT || 0} visible=${candT} chars=${text.length}. Resposta crua (primeiros 300): ${text.slice(0, 300)}`);
       }
       return {
         raw: text,
