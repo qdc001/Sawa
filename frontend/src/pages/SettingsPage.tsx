@@ -137,6 +137,10 @@ export default function SettingsPage() {
 
   // Estado actual do utilizador
   const isAdminOrOwner = user?.role === 'OWNER' || user?.role === 'ADMIN';
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  useEffect(() => {
+    api.get('/billing/me').then(({ data }) => setIsPlatformAdmin(!!data?.isPlatformAdmin)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     api.get('/workspaces/me').then(({ data }) => {
@@ -448,7 +452,7 @@ export default function SettingsPage() {
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: t('settings.workspace'), icon: Building2 }] : []),
     ...(isAdminOrOwner ? [{ v: 'emailTemplates' as const, label: t('settings.emailTemplates'), icon: FileTextIcon }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: t('settings.audit'), icon: History }] : []),
-    ...(isAdminOrOwner ? [{ v: 'aiLimits' as const, label: 'Limites IA', icon: Bell }] : []),
+    ...(isPlatformAdmin ? [{ v: 'aiLimits' as const, label: 'Limites IA', icon: Bell }] : []),
   ];
 
   return (
@@ -1296,7 +1300,7 @@ export default function SettingsPage() {
       {tab === 'products' && <ProductsPage />}
       {tab === 'sectors' && <SectorTemplatesPage />}
       {tab === 'billing' && <BillingPage />}
-      {tab === 'aiLimits' && isAdminOrOwner && <PlanLimitsAdmin />}
+      {tab === 'aiLimits' && isPlatformAdmin && <PlanLimitsAdmin />}
         </div>
       </div>
     </div>

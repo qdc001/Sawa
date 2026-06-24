@@ -8,9 +8,13 @@ import { getEffectiveLimits, getCurrentUsage, listPlanLimits, setPlanLimit } fro
 
 const router = Router();
 
-function requireOwner(req: AuthRequest) {
-  if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
-    throw new AppError('Apenas administradores', 403);
+// Apenas o administrador da plataforma (email configurado em
+// PLATFORM_ADMIN_EMAIL) pode mexer nos limites globais dos planos.
+// OWNERs de workspaces clientes nao tem acesso.
+function requirePlatformAdmin(req: AuthRequest) {
+  const adminEmail = process.env.PLATFORM_ADMIN_EMAIL;
+  if (!adminEmail || req.user!.email.toLowerCase() !== adminEmail.toLowerCase()) {
+    throw new AppError('Apenas o administrador da plataforma pode alterar os limites dos planos', 403);
   }
 }
 
@@ -68,19 +72,19 @@ router.get('/breakdown', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/ai-usage/plan-limits (admin only)
+// GET /api/ai-usage/plan-limits (so platform admin)
 router.get('/plan-limits', async (req: AuthRequest, res: Response, next) => {
   try {
-    requireOwner(req);
+    requirePlatformAdmin(req);
     const list = await listPlanLimits();
     res.json({ planLimits: list });
   } catch (e) { next(e); }
 });
 
-// PATCH /api/ai-usage/plan-limits/:planKey (admin only)
+// PATCH /api/ai-usage/plan-limits/:planKey (so platform admin)
 router.patch('/plan-limits/:planKey', async (req: AuthRequest, res: Response, next) => {
   try {
-    requireOwner(req);
+    requirePlatformAdmin(req);
     const { dailyTokenLimit, monthlyTokenLimit } = req.body || {};
     if (!Number.isFinite(dailyTokenLimit) || !Number.isFinite(monthlyTokenLimit)) {
       throw new AppError('dailyTokenLimit e monthlyTokenLimit obrigatorios (numeros, -1 = ilimitado)', 400);
