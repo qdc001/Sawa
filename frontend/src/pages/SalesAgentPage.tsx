@@ -3,6 +3,7 @@ import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Building2, MessageSquare,
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import AiCoachingPanel from '../components/AiCoachingPanel';
+import AiUsageBars from '../components/AiUsageBars';
 
 type SectorKey = 'imobiliaria' | 'clinica' | 'escola' | 'consultoria' | 'outro';
 
@@ -117,6 +118,8 @@ export default function SalesAgentPage() {
           Guardar alterações
         </button>
       </div>
+
+      <AiUsageBars />
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b overflow-x-auto" style={{ borderColor: 'var(--border)' }}>

@@ -103,7 +103,7 @@ export async function consolidateWorkspaceMemory(workspaceId: string): Promise<{
     raw = await callLlm(null, [
       { role: 'system', content: 'Es um analista breve e directo. Devolves apenas a lista de ensinamentos pedida.' },
       { role: 'user', content: prompt },
-    ], 600, 0.3);
+    ], 600, 0.3, { workspaceId, feature: 'learning' });
   } catch (e: any) {
     return { updated: false, samples: samples.length, reason: `LLM falhou: ${e?.message || e}` };
   }

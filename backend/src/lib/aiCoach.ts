@@ -214,7 +214,7 @@ export async function coachReply(opts: CoachReplyOptions): Promise<CoachReply> {
     { role: 'user' as const, content: opts.userMessage.slice(0, 4000) },
   ];
 
-  const result = await callLlmJson(null, messages, 1000, 0.4);
+  const result = await callLlmJson(null, messages, 1000, 0.4, { workspaceId: opts.workspaceId, feature: 'coach' });
   return normalizeCoachReply(result.json);
 }
 
@@ -428,7 +428,7 @@ export async function autoLearnFromConversations(workspaceId: string): Promise<{
     raw = await callLlm(null, [
       { role: 'system', content: 'Es um analista breve. Devolves apenas JSON valido conforme pedido.' },
       { role: 'user', content: buildAutoLearnPrompt(samples.slice(0, 30)) },
-    ], 1200, 0.3);
+    ], 1200, 0.3, { workspaceId, feature: 'autolearn' });
   } catch (e: any) {
     return { created: 0, samples: samples.length, reason: `LLM falhou: ${e?.message || e}` };
   }

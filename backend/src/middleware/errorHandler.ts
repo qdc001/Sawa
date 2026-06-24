@@ -24,6 +24,16 @@ export const errorHandler = (
     return res.status(err.statusCode).json({ message: err.message });
   }
 
+  // Quota de tokens LLM esgotada (AiQuotaExceededError de lib/aiUsage)
+  if (err?.name === 'AiQuotaExceededError' || (err?.status === 429 && err?.scope)) {
+    return res.status(429).json({
+      message: err.message,
+      quotaScope: err.scope,
+      quotaUsed: err.used,
+      quotaLimit: err.limit,
+    });
+  }
+
   if (err.code === 'P2002') {
     return res.status(409).json({ message: 'Registo duplicado' });
   }

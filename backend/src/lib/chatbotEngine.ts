@@ -293,13 +293,14 @@ function isWithinBusinessHours(flow: any, now: Date = new Date()): boolean {
 
 // ── Chamada à API de IA (Groq ou Gemini conforme LLM_PROVIDER) ────────
 import { callLlm } from './llmProvider';
-async function callAi(systemPrompt: string, history: { role: string; content: string }[]): Promise<string> {
+async function callAi(systemPrompt: string, history: { role: string; content: string }[], workspaceId?: string): Promise<string> {
   try {
     return await callLlm(
       null,
       [{ role: 'system', content: systemPrompt }, ...history as any],
       400,
       0.7,
+      { workspaceId, feature: 'chatbot' },
     );
   } catch (e: any) {
     console.error('[chatbot ai] falhou:', e?.message || e);
@@ -895,7 +896,7 @@ async function executeFromNode(
           ctx,
         );
 
-        const reply = await callClaude(systemPrompt, history);
+        const reply = await callClaude(systemPrompt, history, ctx.workspaceId);
         await sendMessage(reply, ctx);
         recordStep(ctx, node, 'ai reply', reply.substring(0, 80));
 

@@ -17,6 +17,7 @@ import { useT, setLang } from '../lib/i18n';
 import ProductsPage from './ProductsPage';
 import SectorTemplatesPage from './SectorTemplatesPage';
 import BillingPage from './BillingPage';
+import PlanLimitsAdmin from '../components/PlanLimitsAdmin';
 
 const TIMEZONES = [
   'Africa/Maputo', 'Europe/Lisbon', 'Africa/Johannesburg', 'Africa/Nairobi',
@@ -36,7 +37,7 @@ const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', '
 
 export default function SettingsPage() {
   const { user, updateUser, updateWorkspace } = useAuthStore();
-  const [tab, setTab] = useState<'profile' | 'preferences' | 'security' | 'notifications' | 'products' | 'sectors' | 'billing' | 'workspace' | 'emailTemplates' | 'audit'>('profile');
+  const [tab, setTab] = useState<'profile' | 'preferences' | 'security' | 'notifications' | 'products' | 'sectors' | 'billing' | 'workspace' | 'emailTemplates' | 'audit' | 'aiLimits'>('profile');
   const [theme, setTheme] = useTheme();
   const useTResult = useT();
   const currentLang = useTResult[1];
@@ -447,6 +448,7 @@ export default function SettingsPage() {
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: t('settings.workspace'), icon: Building2 }] : []),
     ...(isAdminOrOwner ? [{ v: 'emailTemplates' as const, label: t('settings.emailTemplates'), icon: FileTextIcon }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: t('settings.audit'), icon: History }] : []),
+    ...(isAdminOrOwner ? [{ v: 'aiLimits' as const, label: 'Limites IA', icon: Bell }] : []),
   ];
 
   return (
@@ -1294,6 +1296,7 @@ export default function SettingsPage() {
       {tab === 'products' && <ProductsPage />}
       {tab === 'sectors' && <SectorTemplatesPage />}
       {tab === 'billing' && <BillingPage />}
+      {tab === 'aiLimits' && isAdminOrOwner && <PlanLimitsAdmin />}
         </div>
       </div>
     </div>

@@ -274,6 +274,7 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
       ],
       800,
       0.5,
+      { workspaceId: opts.workspaceId, feature: 'sales' },
     );
   } catch (e: any) {
     throw new AgentError(`${providerLabel.toUpperCase()} falhou: ${e?.message || e}`, e?.status || 502);

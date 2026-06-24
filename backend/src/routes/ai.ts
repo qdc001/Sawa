@@ -51,6 +51,8 @@ async function callGroq(
   userMessageOrMessages: string | Array<{ role: 'user' | 'assistant'; content: string }>,
   apiKey: string,
   maxTokens = 1024,
+  workspaceId?: string,
+  feature: 'copilot' | 'other' = 'copilot',
 ): Promise<string> {
   const messages: Array<{ role: string; content: string }> = [
     { role: 'system', content: truncate(systemPrompt, 6000) },
@@ -63,7 +65,7 @@ async function callGroq(
 
   try {
     // Aceita Groq ou Gemini conforme a env LLM_PROVIDER (default groq).
-    return await callLlm(null, messages as any, maxTokens, 0.7);
+    return await callLlm(null, messages as any, maxTokens, 0.7, { workspaceId, feature });
   } catch (e: any) {
     const status = e?.status || 502;
     const detail = e?.message || 'Erro desconhecido';
@@ -136,7 +138,8 @@ ${tasks || 'Sem tarefas'}
 
 Fornece: 1) Resumo do estado actual (2-3 frases) 2) Próximas acções recomendadas 3) Riscos ou oportunidades identificados`,
       apiKey,
-      512
+      512,
+      req.user!.workspaceId
     );
 
     res.json({ summary });
@@ -166,7 +169,8 @@ Mensagem do cliente: "${lastMessage}"
 
 Sugere 3 respostas diferentes para esta mensagem. Numera cada uma (1, 2, 3). Cada resposta deve ser directa, profissional e adequada ao contexto de vendas. Separa cada resposta com uma linha em branco.`,
       apiKey,
-      600
+      600,
+      req.user!.workspaceId
     );
 
     // Parse into array
@@ -216,7 +220,8 @@ Responde APENAS com JSON no formato:
 
 Só inclui campos com confiança > 0.6. Campos possíveis: email, phone, company, position, value, source, expectedCloseAt`,
       apiKey,
-      400
+      400,
+      req.user!.workspaceId
     );
 
     try {
@@ -244,7 +249,8 @@ router.post('/sentiment', async (req: AuthRequest, res: Response, next) => {
 Responde APENAS com JSON:
 {"sentiment": "positivo|negativo|neutro|urgente|frustrado|satisfeito", "score": 0.85, "emoji": "😊", "guidance": "sugestão curta de como responder"}`,
       apiKey,
-      150
+      150,
+      req.user!.workspaceId
     );
 
     try {
@@ -280,7 +286,8 @@ router.post('/improve-text', async (req: AuthRequest, res: Response, next) => {
       `Você é um editor de texto profissional. Reescreve textos em Português de Moçambique. Responde APENAS com o texto melhorado, sem explicações.${voice}`,
       `${instruction}\n\nTexto original: "${text}"`,
       apiKey,
-      300
+      300,
+      req.user!.workspaceId
     );
 
     res.json({ result: result.trim() });
@@ -317,7 +324,7 @@ Responde em Português de Moçambique. Seja conciso, prático e amigável.`;
       { role: 'user' as const, content: message },
     ];
 
-    const reply = await callGroq(systemPrompt, messages, apiKey, 1024);
+    const reply = await callGroq(systemPrompt, messages, apiKey, 1024, req.user!.workspaceId);
     res.json({ reply });
   } catch (e) { next(e); }
 });
@@ -355,7 +362,8 @@ router.post('/summarize-conversation', async (req: AuthRequest, res: Response, n
 Conversa:
 ${conv}`,
       apiKey,
-      400
+      400,
+      req.user!.workspaceId
     );
 
     res.json({ summary });
@@ -390,6 +398,7 @@ router.post('/agent-reply', async (req: AuthRequest, res: Response, next) => {
       messages,
       apiKey,
       300,
+      req.user!.workspaceId
     );
     res.json({ reply });
   } catch (e) { next(e); }
@@ -428,7 +437,8 @@ ${tasks || 'sem tarefas'}
 
 Responde APENAS em JSON: {"action":"a próxima acção concreta numa frase","why":"porquê, numa frase curta","type":"call|message|meeting|proposal|wait|other"}`,
       apiKey,
-      220
+      220,
+      req.user!.workspaceId
     );
     try {
       const parsed = JSON.parse(result.replace(/```json|```/g, '').trim());

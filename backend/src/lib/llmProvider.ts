@@ -14,9 +14,11 @@
 
 import { callGroqWithLimiter, callGroqJsonWithLimiter, getLimiterStats } from './groqLimiter';
 import { callGeminiText, callGeminiJson, getGeminiStats } from './geminiClient';
+import { checkLimitOrThrow, recordUsage, LlmFeature } from './aiUsage';
 
 export type LlmProvider = 'groq' | 'gemini';
 export type LlmMsg = { role: 'system' | 'user' | 'assistant'; content: string };
+export type LlmTrackOpts = { workspaceId?: string; feature?: LlmFeature };
 
 export function getActiveLlmProvider(): LlmProvider {
   return (process.env.LLM_PROVIDER || 'groq').toLowerCase() === 'gemini' ? 'gemini' : 'groq';
@@ -30,20 +32,48 @@ export function getActiveLlmModel(override?: string | null): string {
   return process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 }
 
+// Estimativa grosseira de tokens para o caminho callLlm (texto), onde a Groq
+// nao devolve usage no nosso wrapper actual. 1 token ~= 4 chars em PT.
+function estimateTokens(s: string): number {
+  return Math.ceil((s?.length || 0) / 4);
+}
+
 // Generico: devolve texto. Cache LRU interno (10 min) em ambos os providers.
+// Tracking de tokens via opts.workspaceId + feature; se ausente, skip silencioso.
 export async function callLlm(
   model: string | null | undefined,
   messages: LlmMsg[],
   maxTokens: number,
   temperature = 0.7,
+  track: LlmTrackOpts = {},
 ): Promise<string> {
+  if (track.workspaceId) await checkLimitOrThrow(track.workspaceId);
   const m = getActiveLlmModel(model);
-  if (getActiveLlmProvider() === 'gemini') {
-    return callGeminiText(m, messages, maxTokens, temperature);
+  const provider = getActiveLlmProvider();
+  let raw: string;
+  let promptTokens: number | undefined;
+  let completionTokens: number | undefined;
+  if (provider === 'gemini') {
+    raw = await callGeminiText(m, messages, maxTokens, temperature);
+  } else {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) throw Object.assign(new Error('GROQ_API_KEY nao configurada'), { status: 500 });
+    raw = await callGroqWithLimiter(apiKey, m, messages, maxTokens, temperature);
   }
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw Object.assign(new Error('GROQ_API_KEY nao configurada'), { status: 500 });
-  return callGroqWithLimiter(apiKey, m, messages, maxTokens, temperature);
+  // O caminho texto nao devolve usage real; estimamos.
+  if (track.workspaceId) {
+    promptTokens = messages.reduce((a, b) => a + estimateTokens(b.content), 0);
+    completionTokens = estimateTokens(raw);
+    recordUsage({
+      workspaceId: track.workspaceId,
+      provider,
+      model: m,
+      feature: track.feature || 'other',
+      promptTokens,
+      completionTokens,
+    });
+  }
+  return raw;
 }
 
 // JSON mode (response_format / responseMimeType). Sem cache.
@@ -52,14 +82,30 @@ export async function callLlmJson<T = any>(
   messages: LlmMsg[],
   maxTokens: number,
   temperature = 0.7,
+  track: LlmTrackOpts = {},
 ): Promise<{ json: T; raw: string; promptTokens?: number; completionTokens?: number }> {
+  if (track.workspaceId) await checkLimitOrThrow(track.workspaceId);
   const m = getActiveLlmModel(model);
-  if (getActiveLlmProvider() === 'gemini') {
-    return callGeminiJson<T>(m, messages, maxTokens, temperature);
+  const provider = getActiveLlmProvider();
+  let result: { json: T; raw: string; promptTokens?: number; completionTokens?: number };
+  if (provider === 'gemini') {
+    result = await callGeminiJson<T>(m, messages, maxTokens, temperature);
+  } else {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) throw Object.assign(new Error('GROQ_API_KEY nao configurada'), { status: 500 });
+    result = await callGroqJsonWithLimiter<T>(apiKey, m, messages, maxTokens, temperature);
   }
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw Object.assign(new Error('GROQ_API_KEY nao configurada'), { status: 500 });
-  return callGroqJsonWithLimiter<T>(apiKey, m, messages, maxTokens, temperature);
+  if (track.workspaceId) {
+    recordUsage({
+      workspaceId: track.workspaceId,
+      provider,
+      model: m,
+      feature: track.feature || 'other',
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
+    });
+  }
+  return result;
 }
 
 export function getLlmStats() {

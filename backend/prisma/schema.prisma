@@ -169,6 +169,18 @@ model Workspace {
   aiSalesSuggestions   AiSalesSuggestion[]
   aiCoachingRules      AiCoachingRule[]
   aiCoachConversations AiCoachConversation[]
+  aiUsageLogs          AiUsageLog[]
+
+  // === Tracking de consumo de tokens LLM ===
+  // Cache do uso actual para evitar somar a tabela em cada chamada.
+  // Sao recalculados periodicamente a partir de AiUsageLog.
+  aiTokensUsedToday    Int       @default(0)
+  aiTokensUsedMonth    Int       @default(0)
+  aiTokensUsageDay     DateTime? // data do contador diario (YYYY-MM-DD UTC)
+  aiTokensUsageMonth   String?   // "YYYY-MM" do contador mensal
+  // Override por workspace (null = usar o limite do plano)
+  aiTokensDailyLimitOverride   Int?
+  aiTokensMonthlyLimitOverride Int?
 
   @@map("workspaces")
 }
@@ -1251,6 +1263,41 @@ model AiCoachingRule {
   @@index([workspaceId, isActive, priority])
   @@index([workspaceId, source])
   @@map("ai_coaching_rules")
+}
+
+// Log de consumo de tokens LLM por workspace, agnostico do feature/provider.
+// Uma linha por chamada bem-sucedida ao Groq/Gemini. Usado para mostrar
+// barras de quota na UI e para aplicar limites por plano.
+model AiUsageLog {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  provider         String   // 'groq' | 'gemini'
+  model            String
+  feature          String   // 'sales' | 'coach' | 'chatbot' | 'copilot' | 'learning' | 'autolearn'
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, feature, createdAt])
+  @@map("ai_usage_logs")
+}
+
+// Limites de tokens por plano (STARTER, GROWTH, BUSINESS, ENTERPRISE).
+// Configuravel via UI admin. Um registo por plano. Se um plano nao tiver
+// linha, assume os defaults definidos em lib/plans.ts.
+model PlanAiLimit {
+  id                  String   @id @default(cuid())
+  planKey             String   @unique  // STARTER | GROWTH | BUSINESS | ENTERPRISE
+  dailyTokenLimit     Int      // -1 = ilimitado
+  monthlyTokenLimit   Int      // -1 = ilimitado
+  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now())
+
+  @@map("plan_ai_limits")
 }
 
 // Histórico das conversas do admin com o coach (meta-IA que ajuda a treinar

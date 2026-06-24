@@ -41,6 +41,7 @@ import quoteRoutes from './routes/quotes';
 import sectorTemplateRoutes from './routes/sectorTemplates';
 import salesAgentRoutes from './routes/salesAgent';
 import aiCoachingRoutes from './routes/aiCoaching';
+import aiUsageRoutes from './routes/aiUsage';
 import billingRoutes from './routes/billing';
 
 
@@ -153,6 +154,7 @@ app.use('/api/quotes', authMiddleware, quoteRoutes);
 app.use('/api/sector-templates', authMiddleware, sectorTemplateRoutes);
 app.use('/api/sales-agent', authMiddleware, salesAgentRoutes);
 app.use('/api/ai-coaching', authMiddleware, aiCoachingRoutes);
+app.use('/api/ai-usage', authMiddleware, aiUsageRoutes);
 app.use('/api/billing', authMiddleware, billingRoutes);
 
 
