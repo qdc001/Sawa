@@ -161,14 +161,19 @@ router.post('/whatsapp-cloud/send', async (req: AuthRequest, res: Response, next
 // ============= Evolution API: gestão de instância via QR =============
 
 // Helper: encontra/cria a integração Evolution para o workspace
-async function getOrCreateEvolutionIntegration(workspaceId: string, fields?: { baseUrl?: string; apiKey?: string }) {
+async function getOrCreateEvolutionIntegration(workspaceId: string, fields?: { baseUrl?: string; apiKey?: string; instanceName?: string }) {
   const existing = await prisma.integration.findFirst({
     where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
   });
   if (existing) {
-    if (fields?.baseUrl || fields?.apiKey) {
+    if (fields?.baseUrl || fields?.apiKey || fields?.instanceName !== undefined) {
       const creds: any = getCreds(existing);
-      const merged = { ...creds, ...(fields.baseUrl && { baseUrl: fields.baseUrl }), ...(fields.apiKey && { apiKey: fields.apiKey }) };
+      const merged = {
+        ...creds,
+        ...(fields.baseUrl && { baseUrl: fields.baseUrl }),
+        ...(fields.apiKey && { apiKey: fields.apiKey }),
+        ...(fields.instanceName !== undefined && { instanceName: fields.instanceName }),
+      };
       return prisma.integration.update({
         where: { id: existing.id },
         data: { credentials: encryptForStore(merged) as any },
@@ -179,19 +184,28 @@ async function getOrCreateEvolutionIntegration(workspaceId: string, fields?: { b
   return prisma.integration.create({
     data: {
       type: 'WEBHOOK', name: 'Evolution',
-      credentials: encryptForStore({ baseUrl: fields?.baseUrl || '', apiKey: fields?.apiKey || '', instanceName: '' }) as any,
+      credentials: encryptForStore({
+        baseUrl: fields?.baseUrl || '',
+        apiKey: fields?.apiKey || '',
+        instanceName: fields?.instanceName || '',
+      }) as any,
       isActive: false,
       workspaceId,
     },
   });
 }
 
-// POST /api/integrations/evolution/configure - guarda baseUrl e apiKey
+// POST /api/integrations/evolution/configure - guarda baseUrl, apiKey e
+// opcionalmente instanceName (para reaproveitar uma instancia existente).
 router.post('/evolution/configure', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { baseUrl, apiKey } = req.body;
+    const { baseUrl, apiKey, instanceName } = req.body;
     if (!baseUrl || !apiKey) throw new AppError('baseUrl e apiKey obrigatórios', 400);
-    const integration = await getOrCreateEvolutionIntegration(req.user!.workspaceId, { baseUrl, apiKey });
+    const integration = await getOrCreateEvolutionIntegration(req.user!.workspaceId, {
+      baseUrl,
+      apiKey,
+      instanceName: typeof instanceName === 'string' ? instanceName.trim() : undefined,
+    });
     res.json({ id: integration.id, configured: true });
   } catch (e) { next(e); }
 });

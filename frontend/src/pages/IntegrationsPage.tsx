@@ -294,7 +294,11 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
     if (!baseUrl || !apiKey) { toast.error('URL base e API key obrigatórios'); return; }
     setSaving(true);
     try {
-      await api.post('/integrations/evolution/configure', { baseUrl, apiKey });
+      await api.post('/integrations/evolution/configure', {
+        baseUrl,
+        apiKey,
+        instanceName: instanceName.trim() || undefined,
+      });
       toast.success('Servidor Evolution configurado');
       setStep('qr');
       await connect();
@@ -513,6 +517,19 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
             <div>
               <label className="block text-sm font-medium mb-1">API Key *</label>
               <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="input-base" placeholder="API key do Evolution" autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Nome da Instância (opcional)</label>
+              <input
+                value={instanceName}
+                onChange={(e) => setInstanceName(e.target.value)}
+                className="input-base"
+                placeholder="Deixa vazio para gerar automaticamente"
+                autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+              />
+              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                Se já tens uma instância no Evolution (ex: <code>meta_cmp1d9az</code>), mete aqui o nome exacto para a reaproveitar e manter a sessão WhatsApp.
+              </p>
             </div>
             <div className="flex gap-2 mt-2">
               <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
