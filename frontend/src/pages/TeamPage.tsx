@@ -142,6 +142,7 @@ function InviteModal({ onClose, onCreated, currentRole }: {
 function MemberDetailModal({ user, teams, onClose, onChanged }: {
   user: User; teams: Team[]; onClose: () => void; onChanged: () => void;
 }) {
+  const [name, setName] = useState(user.name || '');
   const [internalNotes, setInternalNotes] = useState((user as any).internalNotes || '');
   const [viewOnlyOwn, setViewOnlyOwn] = useState((user as any).viewOnlyOwn || false);
   const [teamId, setTeamId] = useState((user as any).teamId || '');
@@ -161,9 +162,12 @@ function MemberDetailModal({ user, teams, onClose, onChanged }: {
   }, []);
 
   const save = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) { toast.error('O nome nao pode ficar vazio'); return; }
     setLoading(true);
     try {
       await api.patch(`/users/${user.id}`, {
+        name: trimmedName,
         internalNotes, viewOnlyOwn, teamId: teamId || null,
         phone: phone || null,
         digestGroupJid: digestGroupJid || null,
@@ -183,6 +187,16 @@ function MemberDetailModal({ user, teams, onClose, onChanged }: {
           <button onClick={onClose}><X size={20} /></button>
         </div>
         <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Nome</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nome completo do membro"
+              className="input-base"
+              maxLength={100}
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium mb-1">Equipa / Departamento</label>
             <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="input-base">
