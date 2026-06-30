@@ -21,6 +21,7 @@ import { useAuthStore } from '../store';
 import { useTaskOptions } from '../lib/taskOptions';
 import { useDragScroll, useScrollButton } from '../lib/useDragScroll';
 import MouseSettingsButton from '../components/MouseSettingsButton';
+import ChatPreviewModal from '../components/ChatPreviewModal';
 
 // Ícones associados a tipos predefinidos. Opções custom (criadas em Definições) caem para Circle.
 const TYPE_ICONS: Record<string, any> = {
@@ -682,13 +683,14 @@ function getDateForCol(col: AgendaCol): Date {
 }
 
 function AgendaCard({
-  task, pipelines, onEdit, onChangeStage, onChangeStatus,
+  task, pipelines, onEdit, onChangeStage, onChangeStatus, onPreviewChat,
 }: {
   task: Task;
   pipelines: Pipeline[];
   onEdit: () => void;
   onChangeStage: (stageId: string) => void;
   onChangeStatus: (status: string) => void;
+  onPreviewChat: (task: Task) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
   const { lookupType, lookupPriority } = useTaskOptions();
@@ -719,13 +721,10 @@ function AgendaCard({
           </span>
           {(task.lead?.id || task.contact?.id) && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const q = task.lead?.id ? `leadId=${task.lead.id}` : `contactId=${task.contact!.id}`;
-                window.location.href = `/inbox?${q}`;
-              }}
+              onClick={(e) => { e.stopPropagation(); onPreviewChat(task); }}
+              onMouseDown={(e) => e.stopPropagation()}
               className="p-0.5 rounded hover:bg-white/20 flex-shrink-0"
-              title="Abrir conversa"
+              title="Pré-visualizar conversa"
             >
               <MessageSquare size={11} />
             </button>
@@ -787,7 +786,7 @@ function AgendaCard({
 }
 
 function AgendaColumn({
-  col, label, color, tasks, pipelines, onEdit, onChangeStage, onChangeStatus,
+  col, label, color, tasks, pipelines, onEdit, onChangeStage, onChangeStatus, onPreviewChat,
 }: {
   col: AgendaCol;
   label: string;
@@ -795,6 +794,7 @@ function AgendaColumn({
   tasks: Task[];
   pipelines: Pipeline[];
   onEdit: (t: Task) => void;
+  onPreviewChat: (t: Task) => void;
   onChangeStage: (taskId: string, stageId: string) => void;
   onChangeStatus: (taskId: string, status: string) => void;
 }) {
@@ -826,6 +826,7 @@ function AgendaColumn({
             onEdit={() => onEdit(t)}
             onChangeStage={(stageId) => onChangeStage(t.id, stageId)}
             onChangeStatus={(s) => onChangeStatus(t.id, s)}
+            onPreviewChat={onPreviewChat}
           />
         ))}
       </div>
@@ -834,7 +835,7 @@ function AgendaColumn({
 }
 
 function AgendaView({
-  tasks, pipelines, onEdit, onTaskMoved, onChangeStage, onChangeStatus,
+  tasks, pipelines, onEdit, onTaskMoved, onChangeStage, onChangeStatus, onPreviewChat,
 }: {
   tasks: Task[];
   pipelines: Pipeline[];
@@ -842,6 +843,7 @@ function AgendaView({
   onTaskMoved: (taskId: string, newDate: Date) => void;
   onChangeStage: (taskId: string, stageId: string) => void;
   onChangeStatus: (taskId: string, status: string) => void;
+  onPreviewChat: (t: Task) => void;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -884,6 +886,7 @@ function AgendaView({
             onEdit={onEdit}
             onChangeStage={onChangeStage}
             onChangeStatus={onChangeStatus}
+            onPreviewChat={onPreviewChat}
           />
         ))}
       </div>
@@ -1359,6 +1362,7 @@ export default function TasksPage() {
   const [adding, setAdding] = useState(false);
   const [initialDate, setInitialDate] = useState<string | undefined>();
   const [editing, setEditing] = useState<Task | null>(null);
+  const [previewChatTask, setPreviewChatTask] = useState<Task | null>(null);
   const [showTagsManager, setShowTagsManager] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -1711,6 +1715,7 @@ export default function TasksPage() {
             onTaskMoved={handleAgendaMove}
             onChangeStage={handleChangeLeadStage}
             onChangeStatus={handleChangeStatus}
+            onPreviewChat={(t) => setPreviewChatTask(t)}
           />
         ) : filteredTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center p-6">
@@ -1807,7 +1812,7 @@ export default function TasksPage() {
                           <button onClick={() => navigate(`/pipeline?leadId=${t.lead!.id}`)} className="flex items-center gap-1 text-xs hover:underline" style={{ color: 'var(--primary)' }}>
                             {t.lead.title} <ExternalLink size={11} />
                           </button>
-                          <button onClick={() => navigate(`/inbox?leadId=${t.lead!.id}`)} title="Abrir conversa" className="p-1 rounded hover:bg-slate-100">
+                          <button onClick={() => setPreviewChatTask(t)} title="Pré-visualizar conversa" className="p-1 rounded hover:bg-slate-100">
                             <MessageSquare size={12} style={{ color: 'var(--primary)' }} />
                           </button>
                         </div>
@@ -1851,6 +1856,18 @@ export default function TasksPage() {
           onClose={() => setEditing(null)}
           onSaved={(t) => setTasks((prev) => prev.map((x) => (x.id === t.id ? t : x)))}
           onTagsChanged={loadTags}
+        />
+      )}
+      {previewChatTask && (
+        <ChatPreviewModal
+          leadId={previewChatTask.lead?.id || null}
+          contactId={previewChatTask.contact?.id || (previewChatTask.lead as any)?.contactId || null}
+          contactName={
+            previewChatTask.contact
+              ? `${(previewChatTask.contact as any).firstName || ''} ${(previewChatTask.contact as any).lastName || ''}`.trim()
+              : previewChatTask.lead?.title || null
+          }
+          onClose={() => setPreviewChatTask(null)}
         />
       )}
       {showTagsManager && (
