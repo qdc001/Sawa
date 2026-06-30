@@ -240,6 +240,8 @@ async function main() {
       }
 
       // 5c. Copiar tabelas por ordem
+      const firstFailureByTable = new Map<string, string>();
+      const statsByTable = new Map<string, { ok: number; failed: number }>();
       for (const t of TABLES_ORDER) {
         if (!(await tableExists(src, t.name))) { console.log(`  ${t.name}: skip (nao existe no M.E.T.A.)`); continue; }
         if (!(await tableExists(dst, t.name))) { console.log(`  ${t.name}: skip (nao existe no Klaru)`); continue; }
@@ -248,6 +250,7 @@ async function main() {
         const rows = await selectRowsForTable(src, t, srcWsId);
         if (rows.length === 0) { console.log(`  ${t.name}: 0 linhas`); continue; }
 
+        let ok = 0, failed = 0;
         for (const row of rows) {
           // Substituir workspaceId pelo destino
           if ('workspaceId' in row) row.workspaceId = dstWsId;
@@ -257,14 +260,28 @@ async function main() {
               row[r.col] = userIdMap.get(row[r.col]);
             }
           }
-          await insertRow(dst, t.name, cols, row);
-          // Registar id como migrado para que tabelas filhas saibam que existe
-          if (row.id) {
-            if (!migratedIds[t.name]) migratedIds[t.name] = new Set();
-            migratedIds[t.name].add(row.id);
+          const success = await insertRowSafe(dst, t.name, cols, row, firstFailureByTable);
+          if (success) {
+            ok++;
+            if (row.id) {
+              if (!migratedIds[t.name]) migratedIds[t.name] = new Set();
+              migratedIds[t.name].add(row.id);
+            }
+          } else {
+            failed++;
           }
         }
-        console.log(`  ${t.name}: ${rows.length} linhas migradas`);
+        statsByTable.set(t.name, { ok, failed });
+        const tag = failed > 0 ? ` (${failed} falharam)` : '';
+        console.log(`  ${t.name}: ${ok}/${rows.length} migradas${tag}`);
+      }
+
+      // Resumo de erros para diagnostico
+      if (firstFailureByTable.size > 0) {
+        console.log('\n=== PRIMEIRO ERRO POR TABELA ===');
+        for (const [tname, err] of firstFailureByTable.entries()) {
+          console.log(`  ${tname}: ${err}`);
+        }
       }
 
       await dst.query('COMMIT');
@@ -312,6 +329,7 @@ async function selectRowsForTable(src: Client, t: TableSpec, srcWsId: string): P
   return [];
 }
 
+// Insert legacy: usado so para criar utilizadores (fora da transacao com SAVEPOINTs)
 async function insertRow(dst: Client, table: string, cols: string[], row: any): Promise<void> {
   const usableCols = cols.filter((c) => c in row);
   if (usableCols.length === 0) return;
@@ -322,6 +340,38 @@ async function insertRow(dst: Client, table: string, cols: string[], row: any): 
     await dst.query(`INSERT INTO "${table}" (${colList}) VALUES (${placeholders}) ON CONFLICT (id) DO NOTHING`, values);
   } catch (e: any) {
     console.error(`  [warn] falha a inserir em ${table} (id=${row.id}): ${e.message}`);
+  }
+}
+
+// Insert seguro com SAVEPOINT por linha. Se uma linha falha, faz rollback
+// apenas dessa linha (a transacao principal continua viva) e regista o
+// primeiro erro real de cada tabela para diagnostico. Devolve true/false.
+let savepointCounter = 0;
+async function insertRowSafe(
+  dst: Client,
+  table: string,
+  cols: string[],
+  row: any,
+  firstFailureByTable: Map<string, string>,
+): Promise<boolean> {
+  const usableCols = cols.filter((c) => c in row);
+  if (usableCols.length === 0) return false;
+  const placeholders = usableCols.map((_, i) => `$${i + 1}`).join(', ');
+  const colList = usableCols.map((c) => `"${c}"`).join(', ');
+  const values = usableCols.map((c) => row[c]);
+
+  const sp = `sp_${++savepointCounter}`;
+  await dst.query(`SAVEPOINT ${sp}`);
+  try {
+    await dst.query(`INSERT INTO "${table}" (${colList}) VALUES (${placeholders}) ON CONFLICT (id) DO NOTHING`, values);
+    await dst.query(`RELEASE SAVEPOINT ${sp}`);
+    return true;
+  } catch (e: any) {
+    await dst.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+    if (!firstFailureByTable.has(table)) {
+      firstFailureByTable.set(table, `id=${row.id}: ${e.message?.slice(0, 200) || e}`);
+    }
+    return false;
   }
 }
 
