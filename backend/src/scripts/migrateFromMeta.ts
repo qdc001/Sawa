@@ -243,37 +243,44 @@ async function main() {
       const firstFailureByTable = new Map<string, string>();
       const statsByTable = new Map<string, { ok: number; failed: number }>();
       for (const t of TABLES_ORDER) {
-        if (!(await tableExists(src, t.name))) { console.log(`  ${t.name}: skip (nao existe no M.E.T.A.)`); continue; }
-        if (!(await tableExists(dst, t.name))) { console.log(`  ${t.name}: skip (nao existe no Klaru)`); continue; }
+        try {
+          if (!(await tableExists(src, t.name))) { console.log(`  ${t.name}: skip (nao existe no M.E.T.A.)`); continue; }
+          if (!(await tableExists(dst, t.name))) { console.log(`  ${t.name}: skip (nao existe no Klaru)`); continue; }
 
-        const cols = await commonColumns(src, dst, t.name);
-        const rows = await selectRowsForTable(src, t, srcWsId);
-        if (rows.length === 0) { console.log(`  ${t.name}: 0 linhas`); continue; }
+          const cols = await commonColumns(src, dst, t.name);
+          const rows = await selectRowsForTable(src, t, srcWsId);
+          if (rows.length === 0) { console.log(`  ${t.name}: 0 linhas`); continue; }
 
-        let ok = 0, failed = 0;
-        for (const row of rows) {
-          // Substituir workspaceId pelo destino
-          if ('workspaceId' in row) row.workspaceId = dstWsId;
-          // Remap user IDs onde aplicavel
-          for (const r of t.remapColumns || []) {
-            if (row[r.col] && userIdMap.has(row[r.col])) {
-              row[r.col] = userIdMap.get(row[r.col]);
+          let ok = 0, failed = 0;
+          for (const row of rows) {
+            // Substituir workspaceId pelo destino
+            if ('workspaceId' in row) row.workspaceId = dstWsId;
+            // Remap user IDs onde aplicavel
+            for (const r of t.remapColumns || []) {
+              if (row[r.col] && userIdMap.has(row[r.col])) {
+                row[r.col] = userIdMap.get(row[r.col]);
+              }
+            }
+            const success = await insertRowSafe(dst, t.name, cols, row, firstFailureByTable);
+            if (success) {
+              ok++;
+              if (row.id) {
+                if (!migratedIds[t.name]) migratedIds[t.name] = new Set();
+                migratedIds[t.name].add(row.id);
+              }
+            } else {
+              failed++;
             }
           }
-          const success = await insertRowSafe(dst, t.name, cols, row, firstFailureByTable);
-          if (success) {
-            ok++;
-            if (row.id) {
-              if (!migratedIds[t.name]) migratedIds[t.name] = new Set();
-              migratedIds[t.name].add(row.id);
-            }
-          } else {
-            failed++;
-          }
+          statsByTable.set(t.name, { ok, failed });
+          const tag = failed > 0 ? ` (${failed} falharam)` : '';
+          console.log(`  ${t.name}: ${ok}/${rows.length} migradas${tag}`);
+        } catch (e: any) {
+          // Falha na propria tabela (ex: SELECT com coluna inexistente).
+          // Nao mata o script: regista e continua para a proxima tabela.
+          console.error(`  ${t.name}: ERRO ao processar tabela: ${e.message?.slice(0, 200) || e}`);
+          firstFailureByTable.set(t.name, `(tabela inteira) ${e.message?.slice(0, 200) || e}`);
         }
-        statsByTable.set(t.name, { ok, failed });
-        const tag = failed > 0 ? ` (${failed} falharam)` : '';
-        console.log(`  ${t.name}: ${ok}/${rows.length} migradas${tag}`);
       }
 
       // Resumo de erros para diagnostico
@@ -300,12 +307,21 @@ async function main() {
   }
 }
 
+async function columnExists(client: Client, table: string, col: string): Promise<boolean> {
+  const r = await client.query(
+    `SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2 AND table_schema = 'public')`,
+    [table, col],
+  );
+  return !!r.rows[0]?.exists;
+}
+
 async function selectRowsForTable(src: Client, t: TableSpec, srcWsId: string): Promise<any[]> {
   if (t.filter.type === 'direct') {
     const r = await src.query(`SELECT * FROM "${t.name}" WHERE "workspaceId" = $1`, [srcWsId]);
     return r.rows;
   }
   if (t.filter.type === 'via') {
+    if (!(await columnExists(src, t.name, t.filter.fk))) return [];
     const ids = [...(migratedIds[t.filter.refTable] || new Set())];
     if (ids.length === 0) return [];
     const r = await src.query(`SELECT * FROM "${t.name}" WHERE "${t.filter.fk}" = ANY($1::text[])`, [ids]);
@@ -316,6 +332,9 @@ async function selectRowsForTable(src: Client, t: TableSpec, srcWsId: string): P
     const params: any[] = [];
     let i = 1;
     for (const ref of t.filter.refs) {
+      // So inclui FK na query se a coluna existir na BD origem (schemas
+      // podem ter divergido entre M.E.T.A. e Klaru)
+      if (!(await columnExists(src, t.name, ref.fk))) continue;
       const ids = [...(migratedIds[ref.refTable] || new Set())];
       if (ids.length === 0) continue;
       conditions.push(`"${ref.fk}" = ANY($${i}::text[])`);
