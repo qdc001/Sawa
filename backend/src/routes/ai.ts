@@ -53,6 +53,7 @@ async function callGroq(
   maxTokens = 1024,
   workspaceId?: string,
   feature: 'copilot' | 'other' = 'copilot',
+  forceProvider?: 'groq' | 'gemini',
 ): Promise<string> {
   const messages: Array<{ role: string; content: string }> = [
     { role: 'system', content: truncate(systemPrompt, 6000) },
@@ -65,7 +66,8 @@ async function callGroq(
 
   try {
     // Aceita Groq ou Gemini conforme a env LLM_PROVIDER (default groq).
-    return await callLlm(null, messages as any, maxTokens, 0.7, { workspaceId, feature });
+    // forceProvider sobrepoe a env para features sensiveis a truncamento.
+    return await callLlm(null, messages as any, maxTokens, 0.7, { workspaceId, feature, forceProvider });
   } catch (e: any) {
     const status = e?.status || 502;
     const detail = e?.message || 'Erro desconhecido';
@@ -170,7 +172,9 @@ Mensagem do cliente: "${lastMessage}"
 Sugere 3 respostas diferentes para esta mensagem. Numera cada uma (1, 2, 3). Cada resposta deve ser directa, profissional e adequada ao contexto de vendas. Separa cada resposta com uma linha em branco.`,
       apiKey,
       600,
-      req.user!.workspaceId
+      req.user!.workspaceId,
+      'copilot',
+      'groq'
     );
 
     // Parse into array

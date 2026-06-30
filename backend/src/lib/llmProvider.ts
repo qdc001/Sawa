@@ -18,7 +18,28 @@ import { checkLimitOrThrow, recordUsage, LlmFeature } from './aiUsage';
 
 export type LlmProvider = 'groq' | 'gemini';
 export type LlmMsg = { role: 'system' | 'user' | 'assistant'; content: string };
-export type LlmTrackOpts = { workspaceId?: string; feature?: LlmFeature };
+export type LlmTrackOpts = {
+  workspaceId?: string;
+  feature?: LlmFeature;
+  // Forca um provider especifico, ignorando a env LLM_PROVIDER. Util para
+  // features sensiveis a truncamento (ex: sugestoes de resposta) que correm
+  // melhor num provider especifico.
+  forceProvider?: LlmProvider;
+};
+
+function resolveProviderAndModel(
+  modelOverride: string | null | undefined,
+  forceProvider?: LlmProvider,
+): { provider: LlmProvider; model: string } {
+  const provider = forceProvider || getActiveLlmProvider();
+  if (modelOverride && modelOverride.trim()) {
+    return { provider, model: modelOverride.trim() };
+  }
+  const model = provider === 'gemini'
+    ? (process.env.GEMINI_MODEL || 'gemini-2.5-flash')
+    : (process.env.GROQ_MODEL || 'llama-3.3-70b-versatile');
+  return { provider, model };
+}
 
 export function getActiveLlmProvider(): LlmProvider {
   return (process.env.LLM_PROVIDER || 'groq').toLowerCase() === 'gemini' ? 'gemini' : 'groq';
@@ -48,8 +69,7 @@ export async function callLlm(
   track: LlmTrackOpts = {},
 ): Promise<string> {
   if (track.workspaceId) await checkLimitOrThrow(track.workspaceId);
-  const m = getActiveLlmModel(model);
-  const provider = getActiveLlmProvider();
+  const { provider, model: m } = resolveProviderAndModel(model, track.forceProvider);
   let raw: string;
   let promptTokens: number | undefined;
   let completionTokens: number | undefined;
@@ -85,8 +105,7 @@ export async function callLlmJson<T = any>(
   track: LlmTrackOpts = {},
 ): Promise<{ json: T; raw: string; promptTokens?: number; completionTokens?: number }> {
   if (track.workspaceId) await checkLimitOrThrow(track.workspaceId);
-  const m = getActiveLlmModel(model);
-  const provider = getActiveLlmProvider();
+  const { provider, model: m } = resolveProviderAndModel(model, track.forceProvider);
   let result: { json: T; raw: string; promptTokens?: number; completionTokens?: number };
   if (provider === 'gemini') {
     result = await callGeminiJson<T>(m, messages, maxTokens, temperature);
