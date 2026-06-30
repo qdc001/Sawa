@@ -149,7 +149,13 @@ Fornece: 1) Resumo do estado actual (2-3 frases) 2) Próximas acções recomenda
 });
 
 // ── POST /api/ai/suggest-reply ────────────────────────
-// Sugere resposta para uma mensagem recebida
+// Sugere resposta para uma mensagem recebida.
+//
+// Funcionalidade INDEPENDENTE da IA Vendedora: nao usa a "voz da marca",
+// instrucoes, persona ou regras de coaching configuradas para o agente
+// autonomo. E uma ferramenta de copilot simples que sugere respostas
+// baseando-se apenas no contexto da conversa e no tom pedido. Sempre
+// Groq (nao Gemini) para garantir respostas completas.
 router.post('/suggest-reply', async (req: AuthRequest, res: Response, next) => {
   try {
     const { leadId, lastMessage, tone = 'profissional' } = req.body;
@@ -159,17 +165,16 @@ router.post('/suggest-reply', async (req: AuthRequest, res: Response, next) => {
     const lead = await getLeadContext(leadId, req.user!.workspaceId);
 
     const context = lead
-      ? `Lead: ${lead.title}, Etapa: ${lead.stage.name}, Contacto: ${lead.contact?.firstName || 'Cliente'}`
-      : 'Contexto do lead não disponível';
+      ? `Contexto: lead "${lead.title}" na etapa "${lead.stage.name}", contacto "${lead.contact?.firstName || 'cliente'}"`
+      : 'Sem contexto adicional do lead';
 
-    const voice = await brandVoiceClause(req.user!.workspaceId);
     const suggestions = await callGroq(
-      `Você é um assistente de vendas experiente. Sugere respostas para mensagens de clientes. Responde em Português de Moçambique. Tom: ${tone}.${voice}`,
+      `Es um assistente que ajuda a redigir respostas profissionais a mensagens recebidas. Responde sempre em portugues europeu/mocambicano (sem brasileirismos, sem travessoes). Tom da resposta: ${tone}.`,
       `${context}
 
-Mensagem do cliente: "${lastMessage}"
+Mensagem recebida: "${lastMessage}"
 
-Sugere 3 respostas diferentes para esta mensagem. Numera cada uma (1, 2, 3). Cada resposta deve ser directa, profissional e adequada ao contexto de vendas. Separa cada resposta com uma linha em branco.`,
+Sugere 3 respostas diferentes para esta mensagem. Numera cada uma (1, 2, 3). Cada resposta deve ser directa, clara e adequada ao tom pedido. Separa cada resposta com uma linha em branco.`,
       apiKey,
       600,
       req.user!.workspaceId,
