@@ -54,10 +54,39 @@ export async function sendWhatsAppOut(
               ?.replace(/^\d+-[a-z0-9]+-/, '')
               ?.replace(/^wa_\d+_\w+\./, 'arquivo.') || 'arquivo';
           }
+          // Evolution v2 exige mimetype para documentos (senao WhatsApp
+          // rejeita ou entrega sem preview). Determinar a partir da extensao
+          // do ficheiro.
+          if (body.mediatype === 'document') {
+            const ext = String(body.fileName).split('.').pop()?.toLowerCase() || '';
+            body.mimetype =
+              ext === 'pdf' ? 'application/pdf' :
+              ext === 'doc' ? 'application/msword' :
+              ext === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
+              ext === 'xls' ? 'application/vnd.ms-excel' :
+              ext === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' :
+              ext === 'ppt' ? 'application/vnd.ms-powerpoint' :
+              ext === 'pptx' ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation' :
+              ext === 'txt' ? 'text/plain' :
+              ext === 'csv' ? 'text/csv' :
+              ext === 'zip' ? 'application/zip' :
+              ext === 'rar' ? 'application/vnd.rar' :
+              'application/octet-stream';
+          } else if (body.mediatype === 'image') {
+            const ext = String(body.fileName || mediaUrl).split('.').pop()?.toLowerCase() || '';
+            body.mimetype =
+              ext === 'png' ? 'image/png' :
+              ext === 'gif' ? 'image/gif' :
+              ext === 'webp' ? 'image/webp' :
+              'image/jpeg';
+          } else if (body.mediatype === 'video') {
+            body.mimetype = 'video/mp4';
+          }
         } else {
           path = `/message/sendText/${creds.instanceName}`;
           body.text = content;
         }
+        console.log(`[whatsappSend] via evolution type=${type} to=${destination.slice(-4)} path=${path.split('/').slice(-2, -1)[0]}`);
 
         const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}${path}`, {
           method: 'POST',

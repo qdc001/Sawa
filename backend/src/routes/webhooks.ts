@@ -488,6 +488,16 @@ router.post('/evolution', async (req: Request, res: Response) => {
 
       if (messages.length === 0) {
         console.log('Evolution webhook: nenhuma mensagem extraída. Event:', event, 'Keys data:', data ? Object.keys(data).join(',') : '(vazio)');
+      } else if (process.env.EVO_TRACE === '1') {
+        // Diagnostico de mensagens perdidas: log de cada mensagem que entra
+        // no webhook antes dos filtros. Activar temporariamente para debug.
+        for (const m of messages) {
+          const jid = m?.key?.remoteJid || '?';
+          const fromMe = !!m?.key?.fromMe;
+          const id = m?.key?.id || '?';
+          const mtype = m?.messageType || Object.keys(m?.message || {}).join('|') || 'unknown';
+          console.log(`[evo-trace] event=${event} jid=${jid.slice(0, 20)}... fromMe=${fromMe} id=${id.slice(0, 10)} type=${mtype}`);
+        }
       }
 
       for (const m of messages) {
@@ -582,9 +592,9 @@ router.post('/evolution', async (req: Request, res: Response) => {
           msgType = 'IMAGE'; content = '[Sticker]';
         } else {
           // Tipo não reconhecido — não cria mensagem para não poluir BD.
-          if (process.env.EVO_VERBOSE === '1') {
-            console.log('Evolution webhook: tipo desconhecido. Chaves:', Object.keys(msg).join(','), '| messageType:', m.messageType);
-          }
+          // Log SEMPRE (sem gate) porque isto pode ser uma mensagem perdida
+          // real. Se enche o log demais, adicionamos rate limit depois.
+          console.log('[evo] tipo nao reconhecido em', remoteJid.slice(0, 20), '| chaves:', Object.keys(msg).join(','), '| messageType:', m.messageType, '| innerKeys:', innerKeys.join(','));
           continue;
         }
 
