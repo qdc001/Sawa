@@ -1,7 +1,8 @@
 // Modal de auto-tarefa: dispara envio de mensagem + criacao/conclusao
-// automatica de tarefa. Duas variantes acessiveis por 2 abas:
-//   - Anunciar: "Vou enviar X ate D" (cria tarefa)
-//   - Entregar: "Envio em anexo o X, pede feedback" (fecha tarefa + follow-up)
+// automatica de tarefa. Configuravel via Definicoes > Auto-tarefa.
+//
+// Se o utilizador escolher o tipo "outros", aparece campo livre para
+// escrever qualquer texto (ex: "Ensaio", "Relatorio semanal").
 
 import { useEffect, useState } from 'react';
 import { X, Loader2, Send, CalendarClock, CheckCircle2 } from 'lucide-react';
@@ -10,7 +11,19 @@ import toast from 'react-hot-toast';
 
 type Mode = 'announce' | 'deliver';
 
-const TIPOS = ['Dissertação', 'Monografia', 'Projecto', 'Slides', 'Outros'] as const;
+type WorkType = {
+  key: string;
+  label: string;
+  article: string;
+  possessive: string;
+};
+
+type Config = {
+  workTypes: WorkType[];
+  announceTemplate: string;
+  deliverTemplate: string;
+  followupDays: number;
+};
 
 interface OpenTask {
   id: string;
@@ -36,12 +49,24 @@ function todayPlusDays(days: number): string {
 export default function AutoTaskModal({ contactId, contactName, leadId, onClose, onSent }: Props) {
   const [mode, setMode] = useState<Mode>('announce');
   const [subject, setSubject] = useState('');
-  const [tipo, setTipo] = useState<string>('Outros');
+  const [config, setConfig] = useState<Config | null>(null);
+  const [typeKey, setTypeKey] = useState<string>('');
+  const [customTypeLabel, setCustomTypeLabel] = useState('');
   const [dueDate, setDueDate] = useState(todayPlusDays(3));
   const [taskToClose, setTaskToClose] = useState<string>('');
   const [openTasks, setOpenTasks] = useState<OpenTask[]>([]);
   const [sending, setSending] = useState(false);
+  const [preview, setPreview] = useState<{ message: string; taskTitle: string } | null>(null);
 
+  // Carregar config
+  useEffect(() => {
+    api.get('/auto-task/config').then(({ data }) => {
+      setConfig(data.config);
+      if (data.config?.workTypes?.[0]) setTypeKey(data.config.workTypes[0].key);
+    }).catch(() => toast.error('Erro a carregar configuração'));
+  }, []);
+
+  // Tarefas abertas para o dropdown de fechar (modo deliver)
   useEffect(() => {
     if (mode !== 'deliver') return;
     api.get('/auto-task/open-tasks', { params: { contactId } })
@@ -49,23 +74,25 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
       .catch(() => setOpenTasks([]));
   }, [mode, contactId]);
 
-  const previewMessage = () => {
-    const subj = subject.trim() || '...';
-    const nome = contactName || 'cliente';
-    if (mode === 'announce') {
-      const tipoText = tipo && tipo !== 'Outros' ? ` do teu ${tipo.toLowerCase()}` : '';
-      return `Olá ${nome}, irei enviar o(a) ${subj}${tipoText} até ${dueDate}.`;
-    }
-    return `Olá ${nome}, envio em anexo o(a) ${subj}. Peço para analisar e depois deixar o teu feedback.`;
-  };
+  // Preview via backend (respeita templates e concordancia)
+  useEffect(() => {
+    if (!subject.trim() || !config) { setPreview(null); return; }
+    const t = setTimeout(() => {
+      api.get('/auto-task/preview', {
+        params: {
+          mode,
+          typeKey,
+          customTypeLabel,
+          subject: subject.trim(),
+          dueDate,
+          nome: contactName,
+        },
+      }).then(({ data }) => setPreview(data)).catch(() => {});
+    }, 200);
+    return () => clearTimeout(t);
+  }, [mode, typeKey, customTypeLabel, subject, dueDate, contactName, config]);
 
-  const previewTaskTitle = () => {
-    const subj = subject.trim() || '...';
-    if (mode === 'announce') {
-      return tipo && tipo !== 'Outros' ? `Enviar ${subj} do ${tipo.toLowerCase()}` : `Enviar ${subj}`;
-    }
-    return `Pedir feedback do ${subj}`;
-  };
+  const isOthers = typeKey === 'outros';
 
   const send = async () => {
     const subj = subject.trim();
@@ -74,24 +101,26 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
       toast.error('Data inválida (usa DD/MM ou DD/MM/YYYY)');
       return;
     }
+    if (isOthers && !customTypeLabel.trim()) {
+      toast.error('Escreve qual é o tipo de trabalho (campo Outros)');
+      return;
+    }
     setSending(true);
     try {
+      const body: any = {
+        contactId,
+        subject: subj,
+        typeKey,
+        customTypeLabel: isOthers ? customTypeLabel.trim() : undefined,
+        leadId: leadId || undefined,
+      };
       if (mode === 'announce') {
-        await api.post('/auto-task/announce', {
-          contactId,
-          subject: subj,
-          type: tipo,
-          dueDate,
-          leadId: leadId || undefined,
-        });
+        body.dueDate = dueDate;
+        await api.post('/auto-task/announce', body);
         toast.success('Mensagem enviada e tarefa criada');
       } else {
-        await api.post('/auto-task/deliver', {
-          contactId,
-          subject: subj,
-          taskToCompleteId: taskToClose || undefined,
-          leadId: leadId || undefined,
-        });
+        if (taskToClose) body.taskToCompleteId = taskToClose;
+        await api.post('/auto-task/deliver', body);
         toast.success('Mensagem enviada, tarefa fechada e follow-up criado');
       }
       onSent();
@@ -151,26 +180,38 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
             />
           </div>
 
-          {mode === 'announce' && (
-            <>
-              <div>
-                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Tipo de trabalho (opcional)</label>
-                <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="input-base w-full mt-1">
-                  {TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Data limite (DD/MM)</label>
+          {config && (
+            <div>
+              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Tipo de trabalho</label>
+              <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)} className="input-base w-full mt-1">
+                {config.workTypes.map((t) => (
+                  <option key={t.key} value={t.key}>{t.label}</option>
+                ))}
+              </select>
+              {isOthers && (
                 <input
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="input-base w-full mt-1"
-                  placeholder="Ex: 15/12"
-                  maxLength={10}
+                  className="input-base w-full mt-2"
+                  placeholder="Escreve o tipo (ex: ensaio, relatório semanal)"
+                  value={customTypeLabel}
+                  onChange={(e) => setCustomTypeLabel(e.target.value)}
+                  maxLength={80}
                 />
-                <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>Tarefa fica com prazo 23:59 desse dia.</p>
-              </div>
-            </>
+              )}
+            </div>
+          )}
+
+          {mode === 'announce' && (
+            <div>
+              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Data limite (DD/MM)</label>
+              <input
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="input-base w-full mt-1"
+                placeholder="Ex: 15/12"
+                maxLength={10}
+              />
+              <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>Tarefa fica com prazo 23:59 desse dia.</p>
+            </div>
           )}
 
           {mode === 'deliver' && openTasks.length > 0 && (
@@ -188,16 +229,22 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
           )}
 
           {/* Preview */}
-          <div className="rounded-lg p-3" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-            <p className="text-[10px] uppercase font-semibold mb-1.5" style={{ color: 'var(--text-muted)' }}>Mensagem a enviar</p>
-            <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{previewMessage()}</p>
-            <p className="text-[10px] uppercase font-semibold mt-3 mb-1" style={{ color: 'var(--text-muted)' }}>Tarefa</p>
-            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              {mode === 'announce'
-                ? `Cria "${previewTaskTitle()}" com prazo ${dueDate}`
-                : `${taskToClose ? 'Fecha a tarefa escolhida e cria ' : 'Cria '}"${previewTaskTitle()}" com prazo em 3 dias`}
-            </p>
-          </div>
+          {preview ? (
+            <div className="rounded-lg p-3" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+              <p className="text-[10px] uppercase font-semibold mb-1.5" style={{ color: 'var(--text-muted)' }}>Mensagem a enviar</p>
+              <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{preview.message}</p>
+              <p className="text-[10px] uppercase font-semibold mt-3 mb-1" style={{ color: 'var(--text-muted)' }}>Tarefa</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {mode === 'announce'
+                  ? `Cria "${preview.taskTitle}" com prazo ${dueDate}`
+                  : `${taskToClose ? 'Fecha a tarefa escolhida e cria ' : 'Cria '}"${preview.taskTitle}" com prazo em ${config?.followupDays || 3} dias`}
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg p-3 text-xs" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
+              Escreve o assunto para ver a pré-visualização.
+            </div>
+          )}
         </div>
 
         <div className="px-4 py-3 border-t flex gap-2" style={{ borderColor: 'var(--border)' }}>

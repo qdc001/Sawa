@@ -182,6 +182,22 @@ model Workspace {
   aiTokensDailyLimitOverride   Int?
   aiTokensMonthlyLimitOverride Int?
 
+  // === Auto-tarefa: envio de mensagem com criacao/actualizacao automatica ===
+  // Configuravel pelo admin em Definicoes > Auto-tarefa. Estrutura JSON:
+  //   {
+  //     workTypes: [
+  //       { key, label, article: 'a'|'o'|'os', possessive: 'tua'|'teu'|'tuas' },
+  //       ...
+  //     ],
+  //     announceTemplate: string,  // com {nome} {assunto} {tipo} {artigo} {possessivo} {data}
+  //     deliverTemplate: string,
+  //     followupTitleTemplate: string,
+  //     announceTaskTitleTemplate: string,
+  //     followupDays: number
+  //   }
+  // Null = usa os defaults hardcoded em lib/autoTaskDefaults.ts
+  autoTaskConfig Json?
+
   @@map("workspaces")
 }
 

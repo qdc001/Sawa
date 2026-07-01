@@ -2,44 +2,38 @@
 // tarefa. Dois fluxos:
 //
 // 1) POST /api/auto-task/announce
-//    "Vou enviar X do Y ate D" — envia mensagem WhatsApp + cria tarefa nova
-//    com titulo "Enviar {assunto} do {tipo}" e dueAt = D 23:59.
+//    "Vou enviar X do Y ate D" — envia mensagem WhatsApp + cria tarefa nova.
 //
 // 2) POST /api/auto-task/deliver
 //    "Envio em anexo X, pede feedback" — envia mensagem WhatsApp + fecha a
-//    tarefa antiga (se indicada) + cria nova tarefa "Pedir feedback do X"
-//    com dueAt = hoje + 3 dias.
+//    tarefa antiga (se indicada) + cria nova tarefa de follow-up.
 //
-// Ambos os endpoints reusam o pipeline normal de envio (chamada Evolution
-// via sendWhatsAppOut) e criacao de tarefas via prisma directo. O contacto
-// e o lead sao inferidos dos parametros.
+// A estrutura de tipos e os textos das mensagens sao configuraveis por
+// workspace via Workspace.autoTaskConfig. Ver lib/autoTaskDefaults.ts para
+// os defaults e o renderer de templates.
 
 import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import prisma from '../lib/prisma';
 import { sendWhatsAppOut } from '../lib/whatsappSend';
+import {
+  getEffectiveConfig,
+  renderTemplate,
+  formatDDMM,
+  DEFAULT_AUTO_TASK_CONFIG,
+  AutoTaskConfig,
+} from '../lib/autoTaskDefaults';
 
 const router = Router();
 
-const VALID_TYPES = ['Dissertação', 'Monografia', 'Projecto', 'Slides', 'Outros'] as const;
-
-function buildAnnounceMessage(name: string, subject: string, type: string | null, dateDDMM: string): string {
-  const typeText = type ? ` do teu ${type.toLowerCase()}` : '';
-  return `Olá ${name}, irei enviar o(a) ${subject}${typeText} até ${dateDDMM}.`;
-}
-
-function buildDeliverMessage(name: string, subject: string): string {
-  return `Olá ${name}, envio em anexo o(a) ${subject}. Peço para analisar e depois deixar o teu feedback.`;
-}
-
-function buildTaskTitle(subject: string, type: string | null): string {
-  if (type) return `Enviar ${subject} do ${type.toLowerCase()}`;
-  return `Enviar ${subject}`;
+function requireAdmin(req: AuthRequest) {
+  if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
+    throw new AppError('Apenas administradores podem editar a configuração', 403);
+  }
 }
 
 function ddmmToDate(ddmm: string): Date | null {
-  // Aceita DD/MM ou DD/MM/YYYY. Aplica hora 23:59:59 local.
   const m = ddmm.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
   if (!m) return null;
   const day = parseInt(m[1], 10);
@@ -48,26 +42,64 @@ function ddmmToDate(ddmm: string): Date | null {
   if (year < 100) year += 2000;
   const d = new Date(year, month, day, 23, 59, 59, 999);
   if (isNaN(d.getTime())) return null;
-  // Se a data for no passado (mais de 1 dia atras), assume ano seguinte
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  if (d < yesterday && !m[3]) {
-    d.setFullYear(year + 1);
-  }
+  if (d < yesterday && !m[3]) d.setFullYear(year + 1);
   return d;
 }
 
+// GET /api/auto-task/config — devolve config actual do workspace com defaults aplicados
+router.get('/config', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: req.user!.workspaceId },
+      select: { autoTaskConfig: true },
+    });
+    const config = getEffectiveConfig(ws?.autoTaskConfig);
+    res.json({ config, isCustom: !!ws?.autoTaskConfig });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/auto-task/config (admin) — grava config custom
+router.patch('/config', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const body = req.body || {};
+    // Aceita reset via { reset: true } que apaga a config custom
+    if (body.reset === true) {
+      await prisma.workspace.update({
+        where: { id: req.user!.workspaceId },
+        data: { autoTaskConfig: null as any },
+      });
+      return res.json({ config: DEFAULT_AUTO_TASK_CONFIG, isCustom: false });
+    }
+    const validated = getEffectiveConfig(body);
+    await prisma.workspace.update({
+      where: { id: req.user!.workspaceId },
+      data: { autoTaskConfig: validated as any },
+    });
+    res.json({ config: validated, isCustom: true });
+  } catch (e) { next(e); }
+});
+
+async function getConfig(workspaceId: string): Promise<AutoTaskConfig> {
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { autoTaskConfig: true },
+  });
+  return getEffectiveConfig(ws?.autoTaskConfig);
+}
+
 // POST /api/auto-task/announce
-// Body: { contactId, subject, type?, dueDate (DD/MM ou DD/MM/YYYY), leadId? }
+// Body: { contactId, subject, typeKey?, customTypeLabel?, dueDate (DD/MM), leadId? }
 router.post('/announce', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { contactId, subject, type, dueDate, leadId } = req.body || {};
+    const { contactId, subject, typeKey, customTypeLabel, dueDate, leadId } = req.body || {};
     if (!contactId) throw new AppError('contactId obrigatorio', 400);
     if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatorio', 400);
-    if (!dueDate || typeof dueDate !== 'string') throw new AppError('Data obrigatoria (formato DD/MM)', 400);
-    const parsedDate = ddmmToDate(dueDate.trim());
+    if (!dueDate) throw new AppError('Data obrigatoria (formato DD/MM)', 400);
+    const parsedDate = ddmmToDate(String(dueDate).trim());
     if (!parsedDate) throw new AppError('Data invalida. Usa DD/MM ou DD/MM/YYYY', 400);
-    if (type && !VALID_TYPES.includes(type)) throw new AppError(`Tipo invalido. Usa: ${VALID_TYPES.join(', ')}`, 400);
 
     const contact = await prisma.contact.findFirst({
       where: { id: contactId, workspaceId: req.user!.workspaceId },
@@ -76,12 +108,33 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
     const phone = contact.whatsapp || contact.phone;
     if (!phone) throw new AppError('Contacto sem numero de WhatsApp', 400);
 
+    const config = await getConfig(req.user!.workspaceId);
+    const workType = typeKey ? config.workTypes.find((t) => t.key === typeKey) : null;
+    // Se e "outros" com label customizada, usar essa label mantendo artigo/possessivo do tipo
+    const effectiveTipo = customTypeLabel && workType?.key === 'outros'
+      ? customTypeLabel.trim()
+      : (workType?.label || '');
+    const artigo = workType?.article || '';
+    const possessivo = workType?.possessive || '';
     const contactName = contact.firstName || 'cliente';
     const subj = subject.trim();
-    const typeStr = type && type !== 'Outros' ? type : null;
-    const dateDDMM = `${String(parsedDate.getDate()).padStart(2, '0')}/${String(parsedDate.getMonth() + 1).padStart(2, '0')}`;
-    const messageContent = buildAnnounceMessage(contactName, subj, typeStr, dateDDMM);
-    const taskTitle = buildTaskTitle(subj, typeStr);
+    const dateDDMM = formatDDMM(parsedDate);
+
+    const messageContent = renderTemplate(config.announceTemplate, {
+      nome: contactName,
+      assunto: subj,
+      tipo: effectiveTipo,
+      artigo,
+      possessivo,
+      data: dateDDMM,
+    });
+    const taskTitle = renderTemplate(config.announceTaskTitleTemplate, {
+      nome: contactName,
+      assunto: subj,
+      tipo: effectiveTipo,
+      artigo,
+      possessivo,
+    });
 
     // 1. Enviar via WhatsApp
     const sendResult = await sendWhatsAppOut(req.user!.workspaceId, phone, messageContent, 'TEXT');
@@ -102,7 +155,7 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
       },
     });
 
-    // 3. Criar tarefa (sem check de "ja existe" para permitir varios envios seguidos)
+    // 3. Criar tarefa
     const task = await prisma.task.create({
       data: {
         title: taskTitle,
@@ -128,10 +181,10 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
 });
 
 // POST /api/auto-task/deliver
-// Body: { contactId, subject, taskToCompleteId?, leadId?, attachmentUrl?, attachmentName? }
+// Body: { contactId, subject, typeKey?, customTypeLabel?, taskToCompleteId?, leadId?, attachmentUrl?, attachmentName? }
 router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { contactId, subject, taskToCompleteId, leadId, attachmentUrl, attachmentName } = req.body || {};
+    const { contactId, subject, typeKey, customTypeLabel, taskToCompleteId, leadId, attachmentUrl, attachmentName } = req.body || {};
     if (!contactId) throw new AppError('contactId obrigatorio', 400);
     if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatorio', 400);
 
@@ -142,9 +195,30 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
     const phone = contact.whatsapp || contact.phone;
     if (!phone) throw new AppError('Contacto sem numero de WhatsApp', 400);
 
+    const config = await getConfig(req.user!.workspaceId);
+    const workType = typeKey ? config.workTypes.find((t) => t.key === typeKey) : null;
+    const effectiveTipo = customTypeLabel && workType?.key === 'outros'
+      ? customTypeLabel.trim()
+      : (workType?.label || '');
+    const artigo = workType?.article || '';
+    const possessivo = workType?.possessive || '';
     const contactName = contact.firstName || 'cliente';
     const subj = subject.trim();
-    const messageContent = buildDeliverMessage(contactName, subj);
+
+    const messageContent = renderTemplate(config.deliverTemplate, {
+      nome: contactName,
+      assunto: subj,
+      tipo: effectiveTipo,
+      artigo,
+      possessivo,
+    });
+    const followupTitle = renderTemplate(config.followupTitleTemplate, {
+      nome: contactName,
+      assunto: subj,
+      tipo: effectiveTipo,
+      artigo,
+      possessivo,
+    });
 
     // 1. Enviar mensagem (com anexo se dado)
     let sendResult;
@@ -157,7 +231,6 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
     }
     if (!sendResult.ok) throw new AppError(`Falha a enviar: ${sendResult.error || 'desconhecido'}`, 502);
 
-    // 2. Persistir mensagem
     const message = await prisma.message.create({
       data: {
         content: messageContent,
@@ -173,7 +246,6 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
       },
     });
 
-    // 3. Fechar tarefa antiga se indicada
     let closedTask = null;
     if (taskToCompleteId) {
       try {
@@ -181,17 +253,16 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
           where: { id: taskToCompleteId },
           data: { status: 'COMPLETED', completedAt: new Date() },
         });
-      } catch { /* task pode ja estar fechada */ }
+      } catch { /* pode ja estar fechada */ }
     }
 
-    // 4. Criar tarefa de follow-up (pedir feedback) com data +3 dias
     const followupDue = new Date();
-    followupDue.setDate(followupDue.getDate() + 3);
+    followupDue.setDate(followupDue.getDate() + (config.followupDays || 3));
     followupDue.setHours(23, 59, 59, 999);
 
     const followupTask = await prisma.task.create({
       data: {
-        title: `Pedir feedback do ${subj}`,
+        title: followupTitle,
         description: `Follow-up: confirmar se ${contactName} recebeu e analisou o material enviado.`,
         type: 'FOLLOW_UP',
         status: 'PENDING',
@@ -216,7 +287,6 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
 });
 
 // GET /api/auto-task/open-tasks?contactId=X
-// Devolve tarefas abertas do contacto para o dropdown de "qual fechar".
 router.get('/open-tasks', async (req: AuthRequest, res: Response, next) => {
   try {
     const contactId = String(req.query.contactId || '');
@@ -231,6 +301,37 @@ router.get('/open-tasks', async (req: AuthRequest, res: Response, next) => {
       select: { id: true, title: true, dueAt: true, status: true },
     });
     res.json({ tasks });
+  } catch (e) { next(e); }
+});
+
+// GET /api/auto-task/preview?typeKey=X&customTypeLabel=Y&subject=Z&dueDate=DD/MM
+// Devolve preview renderizado sem enviar nada. Util para o modal mostrar
+// ao user o que vai ser enviado usando a config actual.
+router.get('/preview', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const mode = String(req.query.mode || 'announce');
+    const config = await getConfig(req.user!.workspaceId);
+    const workType = req.query.typeKey ? config.workTypes.find((t) => t.key === req.query.typeKey) : null;
+    const effectiveTipo = req.query.customTypeLabel && workType?.key === 'outros'
+      ? String(req.query.customTypeLabel).trim()
+      : (workType?.label || '');
+    const vars = {
+      nome: String(req.query.nome || 'Nome'),
+      assunto: String(req.query.subject || ''),
+      tipo: effectiveTipo,
+      artigo: workType?.article || '',
+      possessivo: workType?.possessive || '',
+      data: String(req.query.dueDate || ''),
+    };
+    const message = renderTemplate(
+      mode === 'deliver' ? config.deliverTemplate : config.announceTemplate,
+      vars,
+    );
+    const taskTitle = renderTemplate(
+      mode === 'deliver' ? config.followupTitleTemplate : config.announceTaskTitleTemplate,
+      vars,
+    );
+    res.json({ message, taskTitle });
   } catch (e) { next(e); }
 });
 

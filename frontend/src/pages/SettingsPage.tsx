@@ -3,7 +3,7 @@ import {
   User as UserIcon, Lock, Building2, Save, Loader2, Eye, EyeOff,
   Sun, Moon, Upload, Palette, FileDown, History, Download, Activity,
   Shield, Bell, Globe, Mail, Smartphone, KeyRound, Trash2, X, Check, Plus, RotateCcw,
-  FileText as FileTextIcon, Package, LayoutTemplate, CreditCard, Settings,
+  FileText as FileTextIcon, Package, LayoutTemplate, CreditCard, Settings, CheckSquare,
 } from 'lucide-react';
 import api, {
   WorkspaceFull, AuditLog, TaskOption,
@@ -18,6 +18,7 @@ import ProductsPage from './ProductsPage';
 import SectorTemplatesPage from './SectorTemplatesPage';
 import BillingPage from './BillingPage';
 import PlanLimitsAdmin from '../components/PlanLimitsAdmin';
+import AutoTaskConfigEditor from '../components/AutoTaskConfigEditor';
 
 const TIMEZONES = [
   'Africa/Maputo', 'Europe/Lisbon', 'Africa/Johannesburg', 'Africa/Nairobi',
@@ -37,7 +38,7 @@ const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', '
 
 export default function SettingsPage() {
   const { user, updateUser, updateWorkspace } = useAuthStore();
-  const [tab, setTab] = useState<'profile' | 'preferences' | 'security' | 'notifications' | 'products' | 'sectors' | 'billing' | 'workspace' | 'emailTemplates' | 'audit' | 'aiLimits'>('profile');
+  const [tab, setTab] = useState<'profile' | 'preferences' | 'security' | 'notifications' | 'products' | 'sectors' | 'billing' | 'workspace' | 'emailTemplates' | 'audit' | 'aiLimits' | 'autoTask'>('profile');
   const [theme, setTheme] = useTheme();
   const useTResult = useT();
   const currentLang = useTResult[1];
@@ -452,6 +453,7 @@ export default function SettingsPage() {
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: t('settings.workspace'), icon: Building2 }] : []),
     ...(isAdminOrOwner ? [{ v: 'emailTemplates' as const, label: t('settings.emailTemplates'), icon: FileTextIcon }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: t('settings.audit'), icon: History }] : []),
+    ...(isAdminOrOwner ? [{ v: 'autoTask' as const, label: 'Auto-tarefa', icon: CheckSquare }] : []),
     ...(isPlatformAdmin ? [{ v: 'aiLimits' as const, label: 'Limites IA', icon: Bell }] : []),
   ];
 
@@ -1301,6 +1303,7 @@ export default function SettingsPage() {
       {tab === 'sectors' && <SectorTemplatesPage />}
       {tab === 'billing' && <BillingPage />}
       {tab === 'aiLimits' && isPlatformAdmin && <PlanLimitsAdmin />}
+      {tab === 'autoTask' && isAdminOrOwner && <AutoTaskConfigEditor />}
         </div>
       </div>
     </div>
