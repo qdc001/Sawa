@@ -20,9 +20,15 @@ type WorkType = {
   possessive: string;
 };
 
+type SubjectItem = {
+  label: string;
+  article: string;
+  possessive: string;
+};
+
 type Config = {
   workTypes: WorkType[];
-  subjects: string[];
+  subjects: SubjectItem[];
   announceTemplate: string;
   deliverTemplate: string;
   followupDays: number;
@@ -76,7 +82,7 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
     api.get('/auto-task/config').then(({ data }) => {
       setConfig(data.config);
       if (data.config?.workTypes?.[0]) setTypeKey(data.config.workTypes[0].key);
-      if (data.config?.subjects?.[0]) setSubjectChoice(data.config.subjects[0]);
+      if (data.config?.subjects?.[0]) setSubjectChoice(data.config.subjects[0].label);
     }).catch(() => toast.error('Erro a carregar configuração'));
   }, []);
 
@@ -212,7 +218,7 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
                 className="input-base w-full mt-1"
                 autoFocus
               >
-                {config.subjects.map((s) => <option key={s} value={s}>{s}</option>)}
+                {config.subjects.map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
                 <option value="__outros__">Outros (escrever)</option>
               </select>
             )}

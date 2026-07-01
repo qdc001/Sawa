@@ -19,9 +19,15 @@ type WorkType = {
   possessive: string;
 };
 
+type Subject = {
+  label: string;
+  article: string;
+  possessive: string;
+};
+
 type Config = {
   workTypes: WorkType[];
-  subjects: string[];
+  subjects: Subject[];
   announceTemplate: string;
   deliverTemplate: string;
   announceTaskTitleTemplate: string;
@@ -179,32 +185,57 @@ export default function AutoTaskConfigEditor() {
         {/* Assuntos frequentes */}
         <div className="mt-6">
           <label className="text-xs uppercase font-semibold tracking-wide" style={{ color: 'var(--text-muted)' }}>Assuntos frequentes</label>
-          <p className="text-[11px] mt-1 mb-2" style={{ color: 'var(--text-muted)' }}>
-            Aparecem no dropdown "Assunto" do modal. O utilizador continua a poder escrever texto livre em "Outros".
+          <p className="text-[11px] mt-1 mb-2 flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+            <Info size={11} /> Aparecem no dropdown "Assunto" do modal. Artigo e possessivo permitem concordancia em frases como "pedir feedback da Versao preliminar".
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             {config.subjects.map((s, i) => (
-              <div key={i} className="flex items-center gap-1 px-2 py-1 rounded text-xs" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+              <div key={i} className="grid grid-cols-12 gap-2 items-center">
                 <input
-                  className="bg-transparent outline-none"
-                  style={{ width: `${Math.max(6, s.length + 1)}ch`, color: 'var(--text-primary)' }}
-                  value={s}
+                  className="input-base col-span-6"
+                  placeholder="Assunto (ex: Versao preliminar)"
+                  value={s.label}
                   onChange={(e) => {
                     const next = [...config.subjects];
-                    next[i] = e.target.value;
+                    next[i] = { ...next[i], label: e.target.value };
                     setConfig({ ...config, subjects: next });
                   }}
                 />
+                <select
+                  className="input-base col-span-2"
+                  value={s.article}
+                  onChange={(e) => {
+                    const next = [...config.subjects];
+                    next[i] = { ...next[i], article: e.target.value };
+                    setConfig({ ...config, subjects: next });
+                  }}
+                  title="Artigo definido"
+                >
+                  {ARTICLES.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <select
+                  className="input-base col-span-3"
+                  value={s.possessive}
+                  onChange={(e) => {
+                    const next = [...config.subjects];
+                    next[i] = { ...next[i], possessive: e.target.value };
+                    setConfig({ ...config, subjects: next });
+                  }}
+                  title="Possessivo"
+                >
+                  {POSSESSIVES.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
                 <button
                   onClick={() => setConfig({ ...config, subjects: config.subjects.filter((_, x) => x !== i) })}
-                  className="p-0.5 rounded hover:bg-red-50"
+                  className="col-span-1 p-1 rounded hover:bg-red-50 flex justify-center"
+                  title="Remover"
                 >
-                  <Trash2 size={11} style={{ color: '#DC2626' }} />
+                  <Trash2 size={14} style={{ color: '#DC2626' }} />
                 </button>
               </div>
             ))}
             <button
-              onClick={() => setConfig({ ...config, subjects: [...config.subjects, 'Novo assunto'] })}
+              onClick={() => setConfig({ ...config, subjects: [...config.subjects, { label: 'Novo assunto', article: 'a', possessive: 'tua' }] })}
               className="text-xs flex items-center gap-1 px-2 py-1 rounded hover:bg-black/5"
               style={{ color: 'var(--primary)' }}
             >

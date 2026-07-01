@@ -110,6 +110,13 @@ async function getConfig(workspaceId: string): Promise<AutoTaskConfig> {
   return getEffectiveConfig(ws?.autoTaskConfig);
 }
 
+// Encontra o subject config com match case-insensitive por label.
+// Se nao encontrar (texto livre em "Outros"), devolve defaults 'a'/'tua'.
+function lookupSubject(config: AutoTaskConfig, subjectLabel: string): { artigo: string; possessivo: string } {
+  const s = config.subjects.find((x) => x.label.trim().toLowerCase() === subjectLabel.trim().toLowerCase());
+  return { artigo: s?.article || 'a', possessivo: s?.possessive || 'tua' };
+}
+
 // POST /api/auto-task/announce
 // Body: { contactId, subject, typeKey?, customTypeLabel?, dueDate (DD/MM), leadId? }
 router.post('/announce', async (req: AuthRequest, res: Response, next) => {
@@ -165,6 +172,7 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
     const contactName = contact.firstName || 'cliente';
     const subj = subject.trim();
     const dateDDMM = formatDDMM(parsedDate);
+    const subjectMeta = lookupSubject(config, subj);
 
     const messageContent = renderTemplate(config.announceTemplate, {
       nome: contactName,
@@ -173,6 +181,8 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
       artigo,
       possessivo,
       data: dateDDMM,
+      artigoAssunto: subjectMeta.artigo,
+      possAssunto: subjectMeta.possessivo,
     });
     const taskTitle = renderTemplate(config.announceTaskTitleTemplate, {
       nome: contactName,
@@ -180,6 +190,8 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
       tipo: effectiveTipo,
       artigo,
       possessivo,
+      artigoAssunto: subjectMeta.artigo,
+      possAssunto: subjectMeta.possessivo,
     });
 
     // 1. Enviar via WhatsApp
@@ -278,6 +290,7 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
     const possessivo = workType?.possessive || '';
     const contactName = contact.firstName || 'cliente';
     const subj = subject.trim();
+    const subjectMeta = lookupSubject(config, subj);
 
     const messageContent = renderTemplate(config.deliverTemplate, {
       nome: contactName,
@@ -285,6 +298,8 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
       tipo: effectiveTipo,
       artigo,
       possessivo,
+      artigoAssunto: subjectMeta.artigo,
+      possAssunto: subjectMeta.possessivo,
     });
     const followupTitle = renderTemplate(config.followupTitleTemplate, {
       nome: contactName,
@@ -292,6 +307,8 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
       tipo: effectiveTipo,
       artigo,
       possessivo,
+      artigoAssunto: subjectMeta.artigo,
+      possAssunto: subjectMeta.possessivo,
     });
 
     // 1. Enviar. Se ha anexo: PRIMEIRO o ficheiro (sem caption), DEPOIS
@@ -433,13 +450,17 @@ router.get('/preview', async (req: AuthRequest, res: Response, next) => {
     const effectiveTipo = req.query.customTypeLabel && workType?.key === 'outros'
       ? String(req.query.customTypeLabel).trim()
       : (workType?.label || '');
+    const subjText = String(req.query.subject || '');
+    const subjectMeta = lookupSubject(config, subjText);
     const vars = {
       nome: String(req.query.nome || 'Nome'),
-      assunto: String(req.query.subject || ''),
+      assunto: subjText,
       tipo: effectiveTipo,
       artigo: workType?.article || '',
       possessivo: workType?.possessive || '',
       data: String(req.query.dueDate || ''),
+      artigoAssunto: subjectMeta.artigo,
+      possAssunto: subjectMeta.possessivo,
     };
     const message = renderTemplate(
       mode === 'deliver' ? config.deliverTemplate : config.announceTemplate,

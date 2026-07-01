@@ -20,9 +20,17 @@ export type WorkType = {
   possessive: string;    // 'tua' | 'teu' | 'teus' | 'tuas'
 };
 
+// Assunto frequente: agora tambem tem artigo/possessivo para concordancia
+// em frases tipo "pedir feedback da versao preliminar" ou "envio o capitulo 1".
+export type Subject = {
+  label: string;
+  article: string;
+  possessive: string;
+};
+
 export type AutoTaskConfig = {
   workTypes: WorkType[];
-  subjects: string[];  // Assuntos frequentes para dropdown rapido
+  subjects: Subject[];
   announceTemplate: string;
   deliverTemplate: string;
   announceTaskTitleTemplate: string;
@@ -40,24 +48,24 @@ export const DEFAULT_AUTO_TASK_CONFIG: AutoTaskConfig = {
     { key: 'outros',      label: 'Outros',      article: 'o', possessive: 'teu' },
   ],
   subjects: [
-    'Capítulo 1',
-    'Capítulo 2',
-    'Capítulo 3',
-    'Introdução',
-    'Revisão',
-    'Primeira versão',
-    'Versão final',
-    'Feedback do orientador',
-    'Sinopse',
+    { label: 'Capítulo 1',              article: 'o', possessive: 'teu' },
+    { label: 'Capítulo 2',              article: 'o', possessive: 'teu' },
+    { label: 'Capítulo 3',              article: 'o', possessive: 'teu' },
+    { label: 'Introdução',              article: 'a', possessive: 'tua' },
+    { label: 'Revisão',                 article: 'a', possessive: 'tua' },
+    { label: 'Primeira versão',         article: 'a', possessive: 'tua' },
+    { label: 'Versão final',            article: 'a', possessive: 'tua' },
+    { label: 'Feedback do orientador',  article: 'o', possessive: 'teu' },
+    { label: 'Sinopse',                 article: 'a', possessive: 'tua' },
   ],
-  // {artigo} e {possessivo} referem-se sempre ao {tipo} (nao ao {assunto},
-  // porque o assunto e texto livre e nao sabemos o genero). O utilizador pode
-  // adicionar artigo inline no proprio assunto se quiser (ex: "a Versao revista").
-  // "de + a" = "da"; "de + o" = "do". Contraccao aplicada pelo renderer via d{artigo}.
+  // Placeholders disponiveis:
+  //   {artigo} + {possessivo}       — referem-se ao {tipo}
+  //   {artigoAssunto} + {possAssunto} — referem-se ao {assunto}
+  // "de + a" = "da"; "de + o" = "do". Contraccao aplicada pelo renderer via d{...}.
   announceTemplate: 'Olá {nome}, irei enviar {assunto} d{artigo} {possessivo} {tipo} até {data}.',
   deliverTemplate: 'Olá {nome}, envio em anexo {assunto}. Peço para analisares e depois deixares o teu feedback.',
   announceTaskTitleTemplate: 'Enviar {assunto} d{artigo} {possessivo} {tipo}',
-  followupTitleTemplate: 'Pedir feedback de {assunto}',
+  followupTitleTemplate: 'Pedir feedback d{artigoAssunto} {assunto}',
   followupDays: 3,
 };
 
@@ -73,7 +81,23 @@ export function getEffectiveConfig(saved: any): AutoTaskConfig {
         }))
       : DEFAULT_AUTO_TASK_CONFIG.workTypes,
     subjects: Array.isArray(saved.subjects)
-      ? saved.subjects.filter((s: any) => typeof s === 'string' && s.trim().length > 0).map((s: string) => s.trim()).slice(0, 40)
+      ? saved.subjects
+          .map((s: any): Subject | null => {
+            // Retro-compat: aceitar array de strings antigas -> { label, article: 'a', possessive: 'tua' }
+            if (typeof s === 'string' && s.trim()) {
+              return { label: s.trim(), article: 'a', possessive: 'tua' };
+            }
+            if (s && typeof s === 'object' && typeof s.label === 'string' && s.label.trim()) {
+              return {
+                label: s.label.trim(),
+                article: String(s.article || 'a'),
+                possessive: String(s.possessive || 'tua'),
+              };
+            }
+            return null;
+          })
+          .filter((s: Subject | null): s is Subject => !!s)
+          .slice(0, 40)
       : DEFAULT_AUTO_TASK_CONFIG.subjects,
     announceTemplate: typeof saved.announceTemplate === 'string' && saved.announceTemplate.trim()
       ? saved.announceTemplate : DEFAULT_AUTO_TASK_CONFIG.announceTemplate,
@@ -114,11 +138,13 @@ export function renderTemplate(
     artigo?: string;
     possessivo?: string;
     data?: string;
+    artigoAssunto?: string;
+    possAssunto?: string;
   },
 ): string {
   let out = template;
 
-  // Contraccao: "d{artigo}" vira "da" ou "do" etc
+  // Contraccao: "d{artigo}" vira "da" ou "do" (refere-se ao tipo)
   if (vars.artigo) {
     out = out.replace(/d\{artigo\}/g, contract('d', vars.artigo));
     out = out.replace(/\{artigo\}/g, vars.artigo);
@@ -127,11 +153,21 @@ export function renderTemplate(
     out = out.replace(/\{artigo\}\s*/g, '');
   }
 
+  // Contraccao: "d{artigoAssunto}" vira "da" ou "do" (refere-se ao assunto)
+  if (vars.artigoAssunto) {
+    out = out.replace(/d\{artigoAssunto\}/g, contract('d', vars.artigoAssunto));
+    out = out.replace(/\{artigoAssunto\}/g, vars.artigoAssunto);
+  } else {
+    out = out.replace(/d\{artigoAssunto\}\s*/g, '');
+    out = out.replace(/\{artigoAssunto\}\s*/g, '');
+  }
+
   const replacements: Record<string, string> = {
     '{nome}': vars.nome || '',
     '{assunto}': vars.assunto || '',
     '{tipo}': vars.tipo || '',
     '{possessivo}': vars.possessivo || '',
+    '{possAssunto}': vars.possAssunto || '',
     '{data}': vars.data || '',
   };
   for (const [k, v] of Object.entries(replacements)) {
