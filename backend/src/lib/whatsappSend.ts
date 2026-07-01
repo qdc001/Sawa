@@ -6,8 +6,45 @@
 // Vendedora (Fase 3) e por qualquer outro modulo que precise enviar
 // mensagens fora do fluxo de Inbox.
 
+import fs from 'fs';
+import path from 'path';
 import prisma from './prisma';
 import { getCreds } from './integrationCrypto';
+
+// Se o mediaUrl for local (/uploads/xxx.doc), le o ficheiro do disco e
+// converte para base64. Evolution API aceita base64 no campo "media" e
+// isto e mais fiavel que URL (nao depende de a Evolution conseguir
+// aceder ao nosso host). Se o mediaUrl ja for absoluto (http/https), devolve
+// null para o caller usar como URL directa.
+function resolveMediaPayload(mediaUrl: string): { base64?: string; url?: string } {
+  if (!mediaUrl) return {};
+  // URL absoluto — usar como esta
+  if (/^https?:\/\//i.test(mediaUrl)) {
+    // Se aponta para o proprio backend em /uploads, tentar ler do disco para base64 (mais fiavel)
+    const uploadsIdx = mediaUrl.indexOf('/uploads/');
+    if (uploadsIdx >= 0) {
+      const rel = mediaUrl.slice(uploadsIdx + '/uploads/'.length);
+      const filePath = path.join(__dirname, '../../uploads', path.basename(rel));
+      try {
+        const buf = fs.readFileSync(filePath);
+        return { base64: buf.toString('base64') };
+      } catch { /* fallback URL */ }
+    }
+    return { url: mediaUrl };
+  }
+  // URL relativo (/uploads/xxx) — ler do disco
+  if (mediaUrl.startsWith('/uploads/')) {
+    const filePath = path.join(__dirname, '../../uploads', path.basename(mediaUrl));
+    try {
+      const buf = fs.readFileSync(filePath);
+      return { base64: buf.toString('base64') };
+    } catch (e: any) {
+      console.error('[whatsappSend] falha a ler ficheiro local:', filePath, e.message);
+      return {};
+    }
+  }
+  return { url: mediaUrl };
+}
 
 export type WhatsAppSendResult = {
   ok: boolean;
@@ -39,11 +76,15 @@ export async function sendWhatsAppOut(
 
         if (type === 'AUDIO' && mediaUrl) {
           path = `/message/sendWhatsAppAudio/${creds.instanceName}`;
-          body.audio = mediaUrl;
+          const resolved = resolveMediaPayload(mediaUrl);
+          body.audio = resolved.base64 || resolved.url || mediaUrl;
         } else if (type !== 'TEXT' && mediaUrl) {
           path = `/message/sendMedia/${creds.instanceName}`;
           body.mediatype = type === 'IMAGE' ? 'image' : type === 'VIDEO' ? 'video' : 'document';
-          body.media = mediaUrl;
+          // Preferir base64 (le do disco) para nao depender de URL publica
+          // acessivel pela Evolution.
+          const resolved = resolveMediaPayload(mediaUrl);
+          body.media = resolved.base64 || resolved.url || mediaUrl;
           body.caption = content && content !== 'Anexo' ? content : '';
           if (fileName && fileName.trim()) {
             body.fileName = fileName.trim();
@@ -86,7 +127,8 @@ export async function sendWhatsAppOut(
           path = `/message/sendText/${creds.instanceName}`;
           body.text = content;
         }
-        console.log(`[whatsappSend] via evolution type=${type} to=${destination.slice(-4)} path=${path.split('/').slice(-2, -1)[0]}`);
+        const isB64 = typeof body.media === 'string' && !body.media.startsWith('http');
+        console.log(`[whatsappSend] via evolution type=${type} to=${destination.slice(-4)} mode=${isB64 ? 'base64' : 'url'} mime=${body.mimetype || '-'} file=${body.fileName || '-'}`);
 
         const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}${path}`, {
           method: 'POST',
@@ -96,9 +138,12 @@ export async function sendWhatsAppOut(
         const respText = await r.text();
         let data: any = respText;
         try { data = JSON.parse(respText); } catch {}
-        if (r.ok) return { ok: true, externalId: data?.key?.id, via: 'evolution' };
-        console.error('Evolution send failed:', r.status, respText.substring(0, 300));
-        return { ok: false, error: data?.message || data?.error || `HTTP ${r.status}` };
+        if (r.ok) {
+          console.log(`[whatsappSend] ok externalId=${data?.key?.id || '?'}`);
+          return { ok: true, externalId: data?.key?.id, via: 'evolution' };
+        }
+        console.error(`[whatsappSend] falhou HTTP ${r.status} body=${respText.substring(0, 500)}`);
+        return { ok: false, error: data?.message || data?.error || `HTTP ${r.status}: ${respText.substring(0, 200)}` };
       } catch (e: any) {
         console.error('Evolution send exception:', e);
         return { ok: false, error: e.message };
