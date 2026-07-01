@@ -248,7 +248,7 @@ export default function AutoTaskConfigEditor() {
         <div className="mt-6 space-y-3">
           <label className="text-xs uppercase font-semibold tracking-wide" style={{ color: 'var(--text-muted)' }}>Textos das mensagens</label>
           <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            Placeholders disponíveis: <code>{'{nome}'}</code>, <code>{'{assunto}'}</code>, <code>{'{tipo}'}</code>, <code>{'{artigo}'}</code>, <code>{'{possessivo}'}</code>, <code>{'{data}'}</code>. Usa <code>{'d{artigo}'}</code> para gerar "da"/"do"/"dos" automaticamente.
+            Placeholders: <code>{'{nome}'}</code>, <code>{'{assunto}'}</code>, <code>{'{tipo}'}</code>, <code>{'{data}'}</code>. Concordância do <b>tipo</b>: <code>{'{artigo}'}</code>, <code>{'{possessivo}'}</code>. Concordância do <b>assunto</b>: <code>{'{artigoAssunto}'}</code>, <code>{'{possAssunto}'}</code>. Prefixa com <code>d</code> (ex. <code>{'d{artigo}'}</code> ou <code>{'d{artigoAssunto}'}</code>) para gerar "da"/"do"/"dos" automaticamente.
           </p>
 
           <div>

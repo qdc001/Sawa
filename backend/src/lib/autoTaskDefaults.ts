@@ -62,9 +62,9 @@ export const DEFAULT_AUTO_TASK_CONFIG: AutoTaskConfig = {
   //   {artigo} + {possessivo}       — referem-se ao {tipo}
   //   {artigoAssunto} + {possAssunto} — referem-se ao {assunto}
   // "de + a" = "da"; "de + o" = "do". Contraccao aplicada pelo renderer via d{...}.
-  announceTemplate: 'Olá {nome}, irei enviar {assunto} d{artigo} {possessivo} {tipo} até {data}.',
-  deliverTemplate: 'Olá {nome}, envio em anexo {assunto}. Peço para analisares e depois deixares o teu feedback.',
-  announceTaskTitleTemplate: 'Enviar {assunto} d{artigo} {possessivo} {tipo}',
+  announceTemplate: 'Olá {nome}, irei enviar {artigoAssunto} {assunto} d{artigo} {possessivo} {tipo} até {data}.',
+  deliverTemplate: 'Olá {nome}, envio em anexo {artigoAssunto} {assunto}. Peço para analisares e depois deixares o teu feedback.',
+  announceTaskTitleTemplate: 'Enviar {artigoAssunto} {assunto} d{artigo} {possessivo} {tipo}',
   followupTitleTemplate: 'Pedir feedback d{artigoAssunto} {assunto}',
   followupDays: 3,
 };
