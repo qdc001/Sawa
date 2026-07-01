@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useDroppable, useDraggable, useSensor, useSensors,
@@ -22,6 +22,7 @@ import { useTaskOptions } from '../lib/taskOptions';
 import { useDragScroll, useScrollButton } from '../lib/useDragScroll';
 import MouseSettingsButton from '../components/MouseSettingsButton';
 import ChatPreviewModal from '../components/ChatPreviewModal';
+import TaskConflictDialog, { ExistingTask as ConflictTask } from '../components/TaskConflictDialog';
 
 // Ícones associados a tipos predefinidos. Opções custom (criadas em Definições) caem para Circle.
 const TYPE_ICONS: Record<string, any> = {
@@ -225,7 +226,7 @@ export function TaskOptionBadge({ option, size = 'sm' }: { option?: TaskOption; 
 // =============== Modal: Nova/Editar Tarefa (versão simplificada) ===============
 function TaskFormModalV2({
   task, users, leads, tags,
-  onClose, onSaved, onTagsChanged, initialDate,
+  onClose, onSaved, onTagsChanged, initialDate, onOpenExisting,
 }: {
   task?: Task | null;
   users: User[];
@@ -235,6 +236,7 @@ function TaskFormModalV2({
   onSaved: (t: Task) => void;
   onTagsChanged: () => void;
   initialDate?: string;
+  onOpenExisting?: (t: Task) => void;
 }) {
   const isEdit = !!task?.id;
   const navigate = useNavigate();
@@ -276,6 +278,7 @@ function TaskFormModalV2({
   const [newSubtask, setNewSubtask] = useState('');
   const [newSubtaskDue, setNewSubtaskDue] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [conflict, setConflict] = useState<ConflictTask | null>(null);
 
   const toggleTag = (id: string) =>
     setSelectedTagIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -341,17 +344,7 @@ function TaskFormModalV2({
       onClose();
     } catch (err: any) {
       if (err.response?.status === 409 && err.response?.data?.existingTask) {
-        const ex = err.response.data.existingTask;
-        const dueStr = ex.dueAt ? new Date(ex.dueAt).toLocaleString('pt-PT') : 'sem prazo';
-        const confirmed = window.confirm(
-          `Já existe tarefa pendente para este lead:\n\n${ex.title}\nPrazo: ${dueStr}\nPrioridade: ${ex.priority}\n\nCriar nova mesmo assim?`
-        );
-        if (confirmed) {
-          try {
-            const { data } = await api.post('/tasks', { ...payload, force: true });
-            onSaved(data); onClose(); toast.success('Tarefa criada');
-          } catch (e2: any) { toast.error(e2.response?.data?.message || 'Erro'); }
-        }
+        setConflict(err.response.data.existingTask as ConflictTask);
       } else {
         toast.error(err.response?.data?.message || 'Erro a guardar');
       }
@@ -361,6 +354,19 @@ function TaskFormModalV2({
   const subDone = subtasks.filter((s) => s.status === 'COMPLETED').length;
 
   return (
+    <>
+    {conflict && (
+      <TaskConflictDialog
+        existingTask={conflict}
+        onCancel={() => setConflict(null)}
+        onEditExisting={(t) => {
+          setConflict(null);
+          onClose();
+          if (onOpenExisting) onOpenExisting(t as unknown as Task);
+          else navigate(`/tarefas?editTask=${t.id}`);
+        }}
+      />
+    )}
     <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
       <div className="card p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
@@ -481,6 +487,7 @@ function TaskFormModalV2({
         </form>
       </div>
     </div>
+    </>
   );
 }
 
@@ -1336,6 +1343,7 @@ function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImpo
 // =============== Página principal ===============
 export default function TasksPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
   const { user: currentUser } = useAuthStore();
   const taskOpts = useTaskOptions();
@@ -1404,6 +1412,22 @@ export default function TasksPage() {
     setSelectedIds(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, statusFilter, typeFilter, priorityFilter, assigneeFilter, tagFilter]);
+
+  // Abrir tarefa em modo edit a partir de ?editTask=<id> (usado pelo TaskConflictDialog
+  // vindo doutras paginas). Carrega a tarefa e limpa o query param.
+  useEffect(() => {
+    const editId = searchParams.get('editTask');
+    if (!editId) return;
+    api.get(`/tasks/${editId}`)
+      .then(({ data }) => setEditing(data))
+      .catch(() => toast.error('Nao foi possivel abrir a tarefa'))
+      .finally(() => {
+        const next = new URLSearchParams(searchParams);
+        next.delete('editTask');
+        setSearchParams(next, { replace: true });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Aplica filtros lado-cliente: data e Minhas
   const filteredTasks = useMemo(() => {
@@ -1848,6 +1872,7 @@ export default function TasksPage() {
           onClose={() => { setAdding(false); setInitialDate(undefined); }}
           onSaved={(t) => setTasks((prev) => [...prev, t])}
           onTagsChanged={loadTags}
+          onOpenExisting={(t) => setEditing(t)}
         />
       )}
       {editing && (
@@ -1856,6 +1881,7 @@ export default function TasksPage() {
           onClose={() => setEditing(null)}
           onSaved={(t) => setTasks((prev) => prev.map((x) => (x.id === t.id ? t : x)))}
           onTagsChanged={loadTags}
+          onOpenExisting={(t) => setEditing(t)}
         />
       )}
       {previewChatTask && (

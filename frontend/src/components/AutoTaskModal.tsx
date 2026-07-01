@@ -5,9 +5,11 @@
 // escrever qualquer texto (ex: "Ensaio", "Relatorio semanal").
 
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { X, Loader2, Send, CalendarClock, CheckCircle2, Paperclip } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
+import TaskConflictDialog, { ExistingTask as ConflictTask } from './TaskConflictDialog';
 
 type Mode = 'announce' | 'deliver';
 
@@ -60,6 +62,8 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
   const [openTasks, setOpenTasks] = useState<OpenTask[]>([]);
   const [sending, setSending] = useState(false);
   const [preview, setPreview] = useState<{ message: string; taskTitle: string } | null>(null);
+  const [conflict, setConflict] = useState<ConflictTask | null>(null);
+  const navigate = useNavigate();
   const [attachment, setAttachment] = useState<{ url: string; name: string; size: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -145,11 +149,23 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
       onSent();
       onClose();
     } catch (e: any) {
-      toast.error(e.response?.data?.message || 'Erro a enviar');
+      if (e.response?.status === 409 && e.response?.data?.existingTask) {
+        setConflict(e.response.data.existingTask as ConflictTask);
+      } else {
+        toast.error(e.response?.data?.message || 'Erro a enviar');
+      }
     } finally { setSending(false); }
   };
 
   return (
+    <>
+    {conflict && (
+      <TaskConflictDialog
+        existingTask={conflict}
+        onCancel={() => setConflict(null)}
+        onEditExisting={(t) => { onClose(); navigate(`/tarefas?editTask=${t.id}`); }}
+      />
+    )}
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={onClose}>
       <div className="card w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
@@ -348,5 +364,6 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
         </div>
       </div>
     </div>
+    </>
   );
 }

@@ -58,6 +58,22 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/tasks/:id — devolve uma tarefa (usado pelo TaskConflictDialog quando
+// o utilizador aceita editar a tarefa existente e o frontend precisa carrega-la).
+router.get('/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const task = await prisma.task.findFirst({
+      where: {
+        id: req.params.id,
+        assignedTo: { workspaceId: req.user!.workspaceId },
+      },
+      include: taskInclude,
+    });
+    if (!task) throw new AppError('Tarefa nao encontrada', 404);
+    res.json(task);
+  } catch (e) { next(e); }
+});
+
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { title, description, type, status, priority, dueAt, leadId, contactId: rawContactId, assignedToId, recurrence, parentTaskId, tags } = req.body;

@@ -142,9 +142,16 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
         parentTaskId: null,
         status: { in: ['PENDING', 'IN_PROGRESS'] },
       },
+      include: {
+        assignedTo: { select: { id: true, name: true, avatar: true } },
+        contact: { select: { id: true, firstName: true, lastName: true } },
+      },
     });
     if (openExisting) {
-      throw new AppError('Este contacto ja tem uma tarefa aberta. Conclui-a antes de criar outra.', 409);
+      return res.status(409).json({
+        message: 'Este contacto ja tem uma tarefa aberta. Conclui-a antes de criar outra.',
+        existingTask: openExisting,
+      });
     }
 
     const config = await getConfig(req.user!.workspaceId);
@@ -243,14 +250,17 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
         parentTaskId: null,
         status: { in: ['PENDING', 'IN_PROGRESS'] },
       },
-      select: { id: true, title: true },
+      include: {
+        assignedTo: { select: { id: true, name: true, avatar: true } },
+        contact: { select: { id: true, firstName: true, lastName: true } },
+      },
     });
     const stillOpen = openTasks.filter((t) => t.id !== taskToCompleteId);
     if (stillOpen.length > 0) {
-      throw new AppError(
-        `Este contacto ja tem uma tarefa aberta ("${stillOpen[0].title}") que nao vai ser fechada. Conclui-a antes.`,
-        409,
-      );
+      return res.status(409).json({
+        message: `Este contacto ja tem uma tarefa aberta ("${stillOpen[0].title}") que nao vai ser fechada. Conclui-a antes.`,
+        existingTask: stillOpen[0],
+      });
     }
 
     const workspace = await prisma.workspace.findUnique({

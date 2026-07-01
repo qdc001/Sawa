@@ -15,6 +15,7 @@ import api, {
 import toast from 'react-hot-toast';
 import { useIsMobile } from '../lib/useIsMobile';
 import AutoTaskModal from '../components/AutoTaskModal';
+import TaskConflictDialog from '../components/TaskConflictDialog';
 import { downloadFile } from '../lib/downloadFile';
 import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
@@ -3386,6 +3387,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
   onClose: () => void;
   onCreated: (task?: any) => void;
 }) {
+  const navigate = useNavigate();
   const { types: taskTypes, priorities: taskPriorities, titles: taskTitles, labels: L, lookupType, lookupPriority, lookupTitle } = useTaskOptions();
   const defaultType = taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP';
   const defaultPriority = taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM';
@@ -3401,7 +3403,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
   const [saving, setSaving] = useState(false);
   const [existing, setExisting] = useState<any | null>(null);
 
-  const submit = async (force = false) => {
+  const submit = async () => {
     if (!leadId && !contactId) { toast.error('Conversa sem lead/contacto associado'); return; }
     setSaving(true);
     try {
@@ -3410,7 +3412,6 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
         leadId: leadId || undefined,
         contactId: contactId || undefined,
         dueAt: dueAt ? new Date(dueAt).toISOString() : null,
-        force,
       });
       onCreated(data);
     } catch (e: any) {
@@ -3431,26 +3432,11 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
         </div>
 
         {existing ? (
-          <div className="space-y-3">
-            <div className="card p-3" style={{ background: '#FEF3C7', border: '1px solid #FBBF24' }}>
-              <p className="text-sm font-medium" style={{ color: '#92400E' }}>Já existe uma tarefa pendente:</p>
-              <p className="text-sm mt-2 font-semibold">{existing.title}</p>
-              <p className="text-xs mt-1" style={{ color: '#92400E' }}>
-                {existing.dueAt ? `Prazo: ${new Date(existing.dueAt).toLocaleString('pt-PT')}` : 'Sem prazo'}
-                {' · '}{existing.priority}
-                {' · '}{existing.status}
-              </p>
-            </div>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Podes ver a tarefa em <strong>Tarefas</strong>, ou criar uma nova mesmo assim.
-            </p>
-            <div className="flex gap-2">
-              <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
-              <button onClick={() => submit(true)} disabled={saving} className="btn btn-primary flex-1 py-2">
-                {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar mesmo assim'}
-              </button>
-            </div>
-          </div>
+          <TaskConflictDialog
+            existingTask={existing}
+            onCancel={() => { setExisting(null); onClose(); }}
+            onEditExisting={(t) => { onClose(); navigate(`/tarefas?editTask=${t.id}`); }}
+          />
         ) : (
           <div className="space-y-3">
             <div>
@@ -3498,7 +3484,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
             </div>
             <div className="flex gap-2 mt-4">
               <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
-              <button onClick={() => submit(false)} disabled={saving || !title.trim()} className="btn btn-primary flex-1 py-2">
+              <button onClick={() => submit()} disabled={saving || !title.trim()} className="btn btn-primary flex-1 py-2">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar tarefa'}
               </button>
             </div>

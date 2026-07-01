@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 import { useTaskOptions } from '../lib/taskOptions';
 import { CustomFieldInput, AddLeadModal } from './PipelinePage';
+import TaskConflictDialog from '../components/TaskConflictDialog';
 
 type SortKey = 'firstName' | 'company' | 'createdAt';
 type SortDir = 'asc' | 'desc';
@@ -1269,6 +1270,7 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const navigate = useNavigate();
   const { types: taskTypes, priorities: taskPriorities, titles: taskTitles, labels: L, lookupType, lookupPriority, lookupTitle } = useTaskOptions();
   const defaultType = taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP';
   const defaultPriority = taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM';
@@ -1285,14 +1287,13 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
   const [saving, setSaving] = useState(false);
   const [existing, setExisting] = useState<any | null>(null);
 
-  const submit = async (force = false) => {
+  const submit = async () => {
     setSaving(true);
     try {
       await api.post('/tasks', {
         title, description, type, priority,
         contactId: contact.id,
         dueAt: dueAt ? new Date(dueAt).toISOString() : null,
-        force,
       });
       onCreated();
     } catch (e: any) {
@@ -1313,22 +1314,13 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
         </div>
 
         {existing ? (
-          <div className="space-y-3">
-            <div className="card p-3" style={{ background: '#FEF3C7', border: '1px solid #FBBF24' }}>
-              <p className="text-sm font-medium" style={{ color: '#92400E' }}>Já existe tarefa pendente:</p>
-              <p className="text-sm mt-2 font-semibold">{existing.title}</p>
-              <p className="text-xs mt-1" style={{ color: '#92400E' }}>
-                {existing.dueAt ? `Prazo: ${new Date(existing.dueAt).toLocaleString('pt-PT')}` : 'Sem prazo'} · {existing.priority} · {existing.status}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
-              <button onClick={() => submit(true)} disabled={saving} className="btn btn-primary flex-1 py-2">
-                {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar mesmo assim'}
-              </button>
-            </div>
-          </div>
-        ) : (
+          <TaskConflictDialog
+            existingTask={existing}
+            onCancel={() => { setExisting(null); onClose(); }}
+            onEditExisting={(t) => { onClose(); navigate(`/tarefas?editTask=${t.id}`); }}
+          />
+        ) : null}
+        {!existing && (
           <div className="space-y-3">
             <div>
               <label className="block text-xs font-medium mb-1">{L.title}</label>
@@ -1366,7 +1358,7 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
             <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="input-base text-sm" />
             <div className="flex gap-2 mt-2">
               <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
-              <button onClick={() => submit(false)} disabled={saving || !title.trim()} className="btn btn-primary flex-1 py-2">
+              <button onClick={() => submit()} disabled={saving || !title.trim()} className="btn btn-primary flex-1 py-2">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar'}
               </button>
             </div>
