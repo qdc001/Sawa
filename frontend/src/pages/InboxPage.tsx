@@ -2704,7 +2704,7 @@ export default function InboxPage() {
           contactName={fullName(selected.contact)}
           leadId={(selected as any)?.lead?.id || null}
           onClose={() => setShowAutoTask(false)}
-          onSent={() => { loadMessages(selectedKey!); loadConversations(); }}
+          onSent={() => { loadConversations(); }}
         />
       )}
       {newMessageOpen && <NewMessageModal contacts={contacts} onClose={() => setNewMessageOpen(false)} onCreated={() => loadConversations()} />}
