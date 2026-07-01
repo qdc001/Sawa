@@ -3458,6 +3458,18 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
             existingTask={existing}
             onCancel={() => { setExisting(null); onClose(); }}
             onEditExisting={(t) => { onClose(); navigate(`/tasks?editTask=${t.id}`); }}
+            onUpdateExisting={async (t) => {
+              try {
+                const { data } = await api.patch(`/tasks/${t.id}`, {
+                  title, description, type, priority,
+                  dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+                });
+                toast.success('Tarefa existente actualizada');
+                onCreated(data);
+              } catch (err: any) {
+                toast.error(err.response?.data?.message || 'Erro a actualizar');
+              }
+            }}
           />
         ) : (
           <div className="space-y-3">

@@ -365,6 +365,23 @@ function TaskFormModalV2({
           if (onOpenExisting) onOpenExisting(t as unknown as Task);
           else navigate(`/tasks?editTask=${t.id}`);
         }}
+        onUpdateExisting={async (t) => {
+          // Aplicar os campos do form actual a tarefa existente.
+          const patch: any = {
+            title, description, type, priority,
+            dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+            assignedToId: assignedToId || undefined,
+          };
+          try {
+            const { data } = await api.patch(`/tasks/${t.id}`, patch);
+            onSaved(data);
+            setConflict(null);
+            onClose();
+            toast.success('Tarefa existente actualizada');
+          } catch (err: any) {
+            toast.error(err.response?.data?.message || 'Erro a actualizar');
+          }
+        }}
       />
     )}
     <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>

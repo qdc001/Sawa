@@ -3,7 +3,7 @@
 // O utilizador pode escolher entre editar a tarefa existente ou abortar
 // a criacao da nova.
 
-import { AlertTriangle, Edit3, X } from 'lucide-react';
+import { AlertTriangle, Edit3, RefreshCw, X } from 'lucide-react';
 
 export interface ExistingTask {
   id: string;
@@ -19,9 +19,14 @@ interface Props {
   existingTask: ExistingTask;
   onEditExisting: (task: ExistingTask) => void;
   onCancel: () => void;
+  // Se dado, adiciona um botao "Actualizar tarefa existente" que aplica os
+  // campos do formulario actual (titulo, prazo, tipo, etc.) a tarefa
+  // existente em vez de criar uma nova.
+  onUpdateExisting?: (task: ExistingTask) => void | Promise<void>;
+  updateLabel?: string;
 }
 
-export default function TaskConflictDialog({ existingTask, onEditExisting, onCancel }: Props) {
+export default function TaskConflictDialog({ existingTask, onEditExisting, onCancel, onUpdateExisting, updateLabel }: Props) {
   const dueStr = existingTask.dueAt
     ? new Date(existingTask.dueAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })
     : 'sem prazo';
@@ -78,21 +83,32 @@ export default function TaskConflictDialog({ existingTask, onEditExisting, onCan
           </div>
         </div>
 
-        <div className="flex flex-col-reverse sm:flex-row gap-2">
+        <div className="flex flex-col-reverse sm:flex-row flex-wrap gap-2">
           <button
             onClick={onCancel}
-            className="btn flex-1 py-2 flex items-center justify-center gap-2"
+            className="btn flex-1 py-2 flex items-center justify-center gap-2 min-w-[140px]"
             style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
           >
             Abortar criacao
           </button>
           <button
             onClick={() => onEditExisting(existingTask)}
-            className="btn btn-primary flex-1 py-2 flex items-center justify-center gap-2"
+            className="btn flex-1 py-2 flex items-center justify-center gap-2 min-w-[140px]"
+            style={{ background: 'var(--surface-2)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
           >
             <Edit3 size={14} />
-            Editar tarefa existente
+            Editar existente
           </button>
+          {onUpdateExisting && (
+            <button
+              onClick={() => onUpdateExisting(existingTask)}
+              className="btn btn-primary flex-1 py-2 flex items-center justify-center gap-2 min-w-[140px]"
+              title="Aplica os campos deste formulario a tarefa existente"
+            >
+              <RefreshCw size={14} />
+              {updateLabel || 'Actualizar existente'}
+            </button>
+          )}
         </div>
       </div>
     </div>

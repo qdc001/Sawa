@@ -170,6 +170,29 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
         existingTask={conflict}
         onCancel={() => setConflict(null)}
         onEditExisting={(t) => { onClose(); navigate(`/tasks?editTask=${t.id}`); }}
+        onUpdateExisting={async (t) => {
+          // Aplica o titulo/prazo do form actual a tarefa existente e nao
+          // envia mensagem WhatsApp (para isso o user tem 'Enviar e criar tarefa').
+          try {
+            const patch: any = {};
+            if (preview?.taskTitle) patch.title = preview.taskTitle;
+            if (mode === 'announce' && /^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(dueDate)) {
+              // Converter DD/MM(/YYYY) para Date. Se so DD/MM, usar ano corrente.
+              const parts = dueDate.split('/');
+              const dd = parseInt(parts[0], 10);
+              const mm = parseInt(parts[1], 10) - 1;
+              const yy = parts[2] ? (parts[2].length === 2 ? 2000 + parseInt(parts[2], 10) : parseInt(parts[2], 10)) : new Date().getFullYear();
+              patch.dueAt = new Date(yy, mm, dd, 23, 59).toISOString();
+            }
+            await api.patch(`/tasks/${t.id}`, patch);
+            toast.success('Tarefa existente actualizada (sem envio de mensagem)');
+            setConflict(null);
+            onSent();
+            onClose();
+          } catch (err: any) {
+            toast.error(err.response?.data?.message || 'Erro a actualizar');
+          }
+        }}
       />
     )}
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={onClose}>
