@@ -1317,7 +1317,7 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
           <TaskConflictDialog
             existingTask={existing}
             onCancel={() => { setExisting(null); onClose(); }}
-            onEditExisting={(t) => { onClose(); navigate(`/tarefas?editTask=${t.id}`); }}
+            onEditExisting={(t) => { onClose(); navigate(`/tasks?editTask=${t.id}`); }}
           />
         ) : null}
         {!existing && (

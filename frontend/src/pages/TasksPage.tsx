@@ -363,7 +363,7 @@ function TaskFormModalV2({
           setConflict(null);
           onClose();
           if (onOpenExisting) onOpenExisting(t as unknown as Task);
-          else navigate(`/tarefas?editTask=${t.id}`);
+          else navigate(`/tasks?editTask=${t.id}`);
         }}
       />
     )}

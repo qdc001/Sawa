@@ -169,7 +169,7 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
       <TaskConflictDialog
         existingTask={conflict}
         onCancel={() => setConflict(null)}
-        onEditExisting={(t) => { onClose(); navigate(`/tarefas?editTask=${t.id}`); }}
+        onEditExisting={(t) => { onClose(); navigate(`/tasks?editTask=${t.id}`); }}
       />
     )}
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={onClose}>

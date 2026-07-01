@@ -3457,7 +3457,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
           <TaskConflictDialog
             existingTask={existing}
             onCancel={() => { setExisting(null); onClose(); }}
-            onEditExisting={(t) => { onClose(); navigate(`/tarefas?editTask=${t.id}`); }}
+            onEditExisting={(t) => { onClose(); navigate(`/tasks?editTask=${t.id}`); }}
           />
         ) : (
           <div className="space-y-3">
