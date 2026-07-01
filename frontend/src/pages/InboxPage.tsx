@@ -1172,23 +1172,40 @@ export default function InboxPage() {
   // (compara por id da ultima mensagem, nao por referencia do array) E quando
   // o utilizador ja estava perto do fundo. Evita arrastar para baixo a cada
   // polling de 8s ou quando o utilizador subiu para ler historico antigo.
+  //
+  // IMPORTANTE: quando o utilizador muda de conversa, messages fica vazia
+  // temporariamente durante o carregamento da API. So actualizamos a ref da
+  // conversa DEPOIS de termos scrollado para o fundo, para que a proxima
+  // render (quando as mensagens carregarem) ainda saiba que foi mudanca de
+  // conversa e faca scroll ao fundo.
   const lastMsgIdRef = useRef<string | null>(null);
   const prevSelectedKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const lastId = messages.length > 0 ? messages[messages.length - 1].id : null;
     const prevId = lastMsgIdRef.current;
     const conversationChanged = prevSelectedKeyRef.current !== selectedKey;
-    lastMsgIdRef.current = lastId;
-    prevSelectedKeyRef.current = selectedKey;
 
-    if (!lastId) return;
-    // Mudou de conversa: scroll instantaneo para o fundo
-    if (conversationChanged) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    // Sem mensagens ainda: nao mexer nas refs (aguardamos as mensagens carregarem)
+    if (!lastId) {
+      lastMsgIdRef.current = null;
       return;
     }
+
+    lastMsgIdRef.current = lastId;
+
+    // Mudou de conversa e mensagens ja carregaram: scroll instantaneo ao fundo
+    if (conversationChanged) {
+      prevSelectedKeyRef.current = selectedKey;
+      // requestAnimationFrame garante que o DOM ja tem as mensagens renderizadas
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      });
+      return;
+    }
+
     // Mesma conversa, mesma ultima mensagem: nao mexer (polling sem novidade)
     if (lastId === prevId) return;
+
     // Chegou mensagem nova: so faz scroll se o utilizador estiver perto do fundo
     const container = messagesEndRef.current?.parentElement;
     if (!container) return;
