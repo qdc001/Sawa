@@ -13,6 +13,22 @@ const taskInclude = {
   tags: { include: { tag: true } },
 };
 
+// Regra: um contacto so pode ter uma tarefa aberta (PENDING ou IN_PROGRESS)
+// de cada vez. Subtarefas (parentTaskId != null) e tarefas concluidas/canceladas
+// nao contam. Excluir uma tarefa especifica por id (util no PATCH para nao
+// bater com a propria tarefa que se esta a actualizar).
+export async function findOpenTaskForContact(contactId: string, excludeId?: string) {
+  return prisma.task.findFirst({
+    where: {
+      contactId,
+      parentTaskId: null,
+      status: { in: ['PENDING', 'IN_PROGRESS'] },
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+    include: taskInclude,
+  });
+}
+
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { leadId, contactId, status, type, priority, assignedToId, dueFrom, dueTo, search, tagId, parentOnly } = req.query;
@@ -44,7 +60,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { title, description, type, status, priority, dueAt, leadId, contactId: rawContactId, assignedToId, recurrence, parentTaskId, tags, force } = req.body;
+    const { title, description, type, status, priority, dueAt, leadId, contactId: rawContactId, assignedToId, recurrence, parentTaskId, tags } = req.body;
 
     // Associação primária ao CONTACTO. Se vier um leadId explícito ainda o preservamos
     // (compatibilidade com automações antigas), mas não auto-ligamos lead a partir de contacto
@@ -57,24 +73,13 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       if (lead?.contactId) finalContactId = lead.contactId;
     }
 
-    // Verificar se já existe tarefa pendente (lead OU contact)
-    if (!parentTaskId && !force && (finalLeadId || finalContactId)) {
-      const orFilters: any[] = [];
-      if (finalLeadId) orFilters.push({ leadId: finalLeadId });
-      if (finalContactId) orFilters.push({ contactId: finalContactId });
-      const existing = await prisma.task.findFirst({
-        where: {
-          parentTaskId: null,
-          status: { in: ['PENDING', 'IN_PROGRESS'] },
-          OR: orFilters,
-        },
-        include: taskInclude,
-      });
+    // Regra: um contacto so pode ter uma tarefa aberta. Subtarefas isentas.
+    if (!parentTaskId && finalContactId) {
+      const existing = await findOpenTaskForContact(finalContactId);
       if (existing) {
         return res.status(409).json({
-          message: 'Já existe uma tarefa pendente para este lead/contacto.',
+          message: 'Este contacto ja tem uma tarefa aberta. Conclui-a antes de criar outra.',
           existingTask: existing,
-          hint: 'Conclui a tarefa existente, ou envia force:true para criar mesmo assim.',
         });
       }
     }
@@ -126,6 +131,29 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     if (data.dueAt) data.dueAt = new Date(data.dueAt);
     if (data.status === 'COMPLETED') data.completedAt = new Date();
     if (data.status && data.status !== 'COMPLETED') data.completedAt = null;
+
+    // Regra: um contacto so pode ter uma tarefa aberta. Bloqueia:
+    //  a) mudar contactId para um contacto que ja tem tarefa aberta;
+    //  b) reabrir uma tarefa (COMPLETED/CANCELLED -> PENDING/IN_PROGRESS)
+    //     se o contacto ja tem outra tarefa aberta.
+    const existingSelf = await prisma.task.findUnique({
+      where: { id: req.params.id },
+      select: { contactId: true, status: true, parentTaskId: true },
+    });
+    if (existingSelf && !existingSelf.parentTaskId) {
+      const targetContactId = data.contactId !== undefined ? data.contactId : existingSelf.contactId;
+      const targetStatus = data.status || existingSelf.status;
+      const isOpen = targetStatus === 'PENDING' || targetStatus === 'IN_PROGRESS';
+      if (targetContactId && isOpen) {
+        const conflict = await findOpenTaskForContact(targetContactId, req.params.id);
+        if (conflict) {
+          return res.status(409).json({
+            message: 'Este contacto ja tem uma tarefa aberta. Conclui-a antes.',
+            existingTask: conflict,
+          });
+        }
+      }
+    }
 
     if (Array.isArray(tags)) {
       await prisma.tagOnTask.deleteMany({ where: { taskId: req.params.id } });
@@ -364,6 +392,13 @@ router.post('/bulk-import', async (req: AuthRequest, res: Response, next) => {
         const priority = mapPriority(norm(t.priority || t.Prioridade));
         const dueAt = parseDate(norm(t.dueAt || t.dueDate || t.completeTill || t['Complete till'] || t.deadline || t.data || t.Data));
         const completedAt = status === 'COMPLETED' ? parseDate(norm(t.completedAt || t.completed_at)) || new Date() : null;
+
+        // Regra: 1 tarefa aberta por contacto. Se o import tenta criar uma
+        // tarefa aberta (PENDING/IN_PROGRESS) e ja existe outra, saltar.
+        if (contactId && (status === 'PENDING' || status === 'IN_PROGRESS')) {
+          const conflict = await findOpenTaskForContact(contactId);
+          if (conflict) { skipped++; continue; }
+        }
 
         await prisma.task.create({
           data: {

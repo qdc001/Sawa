@@ -135,6 +135,18 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
     const phone = contact.whatsapp || contact.phone;
     if (!phone) throw new AppError('Contacto sem numero de WhatsApp', 400);
 
+    // Regra: 1 tarefa aberta por contacto. Impede criar antes de fechar a existente.
+    const openExisting = await prisma.task.findFirst({
+      where: {
+        contactId,
+        parentTaskId: null,
+        status: { in: ['PENDING', 'IN_PROGRESS'] },
+      },
+    });
+    if (openExisting) {
+      throw new AppError('Este contacto ja tem uma tarefa aberta. Conclui-a antes de criar outra.', 409);
+    }
+
     const config = await getConfig(req.user!.workspaceId);
     const workType = typeKey ? config.workTypes.find((t) => t.key === typeKey) : null;
     // Se e "outros" com label customizada, usar essa label mantendo artigo/possessivo do tipo
@@ -221,6 +233,25 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
     if (!contact) throw new AppError('Contacto nao encontrado', 404);
     const phone = contact.whatsapp || contact.phone;
     if (!phone) throw new AppError('Contacto sem numero de WhatsApp', 400);
+
+    // Regra: 1 tarefa aberta por contacto. O /deliver fecha a antiga (taskToCompleteId)
+    // e cria um follow-up. Se ha alguma outra tarefa aberta que nao seja a que se vai
+    // fechar, recusar para nao ficar com duas.
+    const openTasks = await prisma.task.findMany({
+      where: {
+        contactId,
+        parentTaskId: null,
+        status: { in: ['PENDING', 'IN_PROGRESS'] },
+      },
+      select: { id: true, title: true },
+    });
+    const stillOpen = openTasks.filter((t) => t.id !== taskToCompleteId);
+    if (stillOpen.length > 0) {
+      throw new AppError(
+        `Este contacto ja tem uma tarefa aberta ("${stillOpen[0].title}") que nao vai ser fechada. Conclui-a antes.`,
+        409,
+      );
+    }
 
     const workspace = await prisma.workspace.findUnique({
       where: { id: req.user!.workspaceId },
