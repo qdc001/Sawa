@@ -243,6 +243,7 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
 router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
   try {
     const { contactId, subject, typeKey, customTypeLabel, taskToCompleteId, leadId, attachmentUrl, attachmentName } = req.body || {};
+    console.log('[deliver] recebido', { contactId: !!contactId, subject, taskToCompleteId, hasAttachment: !!attachmentUrl });
     if (!contactId) throw new AppError('contactId obrigatorio', 400);
     if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatorio', 400);
 
@@ -374,7 +375,12 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
           where: { id: taskToCompleteId },
           data: { status: 'COMPLETED', completedAt: new Date() },
         });
-      } catch { /* pode ja estar fechada */ }
+        console.log('[deliver] tarefa fechada', taskToCompleteId);
+      } catch (err: any) {
+        console.error('[deliver] falha a fechar tarefa', taskToCompleteId, err.message);
+      }
+    } else {
+      console.warn('[deliver] taskToCompleteId ausente — nao vai fechar nada');
     }
 
     // Data do follow-up em fuso do workspace: hoje + N dias, 23:59 local
@@ -407,6 +413,7 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
         parentTaskId: closedTask?.id || null,
       },
     });
+    console.log('[deliver] followup criado', followupTask.id, 'title=', followupTitle);
 
     const io = req.app.get('io');
     if (io) {
