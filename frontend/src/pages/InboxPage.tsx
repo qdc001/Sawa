@@ -15,6 +15,7 @@ import api, {
 import toast from 'react-hot-toast';
 import { useIsMobile } from '../lib/useIsMobile';
 import AutoTaskModal from '../components/AutoTaskModal';
+import { downloadFile } from '../lib/downloadFile';
 import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
 import { useTaskOptions } from '../lib/taskOptions';
@@ -2174,12 +2175,14 @@ export default function InboxPage() {
                                       <div className="flex-1 min-w-0">
                                         <p className="text-xs font-medium truncate" style={{ color: out ? 'white' : 'var(--text-primary)' }}>{msg.content}</p>
                                       </div>
-                                      <a href={msg.mediaUrl} download={msg.content} target="_blank" rel="noreferrer"
+                                      <button
+                                        onClick={() => downloadFile(msg.mediaUrl!, msg.content || 'arquivo')}
                                         className="p-1.5 rounded hover:bg-white/20"
                                         title="Baixar"
-                                        style={{ background: out ? 'rgba(255,255,255,0.2)' : 'var(--surface-3)' }}>
+                                        style={{ background: out ? 'rgba(255,255,255,0.2)' : 'var(--surface-3)' }}
+                                      >
                                         ⬇
-                                      </a>
+                                      </button>
                                     </div>
                                   )}
                                 </div>
