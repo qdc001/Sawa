@@ -33,19 +33,39 @@ function requireAdmin(req: AuthRequest) {
   }
 }
 
-function ddmmToDate(ddmm: string): Date | null {
+// Converte DD/MM ou DD/MM/YYYY em Date que representa 23:59:59 no fuso
+// horario dado. Ex: "04/07" em Africa/Maputo (UTC+2) devolve o instante
+// UTC que corresponde a 04/07 23:59 em Maputo (ou seja, 04/07 21:59 UTC).
+function ddmmToDate(ddmm: string, timezone: string): Date | null {
   const m = ddmm.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
   if (!m) return null;
   const day = parseInt(m[1], 10);
   const month = parseInt(m[2], 10) - 1;
   let year = m[3] ? parseInt(m[3], 10) : new Date().getFullYear();
   if (year < 100) year += 2000;
-  const d = new Date(year, month, day, 23, 59, 59, 999);
-  if (isNaN(d.getTime())) return null;
-  const now = new Date();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  if (d < yesterday && !m[3]) d.setFullYear(year + 1);
-  return d;
+
+  // Truque: cria a data como se 23:59 fosse UTC. Depois compara como esse
+  // instante e formatado no timezone alvo vs em UTC para descobrir o offset
+  // e ajusta.
+  const naive = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
+  try {
+    const tzStr = naive.toLocaleString('en-US', { timeZone: timezone });
+    const utcStr = naive.toLocaleString('en-US', { timeZone: 'UTC' });
+    const offsetMs = new Date(utcStr).getTime() - new Date(tzStr).getTime();
+    const adjusted = new Date(naive.getTime() + offsetMs);
+    if (isNaN(adjusted.getTime())) return null;
+    // Auto-avanca para o proximo ano se a data ficou no passado
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    if (adjusted < yesterday && !m[3]) {
+      return ddmmToDate(`${m[1]}/${m[2]}/${year + 1}`, timezone);
+    }
+    return adjusted;
+  } catch {
+    // Timezone invalido: cai para local
+    const d = new Date(year, month, day, 23, 59, 59, 999);
+    return isNaN(d.getTime()) ? null : d;
+  }
 }
 
 // GET /api/auto-task/config — devolve config actual do workspace com defaults aplicados
@@ -98,7 +118,14 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
     if (!contactId) throw new AppError('contactId obrigatorio', 400);
     if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatorio', 400);
     if (!dueDate) throw new AppError('Data obrigatoria (formato DD/MM)', 400);
-    const parsedDate = ddmmToDate(String(dueDate).trim());
+
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: req.user!.workspaceId },
+      select: { timezone: true },
+    });
+    const tz = workspace?.timezone || 'Africa/Maputo';
+
+    const parsedDate = ddmmToDate(String(dueDate).trim(), tz);
     if (!parsedDate) throw new AppError('Data invalida. Usa DD/MM ou DD/MM/YYYY', 400);
 
     const contact = await prisma.contact.findFirst({
@@ -195,6 +222,12 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
     const phone = contact.whatsapp || contact.phone;
     if (!phone) throw new AppError('Contacto sem numero de WhatsApp', 400);
 
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: req.user!.workspaceId },
+      select: { timezone: true },
+    });
+    const tz = workspace?.timezone || 'Africa/Maputo';
+
     const config = await getConfig(req.user!.workspaceId);
     const workType = typeKey ? config.workTypes.find((t) => t.key === typeKey) : null;
     const effectiveTipo = customTypeLabel && workType?.key === 'outros'
@@ -256,9 +289,21 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
       } catch { /* pode ja estar fechada */ }
     }
 
-    const followupDue = new Date();
-    followupDue.setDate(followupDue.getDate() + (config.followupDays || 3));
-    followupDue.setHours(23, 59, 59, 999);
+    // Data do follow-up em fuso do workspace: hoje + N dias, 23:59 local
+    const followupDaysN = config.followupDays || 3;
+    const now = new Date();
+    const nowTzStr = now.toLocaleString('en-US', { timeZone: tz });
+    const nowTz = new Date(nowTzStr);
+    const followupNaive = new Date(Date.UTC(
+      nowTz.getFullYear(),
+      nowTz.getMonth(),
+      nowTz.getDate() + followupDaysN,
+      23, 59, 59, 999,
+    ));
+    const followupTzStr = followupNaive.toLocaleString('en-US', { timeZone: tz });
+    const followupUtcStr = followupNaive.toLocaleString('en-US', { timeZone: 'UTC' });
+    const followupOffsetMs = new Date(followupUtcStr).getTime() - new Date(followupTzStr).getTime();
+    const followupDue = new Date(followupNaive.getTime() + followupOffsetMs);
 
     const followupTask = await prisma.task.create({
       data: {

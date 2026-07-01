@@ -50,11 +50,14 @@ export const DEFAULT_AUTO_TASK_CONFIG: AutoTaskConfig = {
     'Feedback do orientador',
     'Sinopse',
   ],
-  // "de + a" = "da"; "de + o" = "do". Contraccao aplicada pelo renderer.
-  announceTemplate: 'Olá {nome}, irei enviar {artigo} {assunto} d{artigo} {possessivo} {tipo} até {data}.',
-  deliverTemplate: 'Olá {nome}, envio em anexo {artigo} {assunto}. Peço para analisares e depois deixares o teu feedback.',
+  // {artigo} e {possessivo} referem-se sempre ao {tipo} (nao ao {assunto},
+  // porque o assunto e texto livre e nao sabemos o genero). O utilizador pode
+  // adicionar artigo inline no proprio assunto se quiser (ex: "a Versao revista").
+  // "de + a" = "da"; "de + o" = "do". Contraccao aplicada pelo renderer via d{artigo}.
+  announceTemplate: 'Olá {nome}, irei enviar {assunto} d{artigo} {possessivo} {tipo} até {data}.',
+  deliverTemplate: 'Olá {nome}, envio em anexo {assunto}. Peço para analisares e depois deixares o teu feedback.',
   announceTaskTitleTemplate: 'Enviar {assunto} d{artigo} {possessivo} {tipo}',
-  followupTitleTemplate: 'Pedir feedback d{artigo} {assunto}',
+  followupTitleTemplate: 'Pedir feedback de {assunto}',
   followupDays: 3,
 };
 
