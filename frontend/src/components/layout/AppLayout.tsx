@@ -14,6 +14,7 @@ import toast from 'react-hot-toast';
 import api, { Lead, Contact } from '../../lib/api';
 import { getSocket } from '../../lib/socket';
 import { useT } from '../../lib/i18n';
+import { useIsMobile } from '../../lib/useIsMobile';
 
 const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
   { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
@@ -45,7 +46,13 @@ export default function AppLayout() {
   const { user, workspace, logout, updateUser, updateWorkspace } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const isMobile = useIsMobile();
+  // Em mobile: sidebar comeca fechada (drawer overlay). Em desktop: aberta.
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  // Fechar sidebar automaticamente ao navegar em mobile
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [location.pathname, isMobile]);
   // Nas Definições recolhe a barra lateral automaticamente (mais espaço); ao sair,
   // devolve o estado anterior. O botao de menu no topo expande/recolhe a qualquer momento.
   const wasSettingsRef = useRef(false);
@@ -188,13 +195,26 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+      {/* Backdrop em mobile quando sidebar aberta */}
+      {isMobile && sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       {/* Sidebar */}
       <aside
         className="flex flex-col flex-shrink-0 transition-all duration-200 overflow-hidden"
         style={{
-          width: sidebarOpen ? 240 : 64,
+          width: isMobile ? (sidebarOpen ? 260 : 0) : (sidebarOpen ? 240 : 64),
           background: 'var(--sidebar-bg)',
           borderRight: '1px solid rgba(255,255,255,0.06)',
+          position: isMobile ? 'fixed' : 'relative',
+          top: 0,
+          bottom: 0,
+          left: 0,
+          zIndex: 50,
         }}
       >
         {/* Logo */}
@@ -313,11 +333,31 @@ export default function AppLayout() {
       </aside>
 
       {/* Main */}
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex flex-col flex-1 overflow-hidden" style={{ minWidth: 0 }}>
         {/* Topbar */}
-        <header className="flex items-center gap-4 px-6 flex-shrink-0" style={{ height: 64, background: 'var(--surface)', borderBottom: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+        <header
+          className="flex items-center gap-2 sm:gap-4 flex-shrink-0"
+          style={{
+            height: 56,
+            background: 'var(--surface)',
+            borderBottom: '1px solid var(--border)',
+            boxShadow: 'var(--shadow-sm)',
+            paddingLeft: isMobile ? 12 : 24,
+            paddingRight: isMobile ? 12 : 24,
+          }}
+        >
+          {/* Hamburger em mobile */}
+          {isMobile && (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-2 rounded-md hover:bg-black/5 flex-shrink-0"
+              title="Abrir menu"
+            >
+              <Menu size={20} style={{ color: 'var(--text-primary)' }} />
+            </button>
+          )}
           {/* Search */}
-          <div ref={searchBoxRef} className="relative flex-1 max-w-xs">
+          <div ref={searchBoxRef} className={`relative flex-1 ${isMobile ? '' : 'max-w-xs'}`}>
             <div
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
               style={{ background: 'var(--surface-3)', border: '1px solid var(--border)' }}
@@ -429,22 +469,32 @@ export default function AppLayout() {
             )}
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-1 sm:gap-2 ml-auto">
             {/* Copilot */}
-            <button onClick={() => setCopilotOpen(!copilotOpen)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" style={{ background: copilotOpen ? 'var(--primary)' : 'var(--surface-3)', color: copilotOpen ? 'white' : 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-              <span style={{ fontSize: 14 }}>✨</span> Copilot
+            <button
+              onClick={() => setCopilotOpen(!copilotOpen)}
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              style={{ background: copilotOpen ? 'var(--primary)' : 'var(--surface-3)', color: copilotOpen ? 'white' : 'var(--text-secondary)', border: '1px solid var(--border)' }}
+              title="Copilot"
+            >
+              <span style={{ fontSize: 14 }}>✨</span>
+              {!isMobile && <span>Copilot</span>}
             </button>
 
             {/* Notifications */}
             <DesktopNotifications />
 
             {/* Profile */}
-            <button className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-lg transition-colors hover:bg-gray-100">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: 'var(--primary)' }}>
+            <button className="flex items-center gap-2 pl-1 pr-2 sm:pl-2 sm:pr-3 py-1.5 rounded-lg transition-colors hover:bg-gray-100">
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: 'var(--primary)' }}>
                 {user?.name?.[0]?.toUpperCase()}
               </div>
-              <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{user?.name?.split(' ')[0]}</span>
-              <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
+              {!isMobile && (
+                <>
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{user?.name?.split(' ')[0]}</span>
+                  <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
+                </>
+              )}
             </button>
           </div>
         </header>
@@ -471,7 +521,20 @@ export default function AppLayout() {
 
       {/* Copilot Panel */}
       {copilotOpen && (
-        <div className="animate-slide-right" style={{ position: 'fixed', right: 0, top: 64, bottom: 0, width: 360, background: 'var(--surface)', borderLeft: '1px solid var(--border)', zIndex: 40, boxShadow: 'var(--shadow-lg)' }}>
+        <div
+          className="animate-slide-right"
+          style={{
+            position: 'fixed',
+            right: 0,
+            top: isMobile ? 0 : 56,
+            bottom: 0,
+            width: isMobile ? '100%' : 360,
+            background: 'var(--surface)',
+            borderLeft: '1px solid var(--border)',
+            zIndex: 60,
+            boxShadow: 'var(--shadow-lg)',
+          }}
+        >
           <CopilotPanel onClose={() => setCopilotOpen(false)} />
         </div>
       )}

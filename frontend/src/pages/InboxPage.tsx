@@ -13,6 +13,7 @@ import api, {
   AiSalesSuggestion, AiSalesRuntimeConfig,
 } from '../lib/api';
 import toast from 'react-hot-toast';
+import { useIsMobile } from '../lib/useIsMobile';
 import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
 import { useTaskOptions } from '../lib/taskOptions';
@@ -418,6 +419,7 @@ export default function InboxPage() {
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
   const { user, workspace } = useAuthStore();
   const isAdmin = user?.role === 'OWNER' || user?.role === 'ADMIN';
+  const isMobile = useIsMobile();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [convPage, setConvPage] = useState(1);
@@ -1594,7 +1596,14 @@ export default function InboxPage() {
   return (
     <div className="flex h-full" style={{ background: 'var(--surface)' }}>
       {/* Sidebar */}
-      <div className="w-80 flex flex-col flex-shrink-0" style={{ borderRight: '1px solid var(--border)' }}>
+      <div
+        className="flex flex-col flex-shrink-0"
+        style={{
+          borderRight: isMobile ? 'none' : '1px solid var(--border)',
+          width: isMobile ? (selected ? 0 : '100%') : 320,
+          display: isMobile && selected ? 'none' : 'flex',
+        }}
+      >
         <div className="p-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-base flex items-center gap-2"><Inbox size={16} style={{ color: 'var(--primary)' }} />Caixa de Entrada</h2>
@@ -1776,7 +1785,10 @@ export default function InboxPage() {
       </div>
 
       {/* Chat */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div
+        className="flex-1 flex flex-col min-w-0"
+        style={{ display: isMobile && !selected ? 'none' : 'flex' }}
+      >
         {!selected ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'var(--surface-2)' }}>
             <Inbox size={40} style={{ color: 'var(--text-muted)' }} />
@@ -1785,11 +1797,20 @@ export default function InboxPage() {
         ) : (
           <>
             {/* Header chat */}
-            <div className="flex items-center justify-between px-6 py-3 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0" style={{ background: 'var(--primary)' }}>
+            <div className="flex items-center justify-between px-3 sm:px-6 py-3 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                {isMobile && (
+                  <button
+                    onClick={() => setSelectedKey(null)}
+                    className="p-1 rounded hover:bg-black/5 flex-shrink-0"
+                    title="Voltar à lista"
+                  >
+                    <ChevronLeft size={20} style={{ color: 'var(--text-primary)' }} />
+                  </button>
+                )}
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0" style={{ background: 'var(--primary)' }}>
                   {selected.contact?.avatar ? (
-                    <img src={selected.contact.avatar} className="w-10 h-10 rounded-full object-cover" alt="" />
+                    <img src={selected.contact.avatar} className="w-full h-full rounded-full object-cover" alt="" />
                   ) : selected.contact?.type === 'COMPANY' ? <Building2 size={16} /> : (selected.contact?.firstName?.[0] || '?').toUpperCase()}
                 </div>
                 <div className="min-w-0">

@@ -137,3 +137,35 @@ h1,h2,h3,h4,h5 { font-family: 'Manrope', sans-serif; }
   .card { break-inside: avoid; box-shadow: none !important; border: 1px solid #E7E0D2 !important; }
   main { overflow: visible !important; }
 }
+
+/* ========== Ajustes mobile (< 768px) ========== */
+@media (max-width: 767px) {
+  /* Modais que ocupam ecra inteiro para melhor UX em mobile.
+     Alvo: divs fixed com o padrao usado nos modais (fixed inset-0 flex items-center justify-center).
+     Fazemos com que a card interna ocupe ~toda a viewport com scroll interno. */
+  .fixed.inset-0.flex > .card {
+    max-width: 100% !important;
+    max-height: 100vh !important;
+    width: 100% !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+    overflow-y: auto !important;
+  }
+  /* Tabelas com scroll horizontal em mobile em vez de partirem o layout */
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  /* Cards inline (nao em modal) continuam com raio; so os de modal ficam sem */
+  /* Reduzir padding de paginas em mobile para aproveitar espaco */
+  main > div.p-6 { padding: 12px !important; }
+  main > div.p-4 { padding: 10px !important; }
+  /* Grids responsivos que estejam a espalhar demais em mobile */
+  main .grid.grid-cols-2 { grid-template-columns: 1fr !important; }
+  main .grid.grid-cols-3 { grid-template-columns: 1fr !important; }
+  main .grid.grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
+  /* Botoes com texto grande escondem texto em mobile (icone chega) */
+  .btn-hide-mobile-text > span { display: none !important; }
+}
