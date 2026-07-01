@@ -1194,12 +1194,34 @@ export default function InboxPage() {
 
     lastMsgIdRef.current = lastId;
 
-    // Mudou de conversa e mensagens ja carregaram: scroll instantaneo ao fundo
+    // Mudou de conversa e mensagens ja carregaram: scroll instantaneo ao fundo.
+    // Refazemos varias vezes porque imagens/videos podem esticar o container
+    // apos o scroll inicial. O utilizador ainda pode scrollar manualmente entre
+    // as tentativas: interrompemos se detectarmos que ele afastou-se do fundo.
     if (conversationChanged) {
       prevSelectedKeyRef.current = selectedKey;
-      // requestAnimationFrame garante que o DOM ja tem as mensagens renderizadas
-      requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      const targetKey = selectedKey;
+      const stickToBottom = () => {
+        const container = messagesEndRef.current?.parentElement;
+        if (!container) return;
+        // Directo: scrollTop = scrollHeight e mais fiavel que scrollIntoView
+        // quando o container ainda esta a receber conteudo com altura variavel.
+        container.scrollTop = container.scrollHeight;
+      };
+      requestAnimationFrame(stickToBottom);
+      // Retries para acomodar carregamento assincrono de imagens/thumbs.
+      const retries = [80, 250, 600, 1200];
+      retries.forEach((delay) => {
+        setTimeout(() => {
+          // Se o utilizador mudou de conversa entretanto, nao mexer.
+          if (prevSelectedKeyRef.current !== targetKey) return;
+          const container = messagesEndRef.current?.parentElement;
+          if (!container) return;
+          const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+          // So refaz o scroll se ainda estamos perto do fundo (o utilizador
+          // nao scrollou para cima manualmente).
+          if (distanceFromBottom < 400) stickToBottom();
+        }, delay);
       });
       return;
     }

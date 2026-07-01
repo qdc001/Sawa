@@ -294,31 +294,61 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
       possessivo,
     });
 
-    // 1. Enviar mensagem (com anexo se dado)
-    let sendResult;
-    let messageType: 'TEXT' | 'DOCUMENT' = 'TEXT';
+    // 1. Enviar. Se ha anexo: PRIMEIRO o ficheiro (sem caption), DEPOIS
+    // a mensagem de texto em separado. Assim o destinatario ve o
+    // documento como bloco distinto e a explicacao por baixo.
+    const messages: any[] = [];
     if (attachmentUrl) {
-      messageType = 'DOCUMENT';
-      sendResult = await sendWhatsAppOut(req.user!.workspaceId, phone, messageContent, 'DOCUMENT', attachmentUrl, attachmentName);
-    } else {
-      sendResult = await sendWhatsAppOut(req.user!.workspaceId, phone, messageContent, 'TEXT');
+      const fileResult = await sendWhatsAppOut(
+        req.user!.workspaceId,
+        phone,
+        '',
+        'DOCUMENT',
+        attachmentUrl,
+        attachmentName,
+      );
+      if (!fileResult.ok) {
+        throw new AppError(`Falha a enviar ficheiro: ${fileResult.error || 'desconhecido'}`, 502);
+      }
+      const fileMsg = await prisma.message.create({
+        data: {
+          content: attachmentName || 'Anexo',
+          type: 'DOCUMENT',
+          direction: 'OUTBOUND',
+          channel: 'WHATSAPP',
+          status: 'SENT',
+          externalId: fileResult.externalId,
+          contactId: contact.id,
+          leadId: leadId || null,
+          sentById: req.user!.id,
+          mediaUrl: attachmentUrl,
+        },
+      });
+      messages.push(fileMsg);
     }
-    if (!sendResult.ok) throw new AppError(`Falha a enviar: ${sendResult.error || 'desconhecido'}`, 502);
 
-    const message = await prisma.message.create({
+    const textResult = await sendWhatsAppOut(req.user!.workspaceId, phone, messageContent, 'TEXT');
+    if (!textResult.ok) {
+      throw new AppError(`Falha a enviar mensagem: ${textResult.error || 'desconhecido'}`, 502);
+    }
+    const textMsg = await prisma.message.create({
       data: {
         content: messageContent,
-        type: messageType,
+        type: 'TEXT',
         direction: 'OUTBOUND',
         channel: 'WHATSAPP',
         status: 'SENT',
-        externalId: sendResult.externalId,
+        externalId: textResult.externalId,
         contactId: contact.id,
         leadId: leadId || null,
         sentById: req.user!.id,
-        mediaUrl: attachmentUrl || null,
       },
     });
+    messages.push(textMsg);
+
+    // Alias para compatibilidade com codigo antigo do frontend que espera .message
+    const message = textMsg;
+    const sendResult = textResult;
 
     let closedTask = null;
     if (taskToCompleteId) {
@@ -363,12 +393,14 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
 
     const io = req.app.get('io');
     if (io) {
-      io.to(`workspace:${req.user!.workspaceId}`).emit('message:new', message);
+      for (const m of messages) {
+        io.to(`workspace:${req.user!.workspaceId}`).emit('message:new', m);
+      }
       if (closedTask) io.to(`workspace:${req.user!.workspaceId}`).emit('task:updated', closedTask);
       io.to(`workspace:${req.user!.workspaceId}`).emit('task:new', followupTask);
     }
 
-    res.status(201).json({ message, closedTask, followupTask, sentVia: sendResult.via });
+    res.status(201).json({ message, messages, closedTask, followupTask, sentVia: sendResult.via });
   } catch (e) { next(e); }
 });
 
