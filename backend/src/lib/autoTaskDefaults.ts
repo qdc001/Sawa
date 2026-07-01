@@ -22,6 +22,7 @@ export type WorkType = {
 
 export type AutoTaskConfig = {
   workTypes: WorkType[];
+  subjects: string[];  // Assuntos frequentes para dropdown rapido
   announceTemplate: string;
   deliverTemplate: string;
   announceTaskTitleTemplate: string;
@@ -37,6 +38,17 @@ export const DEFAULT_AUTO_TASK_CONFIG: AutoTaskConfig = {
     { key: 'slides',      label: 'Slides',      article: 'os', possessive: 'teus' },
     { key: 'artigo',      label: 'Artigo',      article: 'o', possessive: 'teu' },
     { key: 'outros',      label: 'Outros',      article: 'o', possessive: 'teu' },
+  ],
+  subjects: [
+    'Capítulo 1',
+    'Capítulo 2',
+    'Capítulo 3',
+    'Introdução',
+    'Revisão',
+    'Primeira versão',
+    'Versão final',
+    'Feedback do orientador',
+    'Sinopse',
   ],
   // "de + a" = "da"; "de + o" = "do". Contraccao aplicada pelo renderer.
   announceTemplate: 'Olá {nome}, irei enviar {artigo} {assunto} d{artigo} {possessivo} {tipo} até {data}.',
@@ -57,6 +69,9 @@ export function getEffectiveConfig(saved: any): AutoTaskConfig {
           possessive: String(t.possessive || 'teu'),
         }))
       : DEFAULT_AUTO_TASK_CONFIG.workTypes,
+    subjects: Array.isArray(saved.subjects)
+      ? saved.subjects.filter((s: any) => typeof s === 'string' && s.trim().length > 0).map((s: string) => s.trim()).slice(0, 40)
+      : DEFAULT_AUTO_TASK_CONFIG.subjects,
     announceTemplate: typeof saved.announceTemplate === 'string' && saved.announceTemplate.trim()
       ? saved.announceTemplate : DEFAULT_AUTO_TASK_CONFIG.announceTemplate,
     deliverTemplate: typeof saved.deliverTemplate === 'string' && saved.deliverTemplate.trim()

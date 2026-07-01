@@ -21,6 +21,7 @@ type WorkType = {
 
 type Config = {
   workTypes: WorkType[];
+  subjects: string[];
   announceTemplate: string;
   deliverTemplate: string;
   announceTaskTitleTemplate: string;
@@ -171,6 +172,43 @@ export default function AutoTaskConfigEditor() {
               style={{ color: 'var(--primary)' }}
             >
               <Plus size={12} /> Adicionar tipo
+            </button>
+          </div>
+        </div>
+
+        {/* Assuntos frequentes */}
+        <div className="mt-6">
+          <label className="text-xs uppercase font-semibold tracking-wide" style={{ color: 'var(--text-muted)' }}>Assuntos frequentes</label>
+          <p className="text-[11px] mt-1 mb-2" style={{ color: 'var(--text-muted)' }}>
+            Aparecem no dropdown "Assunto" do modal. O utilizador continua a poder escrever texto livre em "Outros".
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {config.subjects.map((s, i) => (
+              <div key={i} className="flex items-center gap-1 px-2 py-1 rounded text-xs" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+                <input
+                  className="bg-transparent outline-none"
+                  style={{ width: `${Math.max(6, s.length + 1)}ch`, color: 'var(--text-primary)' }}
+                  value={s}
+                  onChange={(e) => {
+                    const next = [...config.subjects];
+                    next[i] = e.target.value;
+                    setConfig({ ...config, subjects: next });
+                  }}
+                />
+                <button
+                  onClick={() => setConfig({ ...config, subjects: config.subjects.filter((_, x) => x !== i) })}
+                  className="p-0.5 rounded hover:bg-red-50"
+                >
+                  <Trash2 size={11} style={{ color: '#DC2626' }} />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => setConfig({ ...config, subjects: [...config.subjects, 'Novo assunto'] })}
+              className="text-xs flex items-center gap-1 px-2 py-1 rounded hover:bg-black/5"
+              style={{ color: 'var(--primary)' }}
+            >
+              <Plus size={12} /> Adicionar assunto
             </button>
           </div>
         </div>

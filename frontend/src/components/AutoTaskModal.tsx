@@ -20,6 +20,7 @@ type WorkType = {
 
 type Config = {
   workTypes: WorkType[];
+  subjects: string[];
   announceTemplate: string;
   deliverTemplate: string;
   followupDays: number;
@@ -48,7 +49,9 @@ function todayPlusDays(days: number): string {
 
 export default function AutoTaskModal({ contactId, contactName, leadId, onClose, onSent }: Props) {
   const [mode, setMode] = useState<Mode>('announce');
-  const [subject, setSubject] = useState('');
+  // subjectChoice: valor do dropdown. Se for 'Outros' mostra input de texto.
+  const [subjectChoice, setSubjectChoice] = useState<string>('');
+  const [customSubject, setCustomSubject] = useState('');
   const [config, setConfig] = useState<Config | null>(null);
   const [typeKey, setTypeKey] = useState<string>('');
   const [customTypeLabel, setCustomTypeLabel] = useState('');
@@ -58,11 +61,15 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
   const [sending, setSending] = useState(false);
   const [preview, setPreview] = useState<{ message: string; taskTitle: string } | null>(null);
 
+  // Valor efectivo do assunto (dropdown ou custom)
+  const effectiveSubject = subjectChoice === '__outros__' ? customSubject.trim() : subjectChoice;
+
   // Carregar config
   useEffect(() => {
     api.get('/auto-task/config').then(({ data }) => {
       setConfig(data.config);
       if (data.config?.workTypes?.[0]) setTypeKey(data.config.workTypes[0].key);
+      if (data.config?.subjects?.[0]) setSubjectChoice(data.config.subjects[0]);
     }).catch(() => toast.error('Erro a carregar configuração'));
   }, []);
 
@@ -76,26 +83,26 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
 
   // Preview via backend (respeita templates e concordancia)
   useEffect(() => {
-    if (!subject.trim() || !config) { setPreview(null); return; }
+    if (!effectiveSubject || !config) { setPreview(null); return; }
     const t = setTimeout(() => {
       api.get('/auto-task/preview', {
         params: {
           mode,
           typeKey,
           customTypeLabel,
-          subject: subject.trim(),
+          subject: effectiveSubject,
           dueDate,
           nome: contactName,
         },
       }).then(({ data }) => setPreview(data)).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
-  }, [mode, typeKey, customTypeLabel, subject, dueDate, contactName, config]);
+  }, [mode, typeKey, customTypeLabel, effectiveSubject, dueDate, contactName, config]);
 
   const isOthers = typeKey === 'outros';
 
   const send = async () => {
-    const subj = subject.trim();
+    const subj = effectiveSubject;
     if (!subj) { toast.error('Assunto é obrigatório'); return; }
     if (mode === 'announce' && !/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(dueDate)) {
       toast.error('Data inválida (usa DD/MM ou DD/MM/YYYY)');
@@ -170,14 +177,26 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
         <div className="p-4 space-y-3">
           <div>
             <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Assunto</label>
-            <input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="input-base w-full mt-1"
-              placeholder="Ex: Capítulo 1, revisão da introdução, primeira versão"
-              autoFocus
-              maxLength={200}
-            />
+            {config && (
+              <select
+                value={subjectChoice}
+                onChange={(e) => setSubjectChoice(e.target.value)}
+                className="input-base w-full mt-1"
+                autoFocus
+              >
+                {config.subjects.map((s) => <option key={s} value={s}>{s}</option>)}
+                <option value="__outros__">Outros (escrever)</option>
+              </select>
+            )}
+            {subjectChoice === '__outros__' && (
+              <input
+                value={customSubject}
+                onChange={(e) => setCustomSubject(e.target.value)}
+                className="input-base w-full mt-2"
+                placeholder="Escreve o assunto"
+                maxLength={200}
+              />
+            )}
           </div>
 
           {config && (
