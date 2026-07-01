@@ -4,8 +4,8 @@
 // Se o utilizador escolher o tipo "outros", aparece campo livre para
 // escrever qualquer texto (ex: "Ensaio", "Relatorio semanal").
 
-import { useEffect, useState } from 'react';
-import { X, Loader2, Send, CalendarClock, CheckCircle2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { X, Loader2, Send, CalendarClock, CheckCircle2, Paperclip } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 
@@ -60,6 +60,9 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
   const [openTasks, setOpenTasks] = useState<OpenTask[]>([]);
   const [sending, setSending] = useState(false);
   const [preview, setPreview] = useState<{ message: string; taskTitle: string } | null>(null);
+  const [attachment, setAttachment] = useState<{ url: string; name: string; size: number } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Valor efectivo do assunto (dropdown ou custom)
   const effectiveSubject = subjectChoice === '__outros__' ? customSubject.trim() : subjectChoice;
@@ -73,11 +76,16 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
     }).catch(() => toast.error('Erro a carregar configuração'));
   }, []);
 
-  // Tarefas abertas para o dropdown de fechar (modo deliver)
+  // Tarefas abertas para o dropdown de fechar (modo deliver). Pre-selecciona
+  // a primeira (a mais proxima do prazo) para reduzir cliques.
   useEffect(() => {
     if (mode !== 'deliver') return;
     api.get('/auto-task/open-tasks', { params: { contactId } })
-      .then(({ data }) => setOpenTasks(data.tasks || []))
+      .then(({ data }) => {
+        const list: OpenTask[] = data.tasks || [];
+        setOpenTasks(list);
+        if (list.length > 0) setTaskToClose(list[0].id);
+      })
       .catch(() => setOpenTasks([]));
   }, [mode, contactId]);
 
@@ -127,6 +135,10 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
         toast.success('Mensagem enviada e tarefa criada');
       } else {
         if (taskToClose) body.taskToCompleteId = taskToClose;
+        if (attachment) {
+          body.attachmentUrl = attachment.url;
+          body.attachmentName = attachment.name;
+        }
         await api.post('/auto-task/deliver', body);
         toast.success('Mensagem enviada, tarefa fechada e follow-up criado');
       }
@@ -235,15 +247,74 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
 
           {mode === 'deliver' && openTasks.length > 0 && (
             <div>
-              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Fechar tarefa (opcional)</label>
+              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Fechar tarefa</label>
               <select value={taskToClose} onChange={(e) => setTaskToClose(e.target.value)} className="input-base w-full mt-1">
-                <option value="">— Não fechar nenhuma —</option>
                 {openTasks.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.title}{t.dueAt ? ` (até ${new Date(t.dueAt).toLocaleDateString('pt-PT')})` : ''}
                   </option>
                 ))}
+                <option value="">— Não fechar nenhuma —</option>
               </select>
+            </div>
+          )}
+
+          {mode === 'deliver' && (
+            <div>
+              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Anexar ficheiro (opcional)</label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 25 * 1024 * 1024) {
+                    toast.error('Ficheiro maior que 25 MB');
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                    return;
+                  }
+                  setUploading(true);
+                  try {
+                    const fd = new FormData();
+                    fd.append('file', file);
+                    const { data } = await api.post('/files/upload', fd, {
+                      headers: { 'Content-Type': 'multipart/form-data' },
+                    });
+                    setAttachment({ url: data.url, name: data.name, size: data.size });
+                    toast.success('Ficheiro anexado');
+                  } catch (err: any) {
+                    toast.error(err.response?.data?.message || 'Erro a carregar');
+                  } finally {
+                    setUploading(false);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }
+                }}
+              />
+              {attachment ? (
+                <div className="mt-1 flex items-center gap-2 p-2 rounded" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+                  <Paperclip size={13} style={{ color: 'var(--primary)' }} />
+                  <span className="text-xs flex-1 truncate" style={{ color: 'var(--text-primary)' }}>{attachment.name}</span>
+                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{(attachment.size / 1024).toFixed(0)} KB</span>
+                  <button
+                    onClick={() => setAttachment(null)}
+                    className="p-0.5 rounded hover:bg-red-50"
+                    title="Remover"
+                  >
+                    <X size={12} style={{ color: '#DC2626' }} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="mt-1 w-full py-2 rounded text-xs font-medium flex items-center justify-center gap-1.5"
+                  style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px dashed var(--border)' }}
+                >
+                  {uploading ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />}
+                  {uploading ? 'A carregar...' : 'Escolher ficheiro'}
+                </button>
+              )}
             </div>
           )}
 
