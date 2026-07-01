@@ -77,14 +77,18 @@ export async function sendWhatsAppOut(
         if (type === 'AUDIO' && mediaUrl) {
           path = `/message/sendWhatsAppAudio/${creds.instanceName}`;
           const resolved = resolveMediaPayload(mediaUrl);
-          body.audio = resolved.base64 || resolved.url || mediaUrl;
+          body.audio = resolved.base64
+            ? `data:audio/ogg;base64,${resolved.base64}`
+            : (resolved.url || mediaUrl);
         } else if (type !== 'TEXT' && mediaUrl) {
           path = `/message/sendMedia/${creds.instanceName}`;
           body.mediatype = type === 'IMAGE' ? 'image' : type === 'VIDEO' ? 'video' : 'document';
           // Preferir base64 (le do disco) para nao depender de URL publica
-          // acessivel pela Evolution.
+          // acessivel pela Evolution. Formato Data URL: "data:mime;base64,DATA".
           const resolved = resolveMediaPayload(mediaUrl);
-          body.media = resolved.base64 || resolved.url || mediaUrl;
+          body.media = resolved.base64
+            ? `data:__MIME__;base64,${resolved.base64}` // MIME preenchido apos calculo abaixo
+            : (resolved.url || mediaUrl);
           body.caption = content && content !== 'Anexo' ? content : '';
           if (fileName && fileName.trim()) {
             body.fileName = fileName.trim();
@@ -123,11 +127,15 @@ export async function sendWhatsAppOut(
           } else if (body.mediatype === 'video') {
             body.mimetype = 'video/mp4';
           }
+          // Substituir __MIME__ pelo mimetype real no data URL (se base64)
+          if (typeof body.media === 'string' && body.media.startsWith('data:__MIME__')) {
+            body.media = body.media.replace('data:__MIME__', `data:${body.mimetype || 'application/octet-stream'}`);
+          }
         } else {
           path = `/message/sendText/${creds.instanceName}`;
           body.text = content;
         }
-        const isB64 = typeof body.media === 'string' && !body.media.startsWith('http');
+        const isB64 = typeof body.media === 'string' && body.media.startsWith('data:');
         console.log(`[whatsappSend] via evolution type=${type} to=${destination.slice(-4)} mode=${isB64 ? 'base64' : 'url'} mime=${body.mimetype || '-'} file=${body.fileName || '-'}`);
 
         const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}${path}`, {
