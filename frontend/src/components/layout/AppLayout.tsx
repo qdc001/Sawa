@@ -16,18 +16,22 @@ import { getSocket } from '../../lib/socket';
 import { useT } from '../../lib/i18n';
 import { useIsMobile } from '../../lib/useIsMobile';
 
-const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
+// desktopOnly=true esconde este item do menu quando em mobile. A pagina
+// continua acessivel por URL directa, mas nao aparece no drawer, porque a
+// UX naquele tamanho de ecra e demasiado apertada (drag-and-drop com dedo,
+// builders com muitos nos, etc.).
+const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean }[] = [
   { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
-  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline' },
+  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline', desktopOnly: true },
   { path: '/leads', icon: Users, key: 'nav.leads' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
   { path: '/quotes', icon: ScrollText, key: 'nav.quotes' },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/calls', icon: Phone, key: 'nav.calls' },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
-  { path: '/automations', icon: Zap, key: 'nav.automations' },
+  { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
   { path: '/broadcasts', icon: Radio, key: 'nav.broadcasts' },
-  { path: '/chatbots', icon: Bot, key: 'nav.chatbots' },
+  { path: '/chatbots', icon: Bot, key: 'nav.chatbots', desktopOnly: true },
   { path: '/sales-agent', icon: Sparkles, key: 'nav.salesAgent' },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
   { path: '/templates', icon: FileText, key: 'nav.templates' },
@@ -70,7 +74,9 @@ export default function AppLayout() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [t] = useT();
-  const navItems = navConfig.map((n) => ({ ...n, label: t(n.key) }));
+  const navItems = navConfig
+    .filter((n) => !(isMobile && n.desktopOnly))
+    .map((n) => ({ ...n, label: t(n.key) }));
 
   const changeStatus = async (status: string) => {
     try {
