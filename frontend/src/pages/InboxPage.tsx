@@ -5,7 +5,7 @@ import {
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
   Inbox, Building2, User as UserIcon, Users as UsersIcon, Star, Archive, Edit3, Trash2,
   Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, Calendar,
-  ChevronLeft, ChevronRight, Smile, Bot, Power, BookOpen,
+  ChevronLeft, ChevronRight, Smile, Bot, Power, BookOpen, CalendarClock,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -14,6 +14,7 @@ import api, {
 } from '../lib/api';
 import toast from 'react-hot-toast';
 import { useIsMobile } from '../lib/useIsMobile';
+import AutoTaskModal from '../components/AutoTaskModal';
 import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
 import { useTaskOptions } from '../lib/taskOptions';
@@ -700,6 +701,7 @@ export default function InboxPage() {
   const [creatingLead, setCreatingLead] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
+  const [showAutoTask, setShowAutoTask] = useState(false);
 
   // Dados auxiliares
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -2417,6 +2419,16 @@ export default function InboxPage() {
                 <button onClick={() => setShowSnippets(true)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
                   <Zap size={11} className="inline mr-1" /> Snippets
                 </button>
+                {selected.contact?.id && (
+                  <button
+                    onClick={() => setShowAutoTask(true)}
+                    className="text-xs px-2 py-1 rounded font-medium"
+                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                    title="Enviar mensagem e criar/actualizar tarefa"
+                  >
+                    <CalendarClock size={11} className="inline mr-1" /> Enviar com tarefa
+                  </button>
+                )}
                 <button onClick={handleAISuggest} disabled={aiLoading} className="text-xs px-2 py-1 rounded font-medium ml-auto"
                   style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
                   {aiLoading ? <Loader2 size={11} className="animate-spin inline" /> : <Sparkles size={11} className="inline mr-1" />}
@@ -2683,6 +2695,15 @@ export default function InboxPage() {
       )}
 
       {/* Modais */}
+      {showAutoTask && selected?.contact?.id && (
+        <AutoTaskModal
+          contactId={selected.contact.id}
+          contactName={fullName(selected.contact)}
+          leadId={(selected as any)?.lead?.id || null}
+          onClose={() => setShowAutoTask(false)}
+          onSent={() => { loadMessages(selectedKey!); loadConversations(); }}
+        />
+      )}
       {newMessageOpen && <NewMessageModal contacts={contacts} onClose={() => setNewMessageOpen(false)} onCreated={() => loadConversations()} />}
       {showTemplates && (
         <TemplatesModal
