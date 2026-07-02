@@ -329,7 +329,8 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
                     setAttachment({ url: data.url, name: data.name, size: data.size });
                     toast.success('Ficheiro anexado');
                   } catch (err: any) {
-                    toast.error(err.response?.data?.message || 'Erro a carregar');
+                    console.error('[auto-task] upload anexo falhou', err);
+                    toast.error(err.response?.data?.message || `Erro a carregar anexo (${err.response?.status || 'sem resposta'})`);
                   } finally {
                     setUploading(false);
                     if (fileInputRef.current) fileInputRef.current.value = '';
