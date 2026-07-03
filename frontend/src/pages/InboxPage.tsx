@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
-  MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
+  MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck, AlertCircle,
   Inbox, Building2, User as UserIcon, Users as UsersIcon, Star, Archive, Edit3, Trash2,
   Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, Calendar,
   ChevronLeft, ChevronRight, Smile, Bot, Power, BookOpen, CalendarClock,
@@ -1373,6 +1373,16 @@ export default function InboxPage() {
       if (!isInternalNote) {
         setConversations((prev) => prev.map((c) => c.key === selected.key ? { ...c, lastMessage: data, total: c.total + 1 } : c));
       }
+      // AVISO CRITICO: se o backend nao conseguiu entregar (FAILED), o balao
+      // aparece igual mas nao chegou ao destinatario. Toast persistente para
+      // o utilizador nao pensar que enviou. Cobre o cenario "aparece no chat
+      // mas nao chega ao WhatsApp" (Evolution rejeitou, sessao caida, etc.).
+      if (data?.status === 'FAILED' && !isInternalNote) {
+        toast.error(
+          `Nao chegou ao destinatario. Verifica a ligacao Evolution/WhatsApp em Definicoes > Integracoes.${data?.sendError ? ` Erro: ${data.sendError}` : ''}`,
+          { duration: 8000 },
+        );
+      }
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro a enviar'); } finally { setSending(false); }
   };
 
@@ -2236,7 +2246,16 @@ export default function InboxPage() {
                             {selected.combined && <ChannelBadge channel={msg.channel} size={9} />}
                             <span title={fullDateLabel}>{new Date(msg.createdAt).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                             {msg.editedAt && <span title="Editada">(ed.)</span>}
-                            {out && (msg.status === 'READ' ? <CheckCheck size={12} style={{ color: '#A5F3FC' }} /> : msg.status === 'DELIVERED' ? <CheckCheck size={12} /> : <Check size={12} />)}
+                            {out && (
+                              msg.status === 'FAILED' ? (
+                                <span title="Nao foi entregue ao destinatario" className="flex items-center gap-0.5 font-medium" style={{ color: '#FCA5A5' }}>
+                                  <AlertCircle size={12} /> falhou
+                                </span>
+                              ) : msg.status === 'READ' ? <CheckCheck size={12} style={{ color: '#A5F3FC' }} />
+                              : msg.status === 'DELIVERED' ? <CheckCheck size={12} />
+                              : msg.status === 'SENT' ? <Check size={12} />
+                              : <Loader2 size={12} className="animate-spin" />
+                            )}
                           </div>
                         </div>
 
