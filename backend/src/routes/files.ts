@@ -22,9 +22,15 @@ const storage = multer.diskStorage({
   },
 });
 
+// WhatsApp aceita documentos ate 100 MB. Deixamos aqui 100 MB para nao sermos
+// o gargalo. O proxy Traefik do Easypanel tem que estar configurado ao mesmo
+// nivel (label traefik.http.middlewares.body-limit.buffering.maxRequestBodyBytes
+// no servico backend, ou remover o buffering).
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
+
 const upload = multer({
   storage,
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
+  limits: { fileSize: MAX_UPLOAD_BYTES },
   fileFilter: (_req, file, cb) => {
     // permitir tudo excepto executaveis
     const banned = ['.exe', '.bat', '.sh', '.cmd', '.msi'];
@@ -35,10 +41,27 @@ const upload = multer({
   },
 });
 
+// Middleware que apanha erros do multer (413, MIME, etc) antes de o request
+// continuar, e devolve JSON com detalhe em vez de 500 opaco.
+function handleUpload(req: AuthRequest, res: Response, next: any) {
+  console.log(`[files/upload] recebido content-length=${req.headers['content-length'] || '?'} content-type=${req.headers['content-type'] || '?'}`);
+  upload.single('file')(req as any, res as any, (err: any) => {
+    if (err) {
+      console.error('[files/upload] multer erro:', err.code, err.message);
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ message: `Ficheiro excede o limite de ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.` });
+      }
+      return res.status(400).json({ message: err.message || 'Falha no upload' });
+    }
+    next();
+  });
+}
+
 // POST /api/files/upload
-router.post('/upload', upload.single('file'), async (req: AuthRequest, res: Response, next) => {
+router.post('/upload', handleUpload, async (req: AuthRequest, res: Response, next) => {
   try {
     if (!req.file) throw new AppError('Sem ficheiro', 400);
+    console.log(`[files/upload] ok filename=${req.file.filename} size=${req.file.size} mime=${req.file.mimetype}`);
     const file = await prisma.file.create({
       data: {
         name: req.file.originalname,

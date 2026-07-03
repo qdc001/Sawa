@@ -314,8 +314,8 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  if (file.size > 25 * 1024 * 1024) {
-                    toast.error('Ficheiro maior que 25 MB');
+                  if (file.size > 100 * 1024 * 1024) {
+                    toast.error('Ficheiro maior que 100 MB (limite do WhatsApp)');
                     if (fileInputRef.current) fileInputRef.current.value = '';
                     return;
                   }
