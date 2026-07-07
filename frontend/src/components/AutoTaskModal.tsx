@@ -171,27 +171,39 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
         onCancel={() => setConflict(null)}
         onEditExisting={(t) => { onClose(); navigate(`/tasks?editTask=${t.id}`); }}
         onUpdateExisting={async (t) => {
-          // Aplica o titulo/prazo do form actual a tarefa existente e nao
-          // envia mensagem WhatsApp (para isso o user tem 'Enviar e criar tarefa').
+          // Envia a mensagem WhatsApp E reaproveita a tarefa em conflito
+          // (updateTaskId) em vez de criar uma nova. O backend actualiza
+          // titulo/prazo/descricao dessa tarefa com base no assunto/tipo
+          // que o utilizador escolheu.
+          setSending(true);
           try {
-            const patch: any = {};
-            if (preview?.taskTitle) patch.title = preview.taskTitle;
-            if (mode === 'announce' && /^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(dueDate)) {
-              // Converter DD/MM(/YYYY) para Date. Se so DD/MM, usar ano corrente.
-              const parts = dueDate.split('/');
-              const dd = parseInt(parts[0], 10);
-              const mm = parseInt(parts[1], 10) - 1;
-              const yy = parts[2] ? (parts[2].length === 2 ? 2000 + parseInt(parts[2], 10) : parseInt(parts[2], 10)) : new Date().getFullYear();
-              patch.dueAt = new Date(yy, mm, dd, 23, 59).toISOString();
+            const body: any = {
+              contactId,
+              subject: effectiveSubject,
+              typeKey,
+              customTypeLabel: isOthers ? customTypeLabel.trim() : undefined,
+              leadId: leadId || undefined,
+              updateTaskId: t.id,
+            };
+            if (mode === 'announce') {
+              body.dueDate = dueDate;
+              await api.post('/auto-task/announce', body);
+              toast.success('Mensagem enviada e tarefa existente actualizada');
+            } else {
+              if (taskToClose) body.taskToCompleteId = taskToClose;
+              if (attachment) {
+                body.attachmentUrl = attachment.url;
+                body.attachmentName = attachment.name;
+              }
+              await api.post('/auto-task/deliver', body);
+              toast.success('Mensagem enviada e tarefa existente actualizada como follow-up');
             }
-            await api.patch(`/tasks/${t.id}`, patch);
-            toast.success('Tarefa existente actualizada (sem envio de mensagem)');
             setConflict(null);
             onSent();
             onClose();
           } catch (err: any) {
             toast.error(err.response?.data?.message || 'Erro a actualizar');
-          }
+          } finally { setSending(false); }
         }}
       />
     )}

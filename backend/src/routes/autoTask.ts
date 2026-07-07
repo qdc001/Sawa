@@ -121,7 +121,7 @@ function lookupSubject(config: AutoTaskConfig, subjectLabel: string): { artigo: 
 // Body: { contactId, subject, typeKey?, customTypeLabel?, dueDate (DD/MM), leadId? }
 router.post('/announce', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { contactId, subject, typeKey, customTypeLabel, dueDate, leadId } = req.body || {};
+    const { contactId, subject, typeKey, customTypeLabel, dueDate, leadId, updateTaskId } = req.body || {};
     if (!contactId) throw new AppError('contactId obrigatorio', 400);
     if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatorio', 400);
     if (!dueDate) throw new AppError('Data obrigatoria (formato DD/MM)', 400);
@@ -142,7 +142,9 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
     const phone = contact.whatsapp || contact.phone;
     if (!phone) throw new AppError('Contacto sem numero de WhatsApp', 400);
 
-    // Regra: 1 tarefa aberta por contacto. Impede criar antes de fechar a existente.
+    // Regra: 1 tarefa aberta por contacto. Se updateTaskId veio (o utilizador
+    // escolheu "Actualizar existente" no dialog de conflito) reaproveitamos
+    // essa tarefa. Caso contrario, se ja existe alguma aberta, 409.
     const openExisting = await prisma.task.findFirst({
       where: {
         contactId,
@@ -154,7 +156,7 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
         contact: { select: { id: true, firstName: true, lastName: true } },
       },
     });
-    if (openExisting) {
+    if (openExisting && (!updateTaskId || updateTaskId !== openExisting.id)) {
       return res.status(409).json({
         message: 'Este contacto ja tem uma tarefa aberta. Conclui-a antes de criar outra.',
         existingTask: openExisting,
@@ -213,28 +215,45 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
       },
     });
 
-    // 3. Criar tarefa
-    const task = await prisma.task.create({
-      data: {
-        title: taskTitle,
-        description: messageContent,
-        type: 'OTHER',
-        status: 'PENDING',
-        priority: 'MEDIUM',
-        dueAt: parsedDate,
-        contactId: contact.id,
-        leadId: leadId || null,
-        assignedToId: req.user!.id,
-      },
-    });
+    // 3. Criar tarefa OU actualizar a existente (updateTaskId).
+    let task;
+    let taskWasUpdated = false;
+    if (updateTaskId && openExisting && openExisting.id === updateTaskId) {
+      task = await prisma.task.update({
+        where: { id: updateTaskId },
+        data: {
+          title: taskTitle,
+          description: messageContent,
+          dueAt: parsedDate,
+          status: 'PENDING',
+        },
+      });
+      taskWasUpdated = true;
+      console.log('[announce] tarefa existente actualizada', task.id);
+    } else {
+      task = await prisma.task.create({
+        data: {
+          title: taskTitle,
+          description: messageContent,
+          type: 'OTHER',
+          status: 'PENDING',
+          priority: 'MEDIUM',
+          dueAt: parsedDate,
+          contactId: contact.id,
+          leadId: leadId || null,
+          assignedToId: req.user!.id,
+        },
+      });
+      console.log('[announce] tarefa criada', task.id);
+    }
 
     const io = req.app.get('io');
     if (io) {
       io.to(`workspace:${req.user!.workspaceId}`).emit('message:new', message);
-      io.to(`workspace:${req.user!.workspaceId}`).emit('task:new', task);
+      io.to(`workspace:${req.user!.workspaceId}`).emit(taskWasUpdated ? 'task:updated' : 'task:new', task);
     }
 
-    res.status(201).json({ message, task, sentVia: sendResult.via });
+    res.status(201).json({ message, task, taskWasUpdated, sentVia: sendResult.via });
   } catch (e) { next(e); }
 });
 
@@ -242,8 +261,8 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
 // Body: { contactId, subject, typeKey?, customTypeLabel?, taskToCompleteId?, leadId?, attachmentUrl?, attachmentName? }
 router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { contactId, subject, typeKey, customTypeLabel, taskToCompleteId, leadId, attachmentUrl, attachmentName } = req.body || {};
-    console.log('[deliver] recebido', { contactId: !!contactId, subject, taskToCompleteId, hasAttachment: !!attachmentUrl });
+    const { contactId, subject, typeKey, customTypeLabel, taskToCompleteId, leadId, attachmentUrl, attachmentName, updateTaskId } = req.body || {};
+    console.log('[deliver] recebido', { contactId: !!contactId, subject, taskToCompleteId, updateTaskId, hasAttachment: !!attachmentUrl });
     if (!contactId) throw new AppError('contactId obrigatorio', 400);
     if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatorio', 400);
 
@@ -268,7 +287,9 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
         contact: { select: { id: true, firstName: true, lastName: true } },
       },
     });
-    const stillOpen = openTasks.filter((t) => t.id !== taskToCompleteId);
+    // Se o utilizador escolheu "Actualizar existente" no dialog de conflito,
+    // reaproveitamos essa tarefa como follow-up (em vez de criar nova).
+    const stillOpen = openTasks.filter((t) => t.id !== taskToCompleteId && t.id !== updateTaskId);
     if (stillOpen.length > 0) {
       return res.status(409).json({
         message: `Este contacto ja tem uma tarefa aberta ("${stillOpen[0].title}") que nao vai ser fechada. Conclui-a antes.`,
@@ -399,21 +420,37 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
     const followupOffsetMs = new Date(followupUtcStr).getTime() - new Date(followupTzStr).getTime();
     const followupDue = new Date(followupNaive.getTime() + followupOffsetMs);
 
-    const followupTask = await prisma.task.create({
-      data: {
-        title: followupTitle,
-        description: `Follow-up: confirmar se ${contactName} recebeu e analisou o material enviado.`,
-        type: 'FOLLOW_UP',
-        status: 'PENDING',
-        priority: 'MEDIUM',
-        dueAt: followupDue,
-        contactId: contact.id,
-        leadId: leadId || null,
-        assignedToId: req.user!.id,
-        parentTaskId: closedTask?.id || null,
-      },
-    });
-    console.log('[deliver] followup criado', followupTask.id, 'title=', followupTitle);
+    let followupTask;
+    let followupWasUpdated = false;
+    if (updateTaskId && openTasks.some((t) => t.id === updateTaskId)) {
+      followupTask = await prisma.task.update({
+        where: { id: updateTaskId },
+        data: {
+          title: followupTitle,
+          description: `Follow-up: confirmar se ${contactName} recebeu e analisou o material enviado.`,
+          dueAt: followupDue,
+          status: 'PENDING',
+        },
+      });
+      followupWasUpdated = true;
+      console.log('[deliver] tarefa existente actualizada como follow-up', followupTask.id);
+    } else {
+      followupTask = await prisma.task.create({
+        data: {
+          title: followupTitle,
+          description: `Follow-up: confirmar se ${contactName} recebeu e analisou o material enviado.`,
+          type: 'FOLLOW_UP',
+          status: 'PENDING',
+          priority: 'MEDIUM',
+          dueAt: followupDue,
+          contactId: contact.id,
+          leadId: leadId || null,
+          assignedToId: req.user!.id,
+          parentTaskId: closedTask?.id || null,
+        },
+      });
+      console.log('[deliver] followup criado', followupTask.id, 'title=', followupTitle);
+    }
 
     const io = req.app.get('io');
     if (io) {
@@ -421,10 +458,10 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
         io.to(`workspace:${req.user!.workspaceId}`).emit('message:new', m);
       }
       if (closedTask) io.to(`workspace:${req.user!.workspaceId}`).emit('task:updated', closedTask);
-      io.to(`workspace:${req.user!.workspaceId}`).emit('task:new', followupTask);
+      io.to(`workspace:${req.user!.workspaceId}`).emit(followupWasUpdated ? 'task:updated' : 'task:new', followupTask);
     }
 
-    res.status(201).json({ message, messages, closedTask, followupTask, sentVia: sendResult.via });
+    res.status(201).json({ message, messages, closedTask, followupTask, followupWasUpdated, sentVia: sendResult.via });
   } catch (e) { next(e); }
 });
 
