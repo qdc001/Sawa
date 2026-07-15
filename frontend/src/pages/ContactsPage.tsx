@@ -14,6 +14,7 @@ import { useUIStore } from '../store';
 import { useTaskOptions } from '../lib/taskOptions';
 import { CustomFieldInput, AddLeadModal } from './PipelinePage';
 import TaskConflictDialog from '../components/TaskConflictDialog';
+import { useTerminology } from '../lib/terminology';
 
 type SortKey = 'firstName' | 'company' | 'createdAt';
 type SortDir = 'asc' | 'desc';
@@ -796,6 +797,7 @@ export default function ContactsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
+  const terms = useTerminology();
 
   const [contacts, setContacts] = useState<ContactWithMeta[]>([]);
   const [total, setTotal] = useState(0);
@@ -1019,7 +1021,7 @@ export default function ContactsPage() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 p-4 flex-wrap" style={{ borderBottom: '1px solid var(--border)' }}>
-        <h1 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Contactos</h1>
+        <h1 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{terms.contacts}</h1>
         <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>{total} total</span>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           <button onClick={() => setShowTagsManager(true)} className="btn py-2 px-3" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }} title="Gerir tags">

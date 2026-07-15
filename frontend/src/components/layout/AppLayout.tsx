@@ -7,6 +7,7 @@ import {
   ScrollText, Sparkles
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
+import { useTerminology } from '../../lib/terminology';
 import { KlaruMark } from '../KlaruLogo';
 import CopilotPanel from '../ai/CopilotPanel';
 import DesktopNotifications from '../DesktopNotifications';
@@ -83,9 +84,14 @@ export default function AppLayout() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const [t] = useT();
+  const terms = useTerminology();
   const navItems = navConfig
     .filter((n) => !(isMobile && n.desktopOnly))
-    .map((n) => ({ ...n, label: t(n.key) }));
+    .map((n) => ({
+      ...n,
+      // Item Contactos usa a label customizada do workspace (Fase 3).
+      label: n.key === 'nav.contacts' ? terms.contacts : t(n.key),
+    }));
 
   const changeStatus = async (status: string) => {
     try {

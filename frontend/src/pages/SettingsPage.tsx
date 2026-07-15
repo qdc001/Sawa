@@ -73,6 +73,8 @@ export default function SettingsPage() {
   const [wsDateFormat, setWsDateFormat] = useState('DD/MM/YYYY');
   const [wsFiscalMonth, setWsFiscalMonth] = useState(1);
   const [wsAiBrandVoice, setWsAiBrandVoice] = useState('');
+  const [wsContactSingular, setWsContactSingular] = useState('Contacto');
+  const [wsContactPlural, setWsContactPlural] = useState('Contactos');
   const [wsAutoAssign, setWsAutoAssign] = useState(false);
   const [wsTaskTypes, setWsTaskTypes] = useState<TaskOption[]>([]);
   const [wsTaskPriorities, setWsTaskPriorities] = useState<TaskOption[]>([]);
@@ -154,6 +156,8 @@ export default function SettingsPage() {
       setWsDateFormat(data.dateFormat || 'DD/MM/YYYY');
       setWsFiscalMonth(data.fiscalYearStartMonth || 1);
       setWsAiBrandVoice(data.aiBrandVoice || '');
+      setWsContactSingular(data.contactLabelSingular || 'Contacto');
+      setWsContactPlural(data.contactLabelPlural || 'Contactos');
       setWsAutoAssign(!!data.autoAssignEnabled);
       // IA Vendedora runtime
       api.get('/sales-agent/runtime-config').then(({ data: rc }) => {
@@ -373,6 +377,8 @@ export default function SettingsPage() {
         primaryColor: wsPrimaryColor, dateFormat: wsDateFormat, fiscalYearStartMonth: wsFiscalMonth,
         autoAssignEnabled: wsAutoAssign,
         aiBrandVoice: wsAiBrandVoice,
+        contactLabelSingular: wsContactSingular,
+        contactLabelPlural: wsContactPlural,
         taskTypes: wsTaskTypes,
         taskPriorities: wsTaskPriorities,
         taskStatuses: wsTaskStatuses,
@@ -848,6 +854,61 @@ export default function SettingsPage() {
               <select value={wsFiscalMonth} onChange={(e) => setWsFiscalMonth(Number(e.target.value))} className="input-base">
                 {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
               </select>
+            </div>
+          </div>
+
+          {/* Terminologia customizavel (Fase 3 da reconfiguracao):
+              cada workspace pode chamar os seus "Contactos" de Pacientes,
+              Clientes, Formandos, etc. sem afectar o modelo tecnico. */}
+          <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+            <label className="block text-sm font-medium mb-1">Como quer chamar aos seus contactos?</label>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+              Adapta o vocabulário ao seu sector. Uma clínica vê "Pacientes", uma ONG vê "Formandos", uma escola vê "Alunos". O menu e as páginas usam este termo automaticamente.
+            </p>
+            <div className="grid grid-cols-2 gap-3 mb-2">
+              <div>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Singular</label>
+                <input
+                  className="input-base w-full"
+                  value={wsContactSingular}
+                  onChange={(e) => setWsContactSingular(e.target.value)}
+                  placeholder="Contacto"
+                />
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Plural</label>
+                <input
+                  className="input-base w-full"
+                  value={wsContactPlural}
+                  onChange={(e) => setWsContactPlural(e.target.value)}
+                  placeholder="Contactos"
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1 mt-2">
+              {[
+                { s: 'Contacto', p: 'Contactos' },
+                { s: 'Paciente', p: 'Pacientes' },
+                { s: 'Cliente', p: 'Clientes' },
+                { s: 'Formando', p: 'Formandos' },
+                { s: 'Aluno', p: 'Alunos' },
+                { s: 'Membro', p: 'Membros' },
+                { s: 'Hóspede', p: 'Hóspedes' },
+              ].map((p) => (
+                <button
+                  key={p.s}
+                  type="button"
+                  onClick={() => { setWsContactSingular(p.s); setWsContactPlural(p.p); }}
+                  className="text-xs px-2 py-1 rounded"
+                  style={{
+                    background: wsContactPlural === p.p ? 'var(--primary)' : 'var(--surface-3)',
+                    color: wsContactPlural === p.p ? 'white' : 'var(--text-secondary)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  {p.p}
+                </button>
+              ))}
             </div>
           </div>
 

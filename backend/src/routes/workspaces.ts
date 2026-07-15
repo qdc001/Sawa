@@ -24,7 +24,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled, aiBrandVoice } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled, aiBrandVoice, contactLabelSingular, contactLabelPlural } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -50,6 +50,8 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(dailyDigestWeekdays !== undefined && { dailyDigestWeekdays }),
         ...(assignmentNotifyEnabled !== undefined && { assignmentNotifyEnabled: !!assignmentNotifyEnabled }),
         ...(aiBrandVoice !== undefined && { aiBrandVoice: aiBrandVoice || null }),
+        ...(contactLabelSingular !== undefined && { contactLabelSingular: String(contactLabelSingular).trim() || 'Contacto' }),
+        ...(contactLabelPlural !== undefined && { contactLabelPlural: String(contactLabelPlural).trim() || 'Contactos' }),
       },
     });
     await prisma.auditLog.create({

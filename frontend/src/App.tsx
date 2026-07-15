@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { MessageSquare, Phone, Radio, GitBranch, Users, ScrollText, Zap, Bot } from 'lucide-react';
+import { MessageSquare, Phone, Radio, GitBranch, Users, ScrollText, Zap, Bot, CheckSquare, CalendarClock } from 'lucide-react';
 import { useAuthStore } from './store';
 import AppLayout from './components/layout/AppLayout';
 import GroupedRouteLayout from './components/layout/GroupedRouteLayout';
@@ -25,6 +25,7 @@ import ProductsPage from './pages/ProductsPage';
 import QuotesPage from './pages/QuotesPage';
 import SectorTemplatesPage from './pages/SectorTemplatesPage';
 import SalesAgentPage from './pages/SalesAgentPage';
+import AppointmentsPage from './pages/AppointmentsPage';
 import BillingPage from './pages/BillingPage';
 import CsatPublicPage from './pages/CsatPublicPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
@@ -83,12 +84,20 @@ export default function App() {
             <Route path="chatbots" element={<ChatbotsPage />} />
           </Route>
 
+          {/* Agenda agrupa Tarefas e Marcacoes (Fase 3) */}
+          <Route element={<GroupedRouteLayout items={[
+            { path: '/tasks', label: 'Tarefas', icon: CheckSquare },
+            { path: '/appointments', label: 'Marcações', icon: CalendarClock },
+          ]} />}>
+            <Route path="tasks" element={<TasksPage />} />
+            <Route path="appointments" element={<AppointmentsPage />} />
+          </Route>
+
           {/* Restantes rotas sem agrupamento */}
           <Route path="contacts" element={<ContactsPage />} />
           <Route path="products" element={<ProductsPage />} />
           <Route path="modelos" element={<SectorTemplatesPage />} />
           <Route path="plano" element={<BillingPage />} />
-          <Route path="tasks" element={<TasksPage />} />
           <Route path="sales-agent" element={<SalesAgentPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="templates" element={<TemplatesPage />} />

@@ -44,6 +44,7 @@ import aiCoachingRoutes from './routes/aiCoaching';
 import aiUsageRoutes from './routes/aiUsage';
 import autoTaskRoutes from './routes/autoTask';
 import billingRoutes from './routes/billing';
+import appointmentRoutes from './routes/appointments';
 
 
 // Middleware
@@ -158,6 +159,7 @@ app.use('/api/ai-coaching', authMiddleware, aiCoachingRoutes);
 app.use('/api/ai-usage', authMiddleware, aiUsageRoutes);
 app.use('/api/auto-task', authMiddleware, autoTaskRoutes);
 app.use('/api/billing', authMiddleware, billingRoutes);
+app.use('/api/appointments', authMiddleware, appointmentRoutes);
 
 
 // Error handler (must be last)

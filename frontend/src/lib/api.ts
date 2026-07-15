@@ -181,6 +181,8 @@ export interface Workspace {
   dailyDigestMinute?: number;
   dailyDigestTemplate?: DigestTemplate;
   aiBrandVoice?: string | null;
+  contactLabelSingular?: string;
+  contactLabelPlural?: string;
 }
 
 export interface DigestTemplate {

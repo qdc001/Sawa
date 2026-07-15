@@ -61,6 +61,7 @@ model User {
   csatRequests          CsatRequest[]
   quotes                Quote[]
   aiSuggestionsDecided  AiSalesSuggestion[] @relation("AiSuggestionDecidedBy")
+  appointments          Appointment[]       @relation("appointmentAssignedTo")
 
   @@map("users")
 }
@@ -79,6 +80,12 @@ model Workspace {
   logo                          String?
   timezone                      String    @default("Africa/Maputo")
   currency                      String    @default("MZN")
+  // Terminologia customizavel do workspace (Fase 3 da reconfiguracao).
+  // Permite que uma clinica veja "Pacientes", uma ONG veja "Formandos", uma
+  // empresa comercial veja "Clientes". A entidade tecnica continua a chamar-se
+  // Contact no schema — so a label visivel muda.
+  contactLabelSingular          String    @default("Contacto")
+  contactLabelPlural            String    @default("Contactos")
   // Subscrição/plano: STARTER | GROWTH | BUSINESS | ENTERPRISE
   plan                          String    @default("STARTER")
   trialEndsAt                   DateTime?
@@ -170,6 +177,7 @@ model Workspace {
   aiCoachingRules      AiCoachingRule[]
   aiCoachConversations AiCoachConversation[]
   aiUsageLogs          AiUsageLog[]
+  appointments         Appointment[]
 
   // === Tracking de consumo de tokens LLM ===
   // Cache do uso actual para evitar somar a tabela em cada chamada.
@@ -284,6 +292,7 @@ model Lead {
   csatRequests       CsatRequest[]
   quotes             Quote[]
   aiSalesSuggestions AiSalesSuggestion[]
+  appointments       Appointment[]
 
   @@map("leads")
 }
@@ -341,6 +350,7 @@ model Contact {
   tasks               Task[]
   quotes              Quote[]
   aiSalesSuggestions  AiSalesSuggestion[]
+  appointments        Appointment[]
 
   @@index([assignedToId])
   @@map("contacts")
@@ -1333,4 +1343,51 @@ model AiCoachConversation {
 
   @@index([workspaceId, updatedAt])
   @@map("ai_coach_conversations")
+}
+
+// Marcacoes (Fase 3 da reconfiguracao): consultas, reunioes, atendimentos
+// agendados. Diferentes de Tasks porque tem hora de inicio + duracao +
+// estado com semantica de agendamento (CONFIRMADA, REALIZADA, FALTOU).
+// Um Appointment pertence sempre a um Contact e (opcionalmente) a um Lead.
+model Appointment {
+  id            String            @id @default(cuid())
+  workspaceId   String
+  contactId     String
+  leadId        String?
+  assignedToId  String?
+  // Ex: "Consulta de rotina", "Reuniao de proposta", "Sessao de fisioterapia"
+  title         String
+  description   String?
+  // Localizacao/sala/link de videochamada. Texto livre.
+  location      String?
+  // Data e hora de inicio (armazenada em UTC).
+  startsAt      DateTime
+  // Duracao em minutos. Default 30.
+  durationMin   Int               @default(30)
+  status        AppointmentStatus @default(SCHEDULED)
+  // Marca se ja foi enviado o lembrete via WhatsApp (para nao duplicar)
+  reminderSentAt DateTime?
+  // Notas apos a marcacao (relato, receita, proximos passos)
+  notes         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  createdById   String?
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact    Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo User?     @relation("appointmentAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, startsAt])
+  @@index([contactId, startsAt])
+  @@index([assignedToId, startsAt])
+  @@map("appointments")
+}
+
+enum AppointmentStatus {
+  SCHEDULED   // agendada, ainda por confirmar
+  CONFIRMED   // cliente confirmou
+  COMPLETED   // aconteceu
+  CANCELED    // cancelada por qualquer lado antes da hora
+  NO_SHOW     // cliente nao apareceu
 }
