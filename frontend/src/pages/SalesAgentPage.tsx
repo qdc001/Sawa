@@ -4,6 +4,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import AiCoachingPanel from '../components/AiCoachingPanel';
 import AiUsageBars from '../components/AiUsageBars';
+import { useAuthStore } from '../store';
 
 type SectorKey = 'imobiliaria' | 'clinica' | 'escola' | 'consultoria' | 'outro';
 
@@ -50,6 +51,8 @@ export default function SalesAgentPage() {
   const [sectors, setSectors] = useState<SectorInfo[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgePreview | null>(null);
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
+  const workspace = useAuthStore((s) => s.workspace) as any;
+  const isClinic = workspace?.sector === 'clinica';
 
   const load = async () => {
     setLoading(true);
@@ -123,13 +126,15 @@ export default function SalesAgentPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b overflow-x-auto" style={{ borderColor: 'var(--border)' }}>
-        {([
+        {(([
           { id: 'persona', label: 'Persona', icon: Sparkles },
-          { id: 'sector', label: 'Sector', icon: Building2 },
+          // Tab "Sector" so aparece se nao for uma clinica: em clinicas o
+          // preset ja fixou o sector e nao ha valor em mudar aqui.
+          !isClinic && { id: 'sector' as Tab, label: 'Sector', icon: Building2 },
           { id: 'instructions', label: 'Instruções', icon: MessageSquare },
           { id: 'coach', label: 'Treinar Leizy', icon: GraduationCap },
           { id: 'memory', label: 'Memória aprendida', icon: Brain },
-        ] as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
+        ].filter(Boolean)) as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -270,9 +275,13 @@ export default function SalesAgentPage() {
           )}
         </div>
 
-        {/* Painel lateral: conhecimento activo */}
+        {/* Painel lateral: conhecimento activo. Em clinicas, escondemos o
+            conteudo de "bibliotecas de vendas" (principios Cialdini, Voss,
+            Rackham) que nao faz sentido para uma assistente de relacionamento
+            com pacientes. A Leizy continua a receber esses principios como
+            referencia interna no prompt do sistema. */}
         <aside className="space-y-4">
-          {knowledge && (
+          {!isClinic && knowledge && (
             <>
               <div className="card p-4">
                 <p className="text-xs uppercase font-semibold tracking-wide mb-2" style={{ color: 'var(--text-muted)' }}>Conhecimento activo</p>

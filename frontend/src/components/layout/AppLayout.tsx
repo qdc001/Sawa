@@ -366,21 +366,9 @@ export default function AppLayout() {
                   <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>{user?.email}</p>
                 </div>
 
-                {/* Estado */}
-                <div className="px-3 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                  <p className="text-[10px] uppercase tracking-wide font-semibold" style={{ color: 'var(--sidebar-text)' }}>Estado</p>
-                </div>
-                {Object.keys(STATUS_LABELS).map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => changeStatus(s)}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-white/5 text-left text-white"
-                  >
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLORS[s], display: 'inline-block' }} />
-                    {STATUS_LABELS[s]}
-                    {user?.status === s && <Check size={12} className="ml-auto" />}
-                  </button>
-                ))}
+                {/* Seccao 'Estado' removida: era ruido para recepcionistas
+                    de clinica que estao sempre disponiveis ao balcao. Se
+                    algum caso pedir de volta, reactivar com feature flag. */}
 
                 {/* Itens administrativos */}
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />

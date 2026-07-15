@@ -1911,7 +1911,7 @@ export default function InboxPage() {
                     ? <Eye size={15} style={{ color: '#3B82F6' }} />
                     : <EyeOff size={15} style={{ color: 'var(--text-muted)' }} />}
                 </button>
-                {(selected.contact?.whatsapp || selected.contact?.phone) && (
+                {(selected.contact?.whatsapp || selected.contact?.phone) && workspace?.sector !== 'clinica' && (
                   <button
                     onClick={() => openWhatsAppForCall(selected.contact?.whatsapp || selected.contact?.phone)}
                     className="p-1.5 rounded-lg hover:bg-slate-100 ml-1"
@@ -2480,16 +2480,30 @@ export default function InboxPage() {
 
             {/* Composer */}
             <div className="p-4 flex-shrink-0" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
-              <div className="flex items-center gap-2 mb-2">
-                <button onClick={() => setIsInternalNote(!isInternalNote)} className="text-xs px-2 py-1 rounded font-medium flex items-center gap-1"
-                  style={{ background: isInternalNote ? '#FEF3C7' : 'var(--surface-3)', color: isInternalNote ? '#92400E' : 'var(--text-secondary)' }}>
-                  <Lock size={11} /> Nota interna
+              <div className="flex items-center gap-1 mb-2">
+                <button
+                  onClick={() => setIsInternalNote(!isInternalNote)}
+                  className="p-1.5 rounded flex items-center justify-center"
+                  style={{ background: isInternalNote ? '#FEF3C7' : 'transparent', color: isInternalNote ? '#92400E' : 'var(--text-muted)' }}
+                  title={isInternalNote ? 'Nota interna activa (só visível para a equipa)' : 'Escrever nota interna'}
+                >
+                  <Lock size={14} />
                 </button>
-                <button onClick={() => setShowTemplates(true)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
-                  <FileText size={11} className="inline mr-1" /> Templates
+                <button
+                  onClick={() => setShowTemplates(true)}
+                  className="p-1.5 rounded hover:bg-black/5"
+                  style={{ color: 'var(--text-muted)' }}
+                  title="Templates de mensagem"
+                >
+                  <FileText size={14} />
                 </button>
-                <button onClick={() => setShowSnippets(true)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
-                  <Zap size={11} className="inline mr-1" /> Snippets
+                <button
+                  onClick={() => setShowSnippets(true)}
+                  className="p-1.5 rounded hover:bg-black/5"
+                  style={{ color: 'var(--text-muted)' }}
+                  title="Snippets (/atalho)"
+                >
+                  <Zap size={14} />
                 </button>
                 {selected.contact?.id && (
                   <button
@@ -2740,7 +2754,7 @@ export default function InboxPage() {
               {selected.contact.phone && <div><p style={{ color: 'var(--text-muted)' }}>Telefone</p><p className="font-medium">{selected.contact.phone}</p></div>}
               {selected.contact.whatsapp && <div><p style={{ color: 'var(--text-muted)' }}>WhatsApp</p><p className="font-medium">{selected.contact.whatsapp}</p></div>}
               {selected.contact.email && <div><p style={{ color: 'var(--text-muted)' }}>Email</p><p className="font-medium truncate">{selected.contact.email}</p></div>}
-              {(selected.contact.whatsapp || selected.contact.phone) && (
+              {(selected.contact.whatsapp || selected.contact.phone) && workspace?.sector !== 'clinica' && (
                 <button
                   onClick={() => openWhatsAppForCall(selected.contact?.whatsapp || selected.contact?.phone)}
                   className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium mt-2"

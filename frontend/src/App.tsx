@@ -60,6 +60,23 @@ function useIsClinic(): boolean {
   return workspace?.sector === 'clinica';
 }
 
+// Wrapper Comunicacao (Conversas + Broadcasts). Em clinicas, Chamadas ja nao
+// aparece na tab bar (funcionalidade quase-inutil neste contexto).
+function CommunicationGroupLayout() {
+  const isClinic = useIsClinic();
+  const items = isClinic
+    ? [
+        { path: '/inbox', label: 'Conversas', icon: MessageSquare },
+        { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
+      ]
+    : [
+        { path: '/inbox', label: 'Conversas', icon: MessageSquare },
+        { path: '/calls', label: 'Chamadas', icon: Phone },
+        { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
+      ];
+  return <GroupedRouteLayout items={items} />;
+}
+
 // Wrapper para o grupo Automacoes/Chatbots. Em clinicas, chatbots com fluxos
 // rigidos foram absorvidos conceptualmente pela Leizy, portanto so mostra a
 // tab de Regras.
@@ -103,12 +120,9 @@ export default function App() {
         <Route path="/" element={<Protected><AppLayout /></Protected>}>
           <Route index element={<DashboardPage />} />
 
-          {/* Fase 2: agrupamento de paginas irmas com tabs no topo */}
-          <Route element={<GroupedRouteLayout items={[
-            { path: '/inbox', label: 'Conversas', icon: MessageSquare },
-            { path: '/calls', label: 'Chamadas', icon: Phone },
-            { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
-          ]} />}>
+          {/* Comunicacao: Conversas + Broadcasts. Chamadas eliminadas
+              (quase-inutil na versao clinica; rota /calls fica sem menu). */}
+          <Route element={<CommunicationGroupLayout />}>
             <Route path="inbox" element={<InboxPage />} />
             <Route path="calls" element={<CallsPage />} />
             <Route path="broadcasts" element={<BroadcastsPage />} />
