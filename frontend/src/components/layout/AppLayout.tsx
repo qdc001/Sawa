@@ -20,24 +20,20 @@ import { useIsMobile } from '../../lib/useIsMobile';
 // continua acessivel por URL directa, mas nao aparece no drawer, porque a
 // UX naquele tamanho de ecra e demasiado apertada (drag-and-drop com dedo,
 // builders com muitos nos, etc.).
-// Fase 1 da reconfiguracao (Manual Estrategico do Klaru):
-//  - Sidebar apenas para o menu OPERACIONAL do dia a dia.
-//  - Leizy sai do meio da lista e passa a estar destacada no rodape
-//    (representa a camada de inteligencia que atravessa tudo).
-//  - Itens administrativos (Definicoes, Equipa, Integracoes, Templates)
-//    saem da sidebar e passam a estar no dropdown do avatar (topbar).
+// Fase 2 da reconfiguracao: sidebar limpa com 7 entradas operacionais.
+// Cada uma engloba sub-paginas relacionadas atraves de tabs internas.
+//   Conversas   inclui Chamadas e Broadcasts (via tabs)
+//   Pipeline    inclui Leads e Propostas (via tabs)
+//   Automacoes  inclui Chatbots (via tabs)
+// As paginas /calls /broadcasts /leads /quotes /chatbots continuam
+// acessiveis por URL directa — apenas saem do menu principal.
 const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean }[] = [
   { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
-  { path: '/leads', icon: Users, key: 'nav.leads' },
   { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline', desktopOnly: true },
-  { path: '/quotes', icon: ScrollText, key: 'nav.quotes' },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
-  { path: '/calls', icon: Phone, key: 'nav.calls' },
-  { path: '/broadcasts', icon: Radio, key: 'nav.broadcasts' },
   { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
-  { path: '/chatbots', icon: Bot, key: 'nav.chatbots', desktopOnly: true },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
 ];
 

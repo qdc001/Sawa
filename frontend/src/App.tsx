@@ -1,7 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { MessageSquare, Phone, Radio, GitBranch, Users, ScrollText, Zap, Bot } from 'lucide-react';
 import { useAuthStore } from './store';
 import AppLayout from './components/layout/AppLayout';
+import GroupedRouteLayout from './components/layout/GroupedRouteLayout';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
@@ -51,24 +53,47 @@ export default function App() {
         <Route path="/accept-invite/:token" element={<AcceptInvitePage />} />
         <Route path="/" element={<Protected><AppLayout /></Protected>}>
           <Route index element={<DashboardPage />} />
-          <Route path="pipeline" element={<PipelinePage />} />
-          <Route path="leads" element={<LeadsPage />} />
+
+          {/* Fase 2: agrupamento de paginas irmas com tabs no topo */}
+          <Route element={<GroupedRouteLayout items={[
+            { path: '/inbox', label: 'Conversas', icon: MessageSquare },
+            { path: '/calls', label: 'Chamadas', icon: Phone },
+            { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
+          ]} />}>
+            <Route path="inbox" element={<InboxPage />} />
+            <Route path="calls" element={<CallsPage />} />
+            <Route path="broadcasts" element={<BroadcastsPage />} />
+          </Route>
+
+          <Route element={<GroupedRouteLayout items={[
+            { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
+            { path: '/leads', label: 'Leads', icon: Users },
+            { path: '/quotes', label: 'Propostas', icon: ScrollText },
+          ]} />}>
+            <Route path="pipeline" element={<PipelinePage />} />
+            <Route path="leads" element={<LeadsPage />} />
+            <Route path="quotes" element={<QuotesPage />} />
+          </Route>
+
+          <Route element={<GroupedRouteLayout items={[
+            { path: '/automations', label: 'Regras', icon: Zap },
+            { path: '/chatbots', label: 'Chatbots', icon: Bot },
+          ]} />}>
+            <Route path="automations" element={<AutomationsPage />} />
+            <Route path="chatbots" element={<ChatbotsPage />} />
+          </Route>
+
+          {/* Restantes rotas sem agrupamento */}
           <Route path="contacts" element={<ContactsPage />} />
           <Route path="products" element={<ProductsPage />} />
-          <Route path="quotes" element={<QuotesPage />} />
           <Route path="modelos" element={<SectorTemplatesPage />} />
           <Route path="plano" element={<BillingPage />} />
-          <Route path="inbox" element={<InboxPage />} />
           <Route path="tasks" element={<TasksPage />} />
-          <Route path="automations" element={<AutomationsPage />} />
-          <Route path="chatbots" element={<ChatbotsPage />} />
           <Route path="sales-agent" element={<SalesAgentPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="templates" element={<TemplatesPage />} />
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="team" element={<TeamPage />} />
-          <Route path="broadcasts" element={<BroadcastsPage />} />
-          <Route path="calls" element={<CallsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
