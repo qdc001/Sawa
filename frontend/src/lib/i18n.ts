@@ -47,7 +47,7 @@ const dict: Record<string, Record<Lang, string>> = {
   'nav.quotes': { pt: 'Propostas', en: 'Quotes' },
   'nav.sectorTemplates': { pt: 'Modelos', en: 'Sectors' },
   'nav.billing': { pt: 'Plano', en: 'Plan' },
-  'nav.inbox': { pt: 'Conversas', en: 'Conversations' },
+  'nav.inbox': { pt: 'Comunicação', en: 'Communication' },
   'nav.calls': { pt: 'Chamadas', en: 'Calls' },
   'nav.tasks': { pt: 'Agenda', en: 'Agenda' },
   'nav.automations': { pt: 'Automações', en: 'Automations' },
