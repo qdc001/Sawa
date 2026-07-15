@@ -80,7 +80,6 @@ export default function AppLayout() {
     wasSettingsRef.current = isSettings;
   }, [location.pathname]);
   const [copilotOpen, setCopilotOpen] = useState(false);
-  const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const [t] = useT();
@@ -98,7 +97,7 @@ export default function AppLayout() {
       const res = await api.patch('/users/me', { status });
       updateUser({ status: res.data.status });
       toast.success(`Estado: ${STATUS_LABELS[status] || status}`);
-      setShowStatusMenu(false);
+      setShowProfileMenu(false);
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Erro');
     }
@@ -323,10 +322,17 @@ export default function AppLayout() {
             {sidebarOpen && <span className="truncate">{t('nav.salesAgent')}</span>}
           </NavLink>
 
-          {/* User */}
-          <div className="relative">
-            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
-              <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="relative flex-shrink-0" title={`Estado: ${STATUS_LABELS[user?.status || 'OFFLINE']}`}>
+          {/* Avatar do utilizador no rodape. Ao carregar abre dropdown para cima
+              com selector de estado + itens administrativos + terminar sessao.
+              O topbar nao tem avatar duplicado. */}
+          <div ref={profileMenuRef} className="relative">
+            <button
+              onClick={() => setShowProfileMenu((v) => !v)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left"
+              style={{ background: showProfileMenu ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)' }}
+              title={!sidebarOpen ? user?.name : undefined}
+            >
+              <div className="relative flex-shrink-0">
                 <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: 'var(--primary)' }}>
                   {user?.name?.[0]?.toUpperCase() || 'U'}
                 </div>
@@ -334,31 +340,70 @@ export default function AppLayout() {
                   className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
                   style={{ background: STATUS_COLORS[user?.status || 'OFFLINE'], borderColor: 'var(--sidebar-bg)' }}
                 />
-              </button>
+              </div>
               {sidebarOpen && (
-                <>
-                  <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="flex-1 min-w-0 text-left">
-                    <p className="text-xs font-medium text-white truncate">{user?.name}</p>
-                    <p className="text-xs truncate flex items-center gap-1" style={{ color: 'var(--sidebar-text)' }}>
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_COLORS[user?.status || 'OFFLINE'], display: 'inline-block' }} />
-                      {STATUS_LABELS[user?.status || 'OFFLINE']}
-                    </p>
-                  </button>
-                  <button onClick={handleLogout} className="text-gray-500 hover:text-red-400 transition-colors">
-                    <LogOut size={15} />
-                  </button>
-                </>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-white truncate">{user?.name}</p>
+                  <p className="text-xs truncate flex items-center gap-1" style={{ color: 'var(--sidebar-text)' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_COLORS[user?.status || 'OFFLINE'], display: 'inline-block' }} />
+                    {STATUS_LABELS[user?.status || 'OFFLINE']}
+                  </p>
+                </div>
               )}
-            </div>
-            {showStatusMenu && (
-              <div className="absolute bottom-full mb-1 left-0 right-0 rounded-lg shadow-lg py-1 z-30" style={{ background: 'var(--sidebar-bg-2, #1F2937)', border: '1px solid rgba(255,255,255,0.1)' }} onMouseLeave={() => setShowStatusMenu(false)}>
+              {sidebarOpen && (
+                <ChevronDown size={14} className={`flex-shrink-0 transition-transform ${showProfileMenu ? 'rotate-180' : ''}`} style={{ color: 'var(--sidebar-text)' }} />
+              )}
+            </button>
+
+            {showProfileMenu && (
+              <div
+                className="absolute bottom-full mb-1 left-0 right-0 rounded-lg shadow-lg py-1 z-50"
+                style={{ background: 'var(--sidebar-bg-2, #1F2937)', border: '1px solid rgba(255,255,255,0.1)', minWidth: 220 }}
+              >
+                <div className="px-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <p className="text-sm font-medium text-white truncate">{user?.name}</p>
+                  <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>{user?.email}</p>
+                </div>
+
+                {/* Estado */}
+                <div className="px-3 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <p className="text-[10px] uppercase tracking-wide font-semibold" style={{ color: 'var(--sidebar-text)' }}>Estado</p>
+                </div>
                 {Object.keys(STATUS_LABELS).map((s) => (
-                  <button key={s} onClick={() => changeStatus(s)} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-white/5 text-left text-white">
+                  <button
+                    key={s}
+                    onClick={() => changeStatus(s)}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-white/5 text-left text-white"
+                  >
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLORS[s], display: 'inline-block' }} />
                     {STATUS_LABELS[s]}
                     {user?.status === s && <Check size={12} className="ml-auto" />}
                   </button>
                 ))}
+
+                {/* Itens administrativos */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />
+                {userMenuConfig.map(({ path, icon: Icon, key }) => (
+                  <button
+                    key={path}
+                    onClick={() => { setShowProfileMenu(false); navigate(path); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-white/5 text-left text-white"
+                  >
+                    <Icon size={14} style={{ color: 'var(--sidebar-text)' }} />
+                    {t(key)}
+                  </button>
+                ))}
+
+                {/* Terminar sessao */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />
+                <button
+                  onClick={() => { setShowProfileMenu(false); handleLogout(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-500/20 text-left"
+                  style={{ color: '#FCA5A5' }}
+                >
+                  <LogOut size={14} />
+                  Terminar sessão
+                </button>
               </div>
             )}
           </div>
@@ -516,55 +561,6 @@ export default function AppLayout() {
 
             {/* Notifications */}
             <DesktopNotifications />
-
-            {/* Profile — dropdown com Definicoes, Equipa, Integracoes, Templates, Terminar sessao */}
-            <div ref={profileMenuRef} className="relative">
-              <button
-                onClick={() => setShowProfileMenu((v) => !v)}
-                className="flex items-center gap-2 pl-1 pr-2 sm:pl-2 sm:pr-3 py-1.5 rounded-lg transition-colors hover:bg-gray-100"
-              >
-                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: 'var(--primary)' }}>
-                  {user?.name?.[0]?.toUpperCase()}
-                </div>
-                {!isMobile && (
-                  <>
-                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{user?.name?.split(' ')[0]}</span>
-                    <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
-                  </>
-                )}
-              </button>
-              {showProfileMenu && (
-                <div
-                  className="absolute right-0 top-full mt-1 rounded-lg shadow-lg py-1 z-50"
-                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', minWidth: 200 }}
-                >
-                  <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
-                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{user?.name}</p>
-                    <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{user?.email}</p>
-                  </div>
-                  {userMenuConfig.map(({ path, icon: Icon, key }) => (
-                    <button
-                      key={path}
-                      onClick={() => { setShowProfileMenu(false); navigate(path); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-black/5 text-left"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      <Icon size={14} style={{ color: 'var(--text-muted)' }} />
-                      {t(key)}
-                    </button>
-                  ))}
-                  <div style={{ borderTop: '1px solid var(--border)' }} />
-                  <button
-                    onClick={() => { setShowProfileMenu(false); handleLogout(); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-left"
-                    style={{ color: '#DC2626' }}
-                  >
-                    <LogOut size={14} />
-                    Terminar sessão
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </header>
 
