@@ -107,10 +107,10 @@ export default function SalesAgentPage() {
       <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)', fontFamily: 'Fraunces, serif' }}>
-            <Sparkles size={22} style={{ color: 'var(--primary)' }} /> IA Vendedora
+            <Sparkles size={22} style={{ color: 'var(--primary)' }} /> Leizy
           </h1>
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            Configura a personalidade da IA, o sector em que opera, instruções específicas e vê a memória que ela vai construindo com o tempo.
+            A camada de inteligência do Klaru. Configura a personalidade, o sector em que opera, instruções específicas e vê a memória que ela vai construindo com o tempo.
           </p>
         </div>
         <button className="btn btn-primary flex items-center gap-2" onClick={save} disabled={saving}>

@@ -20,23 +20,34 @@ import { useIsMobile } from '../../lib/useIsMobile';
 // continua acessivel por URL directa, mas nao aparece no drawer, porque a
 // UX naquele tamanho de ecra e demasiado apertada (drag-and-drop com dedo,
 // builders com muitos nos, etc.).
+// Fase 1 da reconfiguracao (Manual Estrategico do Klaru):
+//  - Sidebar apenas para o menu OPERACIONAL do dia a dia.
+//  - Leizy sai do meio da lista e passa a estar destacada no rodape
+//    (representa a camada de inteligencia que atravessa tudo).
+//  - Itens administrativos (Definicoes, Equipa, Integracoes, Templates)
+//    saem da sidebar e passam a estar no dropdown do avatar (topbar).
 const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean }[] = [
   { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
-  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline', desktopOnly: true },
-  { path: '/leads', icon: Users, key: 'nav.leads' },
-  { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
-  { path: '/quotes', icon: ScrollText, key: 'nav.quotes' },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
-  { path: '/calls', icon: Phone, key: 'nav.calls' },
+  { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
+  { path: '/leads', icon: Users, key: 'nav.leads' },
+  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline', desktopOnly: true },
+  { path: '/quotes', icon: ScrollText, key: 'nav.quotes' },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
-  { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
+  { path: '/calls', icon: Phone, key: 'nav.calls' },
   { path: '/broadcasts', icon: Radio, key: 'nav.broadcasts' },
+  { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
   { path: '/chatbots', icon: Bot, key: 'nav.chatbots', desktopOnly: true },
-  { path: '/sales-agent', icon: Sparkles, key: 'nav.salesAgent' },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
-  { path: '/templates', icon: FileText, key: 'nav.templates' },
-  { path: '/integrations', icon: Plug, key: 'nav.integrations' },
+];
+
+// Itens de menu para o dropdown do avatar (canto superior direito).
+// Tudo o que se configura uma vez e raramente se toca.
+const userMenuConfig: { path: string; icon: any; key: string }[] = [
   { path: '/team', icon: Users, key: 'nav.team' },
+  { path: '/integrations', icon: Plug, key: 'nav.integrations' },
+  { path: '/templates', icon: FileText, key: 'nav.templates' },
+  { path: '/settings', icon: Settings, key: 'nav.settings' },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -73,6 +84,8 @@ export default function AppLayout() {
   }, [location.pathname]);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const [t] = useT();
   const navItems = navConfig
     .filter((n) => !(isMobile && n.desktopOnly))
@@ -162,6 +175,9 @@ export default function AppLayout() {
     const onClick = (e: MouseEvent) => {
       if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
         setShowResults(false);
+      }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setShowProfileMenu(false);
       }
     };
     document.addEventListener('mousedown', onClick);
@@ -285,15 +301,24 @@ export default function AppLayout() {
 
         {/* Bottom */}
         <div className="p-2 space-y-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          {/* Leizy destacada — camada de inteligencia que atravessa tudo,
+              nao mais um modulo. Fica separada do menu operacional para
+              comunicar essa distincao visualmente. */}
           <NavLink
-            to="/settings"
+            to="/sales-agent"
             className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive ? 'text-white' : 'text-gray-400 hover:text-white'}`
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive ? 'text-white' : 'text-white/85 hover:text-white'}`
             }
-            title={!sidebarOpen ? t('nav.settings') : undefined}
+            style={({ isActive }) => ({
+              background: isActive
+                ? 'linear-gradient(135deg, rgba(200,85,61,0.35), rgba(200,85,61,0.15))'
+                : 'linear-gradient(135deg, rgba(200,85,61,0.18), rgba(200,85,61,0.06))',
+              border: '1px solid rgba(200,85,61,0.35)',
+            })}
+            title={!sidebarOpen ? t('nav.salesAgent') : undefined}
           >
-            <Settings size={18} className="flex-shrink-0" />
-            {sidebarOpen && <span>{t('nav.settings')}</span>}
+            <Sparkles size={18} className="flex-shrink-0" style={{ color: '#FFB8A7' }} />
+            {sidebarOpen && <span className="truncate">{t('nav.salesAgent')}</span>}
           </NavLink>
 
           {/* User */}
@@ -490,18 +515,54 @@ export default function AppLayout() {
             {/* Notifications */}
             <DesktopNotifications />
 
-            {/* Profile */}
-            <button className="flex items-center gap-2 pl-1 pr-2 sm:pl-2 sm:pr-3 py-1.5 rounded-lg transition-colors hover:bg-gray-100">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: 'var(--primary)' }}>
-                {user?.name?.[0]?.toUpperCase()}
-              </div>
-              {!isMobile && (
-                <>
-                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{user?.name?.split(' ')[0]}</span>
-                  <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
-                </>
+            {/* Profile — dropdown com Definicoes, Equipa, Integracoes, Templates, Terminar sessao */}
+            <div ref={profileMenuRef} className="relative">
+              <button
+                onClick={() => setShowProfileMenu((v) => !v)}
+                className="flex items-center gap-2 pl-1 pr-2 sm:pl-2 sm:pr-3 py-1.5 rounded-lg transition-colors hover:bg-gray-100"
+              >
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: 'var(--primary)' }}>
+                  {user?.name?.[0]?.toUpperCase()}
+                </div>
+                {!isMobile && (
+                  <>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{user?.name?.split(' ')[0]}</span>
+                    <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
+                  </>
+                )}
+              </button>
+              {showProfileMenu && (
+                <div
+                  className="absolute right-0 top-full mt-1 rounded-lg shadow-lg py-1 z-50"
+                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', minWidth: 200 }}
+                >
+                  <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{user?.name}</p>
+                    <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{user?.email}</p>
+                  </div>
+                  {userMenuConfig.map(({ path, icon: Icon, key }) => (
+                    <button
+                      key={path}
+                      onClick={() => { setShowProfileMenu(false); navigate(path); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-black/5 text-left"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Icon size={14} style={{ color: 'var(--text-muted)' }} />
+                      {t(key)}
+                    </button>
+                  ))}
+                  <div style={{ borderTop: '1px solid var(--border)' }} />
+                  <button
+                    onClick={() => { setShowProfileMenu(false); handleLogout(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-left"
+                    style={{ color: '#DC2626' }}
+                  >
+                    <LogOut size={14} />
+                    Terminar sessão
+                  </button>
+                </div>
               )}
-            </button>
+            </div>
           </div>
         </header>
 
