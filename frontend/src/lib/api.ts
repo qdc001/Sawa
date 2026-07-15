@@ -186,6 +186,10 @@ export interface Workspace {
   appointmentLabelSingular?: string;
   appointmentLabelPlural?: string;
   appointmentTypes?: Array<{ key: string; label: string; defaultDurationMin: number }>;
+  appointmentReminderEnabled?: boolean;
+  appointmentReminderHours?: number;
+  appointmentReminderTemplate?: string | null;
+  sector?: string;
 }
 
 export interface DigestTemplate {
