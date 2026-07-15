@@ -15,6 +15,7 @@ import { useTaskOptions } from '../lib/taskOptions';
 import { CustomFieldInput, AddLeadModal } from './PipelinePage';
 import TaskConflictDialog from '../components/TaskConflictDialog';
 import { useTerminology } from '../lib/terminology';
+import { openWhatsAppForCall } from '../lib/whatsappCall';
 
 type SortKey = 'firstName' | 'company' | 'createdAt';
 type SortDir = 'asc' | 'desc';
@@ -1188,7 +1189,16 @@ export default function ContactsPage() {
                           <MessageCircle size={14} style={{ color: '#25D366' }} />
                         </button>
                       )}
-                      {c.phone && <a href={`tel:${cleanPhone(c.phone)}`} className="p-1.5 rounded hover:bg-slate-100" title="Telefonar" onClick={(e) => e.stopPropagation()}><PhoneCall size={14} style={{ color: 'var(--text-secondary)' }} /></a>}
+                      {(c.whatsapp || c.phone) && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openWhatsAppForCall(c.whatsapp || c.phone); }}
+                          className="p-1.5 rounded hover:bg-green-50"
+                          title="Chamar via WhatsApp (abre a conversa; carrega no ícone 📞 ou 📹)"
+                        >
+                          <Phone size={14} style={{ color: '#25D366' }} />
+                        </button>
+                      )}
+                      {c.phone && <a href={`tel:${cleanPhone(c.phone)}`} className="p-1.5 rounded hover:bg-slate-100" title="Chamada telefónica normal (custa dinheiro)" onClick={(e) => e.stopPropagation()}><PhoneCall size={14} style={{ color: 'var(--text-secondary)' }} /></a>}
                       {c.email && <a href={`mailto:${c.email}`} className="p-1.5 rounded hover:bg-slate-100" title="Email" onClick={(e) => e.stopPropagation()}><Mail size={14} style={{ color: 'var(--text-secondary)' }} /></a>}
                       <button onClick={(e) => { e.stopPropagation(); setNewTaskFor(c); }} className="p-1.5 rounded hover:bg-blue-50" title="Adicionar tarefa"><CheckSquare size={14} style={{ color: 'var(--primary)' }} /></button>
                       <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-slate-100" title="Editar"><Edit3 size={14} style={{ color: 'var(--text-secondary)' }} /></button>
