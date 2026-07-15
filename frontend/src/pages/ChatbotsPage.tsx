@@ -9,6 +9,8 @@ import 'reactflow/dist/style.css';
 import toast from 'react-hot-toast';
 import api, { ChatbotFlow, ChatbotTrigger, ChatbotNodeType, ChatbotSession, ChatbotLogEntry } from '../lib/api';
 import { useTaskOptions } from '../lib/taskOptions';
+import { useAuthStore } from '../store';
+import { useNavigate } from 'react-router-dom';
 
 // ── Custom Nodes ──────────────────────────────────────
 const nodeStyle = (color: string, selected = false) => ({
@@ -1963,13 +1965,39 @@ export default function ChatbotsPage() {
     );
   }
 
+  const workspace = useAuthStore((s) => s.workspace) as any;
+  const isClinic = workspace?.sector === 'clinica';
+  const navigate = useNavigate();
+
   return (
     <div className="p-6 animate-fade-in">
+      {isClinic && (
+        <div
+          className="rounded-lg p-4 mb-4 flex items-start gap-3"
+          style={{ background: 'linear-gradient(135deg, rgba(200,85,61,0.10), rgba(200,85,61,0.03))', border: '1px solid rgba(200,85,61,0.25)' }}
+        >
+          <span style={{ fontSize: 20 }}>✨</span>
+          <div className="flex-1 text-sm">
+            <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+              Chatbots foram substituídos pela Leizy
+            </p>
+            <p style={{ color: 'var(--text-secondary)' }}>
+              Em clínicas, a Leizy substitui fluxos rígidos: compreende contexto, aprende com cada conversa e adapta-se ao vocabulário da tua clínica. Não precisas de construir fluxos passo-a-passo. Se ainda tens chatbots antigos aqui, considera desactivá-los.
+            </p>
+            <button
+              onClick={() => navigate('/sales-agent')}
+              className="mt-2 btn btn-primary text-xs py-1.5 px-3"
+            >
+              Configurar a Leizy
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold" style={{ fontFamily: 'Manrope, sans-serif' }}>Chatbots</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Cria fluxos de conversação automáticos sem código
+            {isClinic ? 'Chatbots antigos (recomendado migrar para a Leizy)' : 'Cria fluxos de conversação automáticos sem código'}
           </p>
         </div>
         <div className="flex items-center gap-2">

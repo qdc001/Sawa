@@ -762,7 +762,7 @@ export default function SettingsPage() {
                   t.type === 'welcome' ? 'Boas-vindas' :
                   t.type === 'password_reset' ? 'Reposicao de password' :
                   t.type === 'invite' ? 'Convite de membro' :
-                  t.type === 'csat' ? 'Pedido de avaliação (CSAT)' :
+                  t.type === 'csat' ? 'Pedido de avaliação pós-consulta' :
                   t.type === 'lead_assigned' ? 'Lead atribuido' :
                   t.type === 'task_overdue' ? 'Tarefa em atraso' : t.type
                 }</span>
@@ -1356,7 +1356,7 @@ export default function SettingsPage() {
               <div className="rounded-lg p-3" style={{ border: '1px solid #C8553D' }}>
                 <p className="text-sm font-medium">Repor todos os dados (reset)</p>
                 <p className="text-xs mt-0.5 mb-2" style={{ color: 'var(--text-muted)' }}>
-                  Apaga mensagens, conversas, leads, contactos, tarefas, propostas, broadcasts, metas e CSAT. Mantem a tua conta, a equipa, as integrações, as definições e a estrutura (pipelines, etapas, tags, campos e produtos).
+                  Apaga mensagens, conversas, leads, contactos, tarefas, propostas, broadcasts, metas e avaliações. Mantem a tua conta, a equipa, as integrações, as definições e a estrutura (pipelines, etapas, tags, campos e produtos).
                 </p>
                 <button
                   onClick={() => { setResetDataConfirm(''); setShowResetDataModal(true); }}
@@ -1377,7 +1377,7 @@ export default function SettingsPage() {
                   <h3 className="font-semibold">Repor todos os dados</h3>
                 </div>
                 <p className="text-sm mb-3" style={{ color: 'var(--text-muted)' }}>
-                  Esta acção e <strong>irreversivel</strong>. Vais apagar todas as mensagens, conversas, leads, contactos, tarefas, propostas, broadcasts, metas e CSAT deste workspace. A conta, a equipa, as integrações, as definições e a estrutura mantem-se.
+                  Esta acção e <strong>irreversivel</strong>. Vais apagar todas as mensagens, conversas, leads, contactos, tarefas, propostas, broadcasts, metas e avaliações deste workspace. A conta, a equipa, as integrações, as definições e a estrutura mantem-se.
                 </p>
                 <p className="text-sm mb-2">Para confirmar, escreve o nome do workspace: <strong>{ws?.name}</strong></p>
                 <input

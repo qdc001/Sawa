@@ -137,17 +137,23 @@ function slugify(name: string): string {
     .slice(0, 40);
 }
 
-// GET /api/sector-templates — catálogo
+// GET /api/sector-templates — catálogo. Klaru posiciona-se para clinicas;
+// filtramos os outros sectores para nao poluir a UI. Se um dia voltarmos a
+// multi-vertical, remove-se este filtro.
+const ALLOWED_SECTORS = new Set(['clinica']);
+
 router.get('/', (_req: AuthRequest, res: Response) => {
-  const list = Object.entries(SECTORS).map(([key, s]) => ({
-    key,
-    label: s.label,
-    description: s.description,
-    pipeline: s.pipeline.name,
-    stages: s.pipeline.stages.map((st) => st.name),
-    fields: s.fields.map((f) => f.name),
-    tags: s.tags.map((t) => t.name),
-  }));
+  const list = Object.entries(SECTORS)
+    .filter(([key]) => ALLOWED_SECTORS.has(key))
+    .map(([key, s]) => ({
+      key,
+      label: s.label,
+      description: s.description,
+      pipeline: s.pipeline.name,
+      stages: s.pipeline.stages.map((st) => st.name),
+      fields: s.fields.map((f) => f.name),
+      tags: s.tags.map((t) => t.name),
+    }));
   res.json(list);
 });
 
@@ -157,6 +163,7 @@ router.post('/:key/apply', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN', 'MANAGER'].includes(req.user!.role)) {
       throw new AppError('Sem permissão para aplicar modelos', 403);
     }
+    if (!ALLOWED_SECTORS.has(req.params.key)) throw new AppError('Modelo de sector nao disponivel', 404);
     const sector = SECTORS[req.params.key];
     if (!sector) throw new AppError('Modelo de sector desconhecido', 404);
     const wsId = req.user!.workspaceId;
