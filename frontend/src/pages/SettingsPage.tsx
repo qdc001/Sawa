@@ -457,25 +457,17 @@ export default function SettingsPage() {
     } finally { setResetDataLoading(false); }
   };
 
-  const isClinic = (ws as any)?.sector === 'clinica';
+  // Menu Definicoes definitivo do Klaru (posicionamento clinico).
+  // Eliminados: Notificacoes, Produtos, Modelos, Templates de email, Auto-tarefa.
+  // Rotas continuam acessiveis por URL (?tab=notifications etc) para
+  // administradores que precisem, mas nao aparecem no menu.
   const tabs = [
     { v: 'profile' as const, label: t('settings.profile'), icon: UserIcon },
     { v: 'preferences' as const, label: t('settings.preferences'), icon: Palette },
     { v: 'security' as const, label: t('settings.security'), icon: Shield },
-    // Em clinicas escondemos:
-    //   - Notificacoes (a maior parte dos alertas ja e por WhatsApp)
-    //   - Produtos (nao aplicavel; sera reintroduzido como Servicos)
-    //   - Modelos de sector (preset ja aplicado, nao ha valor em reaplicar)
-    //   - Templates de email (poucas clinicas usam email transaccional)
-    //   - Auto-tarefa (funcao avancada; a maior parte usa "Enviar com tarefa" no Inbox)
-    ...(!isClinic ? [{ v: 'notifications' as const, label: t('settings.notifications'), icon: Bell }] : []),
-    ...(!isClinic ? [{ v: 'products' as const, label: t('nav.products'), icon: Package }] : []),
-    ...(!isClinic ? [{ v: 'sectors' as const, label: t('nav.sectorTemplates'), icon: LayoutTemplate }] : []),
     { v: 'billing' as const, label: t('nav.billing'), icon: CreditCard },
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: t('settings.workspace'), icon: Building2 }] : []),
-    ...(isAdminOrOwner && !isClinic ? [{ v: 'emailTemplates' as const, label: t('settings.emailTemplates'), icon: FileTextIcon }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: t('settings.audit'), icon: History }] : []),
-    ...(isAdminOrOwner && !isClinic ? [{ v: 'autoTask' as const, label: 'Auto-tarefa', icon: CheckSquare }] : []),
     ...(isPlatformAdmin ? [{ v: 'aiLimits' as const, label: 'Limites IA', icon: Bell }] : []),
   ];
 

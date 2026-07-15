@@ -60,50 +60,34 @@ function useIsClinic(): boolean {
   return workspace?.sector === 'clinica';
 }
 
-// Wrapper Comunicacao (Conversas + Broadcasts). Em clinicas, Chamadas ja nao
-// aparece na tab bar (funcionalidade quase-inutil neste contexto).
+// Wrapper Comunicacao. Chamadas foi eliminada do produto (Klaru posiciona-se
+// para clinicas onde chamadas via WhatsApp Web ainda nao sao API-driveable).
+// A rota /calls continua a existir por URL para nao quebrar links guardados.
 function CommunicationGroupLayout() {
-  const isClinic = useIsClinic();
-  const items = isClinic
-    ? [
-        { path: '/inbox', label: 'Conversas', icon: MessageSquare },
-        { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
-      ]
-    : [
-        { path: '/inbox', label: 'Conversas', icon: MessageSquare },
-        { path: '/calls', label: 'Chamadas', icon: Phone },
-        { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
-      ];
-  return <GroupedRouteLayout items={items} />;
+  return (
+    <GroupedRouteLayout items={[
+      { path: '/inbox', label: 'Conversas', icon: MessageSquare },
+      { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
+    ]} />
+  );
 }
 
-// Wrapper para o grupo Automacoes/Chatbots. Em clinicas, chatbots com fluxos
-// rigidos foram absorvidos conceptualmente pela Leizy, portanto so mostra a
-// tab de Regras.
+// Wrapper Automacoes. Chatbots absorvido conceptualmente pela Leizy.
 function AutomationsGroupLayout() {
-  const isClinic = useIsClinic();
-  const items = isClinic
-    ? [{ path: '/automations', label: 'Rotinas', icon: Zap }]
-    : [
-        { path: '/automations', label: 'Regras', icon: Zap },
-        { path: '/chatbots', label: 'Chatbots', icon: Bot },
-      ];
-  return <GroupedRouteLayout items={items} />;
+  return (
+    <GroupedRouteLayout items={[
+      { path: '/automations', label: 'Rotinas', icon: Zap },
+    ]} />
+  );
 }
 
-// Wrapper para o grupo Pipeline. Em clinicas, este grupo inteiro nao aparece
-// na sidebar (Segundo corte). Se algum utilizador chegar por URL directa,
-// mostra so a tab Pipeline (sem Leads/Propostas).
+// Wrapper Pipeline. Leads e Propostas eliminados do produto para clinicas.
 function PipelineGroupLayout() {
-  const isClinic = useIsClinic();
-  const items = isClinic
-    ? [{ path: '/pipeline', label: 'Pipeline', icon: GitBranch }]
-    : [
-        { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
-        { path: '/leads', label: 'Leads', icon: Users },
-        { path: '/quotes', label: 'Propostas', icon: ScrollText },
-      ];
-  return <GroupedRouteLayout items={items} />;
+  return (
+    <GroupedRouteLayout items={[
+      { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
+    ]} />
+  );
 }
 
 export default function App() {

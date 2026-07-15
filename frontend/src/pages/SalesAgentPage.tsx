@@ -126,15 +126,14 @@ export default function SalesAgentPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b overflow-x-auto" style={{ borderColor: 'var(--border)' }}>
-        {(([
+        {([
           { id: 'persona', label: 'Persona', icon: Sparkles },
-          // Tab "Sector" so aparece se nao for uma clinica: em clinicas o
-          // preset ja fixou o sector e nao ha valor em mudar aqui.
-          !isClinic && { id: 'sector' as Tab, label: 'Sector', icon: Building2 },
+          // Tab "Sector" removida do produto: o preset da instalacao ja fixa
+          // o sector clinico. Configurar mais aqui nao acrescenta valor.
           { id: 'instructions', label: 'Instruções', icon: MessageSquare },
           { id: 'coach', label: 'Treinar Leizy', icon: GraduationCap },
           { id: 'memory', label: 'Memória aprendida', icon: Brain },
-        ].filter(Boolean)) as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
+        ] as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -153,8 +152,8 @@ export default function SalesAgentPage() {
       {tab === 'coach' ? (
         <AiCoachingPanel />
       ) : (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 space-y-5">
+      <div>
+        <div className="space-y-5 max-w-3xl">
           {tab === 'persona' && (
             <div className="card p-5">
               <h2 className="text-base font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Quem é a Leizy</h2>
@@ -275,73 +274,10 @@ export default function SalesAgentPage() {
           )}
         </div>
 
-        {/* Painel lateral: conhecimento activo. Em clinicas, escondemos o
-            conteudo de "bibliotecas de vendas" (principios Cialdini, Voss,
-            Rackham) que nao faz sentido para uma assistente de relacionamento
-            com pacientes. A Leizy continua a receber esses principios como
-            referencia interna no prompt do sistema. */}
-        <aside className="space-y-4">
-          {!isClinic && knowledge && (
-            <>
-              <div className="card p-4">
-                <p className="text-xs uppercase font-semibold tracking-wide mb-2" style={{ color: 'var(--text-muted)' }}>Conhecimento activo</p>
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div className="rounded p-2 text-center" style={{ background: 'var(--surface-2)' }}>
-                    <p className="text-xl font-bold" style={{ color: 'var(--primary)' }}>{knowledge.stats.principlesActive}</p>
-                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>princípios activos</p>
-                  </div>
-                  <div className="rounded p-2 text-center" style={{ background: 'var(--surface-2)' }}>
-                    <p className="text-xl font-bold" style={{ color: 'var(--primary)' }}>{knowledge.stats.principlesAvailable}</p>
-                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>disponíveis</p>
-                  </div>
-                </div>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  Sector: <strong>{knowledge.sector.label}</strong>
-                </p>
-              </div>
-
-              <div className="card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs uppercase font-semibold tracking-wide" style={{ color: 'var(--text-muted)' }}>Bibliotecas</p>
-                  <BookOpen size={13} style={{ color: 'var(--text-muted)' }} />
-                </div>
-                <ul className="space-y-1.5">
-                  {knowledge.sourceBooks.map((b) => (
-                    <li key={b.book} className="text-xs">
-                      <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{b.book}</p>
-                      <p style={{ color: 'var(--text-muted)' }}>{b.author}</p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="card p-4">
-                <p className="text-xs uppercase font-semibold tracking-wide mb-2" style={{ color: 'var(--text-muted)' }}>Princípios activos agora</p>
-                <ul className="space-y-2">
-                  {knowledge.activePrinciples.map((p) => (
-                    <li key={p.key} className="text-xs">
-                      <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{p.title}</p>
-                      <p style={{ color: 'var(--text-muted)' }}>{p.author}</p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <button
-                onClick={() => setShowSystemPrompt(!showSystemPrompt)}
-                className="text-xs flex items-center gap-1.5 px-3 py-2 rounded hover:bg-black/5 w-full"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                <RefreshCw size={12} /> {showSystemPrompt ? 'Esconder' : 'Ver'} prompt completo (debug)
-              </button>
-              {showSystemPrompt && (
-                <pre className="card p-3 text-[10px] overflow-auto max-h-80 whitespace-pre-wrap" style={{ color: 'var(--text-secondary)', background: 'var(--surface-2)' }}>
-                  {knowledge.systemPrompt}
-                </pre>
-              )}
-            </>
-          )}
-        </aside>
+        {/* Painel lateral 'Conhecimento activo' / 'Bibliotecas' removido do
+            produto. Eram referencias de vendas (Cialdini, Voss, Rackham) que
+            nao pertencem a UI de uma assistente de clinica. A Leizy continua
+            a receber esses principios internamente no prompt do sistema. */}
       </div>
       )}
     </div>

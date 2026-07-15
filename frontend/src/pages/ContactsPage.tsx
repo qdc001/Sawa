@@ -1190,7 +1190,7 @@ export default function ContactsPage() {
                           <MessageCircle size={14} style={{ color: '#25D366' }} />
                         </button>
                       )}
-                      {c.phone && workspaceSector !== 'clinica' && <a href={`tel:${cleanPhone(c.phone)}`} className="p-1.5 rounded hover:bg-slate-100" title="Chamada telefónica" onClick={(e) => e.stopPropagation()}><PhoneCall size={14} style={{ color: 'var(--text-secondary)' }} /></a>}
+                      {/* Botao 'Telefonar' (tel:) eliminado (Klaru posiciona-se para clinicas) */}
                       {c.email && <a href={`mailto:${c.email}`} className="p-1.5 rounded hover:bg-slate-100" title="Email" onClick={(e) => e.stopPropagation()}><Mail size={14} style={{ color: 'var(--text-secondary)' }} /></a>}
                       <button onClick={(e) => { e.stopPropagation(); setNewTaskFor(c); }} className="p-1.5 rounded hover:bg-blue-50" title="Adicionar tarefa"><CheckSquare size={14} style={{ color: 'var(--primary)' }} /></button>
                       <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-slate-100" title="Editar"><Edit3 size={14} style={{ color: 'var(--text-secondary)' }} /></button>
