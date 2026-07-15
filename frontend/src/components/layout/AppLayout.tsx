@@ -308,7 +308,7 @@ export default function AppLayout() {
           <NavLink
             to="/sales-agent"
             className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive ? 'text-white' : 'text-white/85 hover:text-white'}`
+              `leizy-attention ${isActive ? 'leizy-active' : ''} flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive ? 'text-white' : 'text-white/85 hover:text-white'}`
             }
             style={({ isActive }) => ({
               background: isActive
@@ -318,7 +318,7 @@ export default function AppLayout() {
             })}
             title={!sidebarOpen ? t('nav.salesAgent') : undefined}
           >
-            <Sparkles size={18} className="flex-shrink-0" style={{ color: '#FFB8A7' }} />
+            <Sparkles size={18} className="leizy-sparkle flex-shrink-0" style={{ color: '#FFB8A7' }} />
             {sidebarOpen && <span className="truncate">{t('nav.salesAgent')}</span>}
           </NavLink>
 
