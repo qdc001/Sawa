@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { runDigestForWorkspace, previewDigestForUser, DEFAULT_DIGEST_TEMPLATE, notifyWhatsAppAssignment, testAssignmentNotifyForUser } from '../lib/dailyTaskDigest';
+import { PRESETS } from '../lib/workspacePresets';
 
 import prisma from '../lib/prisma';
 const router = Router();
@@ -24,7 +25,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled, aiBrandVoice, contactLabelSingular, contactLabelPlural } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled, aiBrandVoice, contactLabelSingular, contactLabelPlural, appointmentLabelSingular, appointmentLabelPlural, appointmentTypes } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -52,6 +53,9 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(aiBrandVoice !== undefined && { aiBrandVoice: aiBrandVoice || null }),
         ...(contactLabelSingular !== undefined && { contactLabelSingular: String(contactLabelSingular).trim() || 'Contacto' }),
         ...(contactLabelPlural !== undefined && { contactLabelPlural: String(contactLabelPlural).trim() || 'Contactos' }),
+        ...(appointmentLabelSingular !== undefined && { appointmentLabelSingular: String(appointmentLabelSingular).trim() || 'Marcação' }),
+        ...(appointmentLabelPlural !== undefined && { appointmentLabelPlural: String(appointmentLabelPlural).trim() || 'Marcações' }),
+        ...(appointmentTypes !== undefined && { appointmentTypes }),
       },
     });
     await prisma.auditLog.create({
@@ -69,6 +73,117 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('workspace:updated', workspace);
 
     res.json(workspace);
+  } catch (e) { next(e); }
+});
+
+// POST /api/workspaces/me/apply-preset
+// Body: { preset: 'clinic' }
+// Aplica um preset vertical completo ao workspace: terminologia, sector,
+// persona IA, tipos de tarefa, config de auto-tarefa, tipos de consulta,
+// templates de mensagem e campos personalizados de Contact.
+// Non-destrutivo para templates/customFields: skip se ja existir com o
+// mesmo nome/key. Sobrescreve terminologia e configs porque essas sao
+// escalares unicas.
+router.post('/me/apply-preset', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
+      throw new AppError('Apenas OWNER/ADMIN pode aplicar presets', 403);
+    }
+    const { preset: presetKey } = req.body || {};
+    const preset = PRESETS[presetKey];
+    if (!preset) throw new AppError('Preset invalido', 400);
+
+    const workspaceId = req.user!.workspaceId;
+
+    // 1. Actualizar campos escalares do workspace
+    const workspace = await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        contactLabelSingular: preset.contactLabelSingular,
+        contactLabelPlural: preset.contactLabelPlural,
+        appointmentLabelSingular: preset.appointmentLabelSingular,
+        appointmentLabelPlural: preset.appointmentLabelPlural,
+        appointmentTypes: preset.appointmentTypes as any,
+        sector: preset.sector,
+        aiAgentName: preset.aiAgentName,
+        aiAgentRole: preset.aiAgentRole,
+        aiAgentInstructions: preset.aiAgentInstructions,
+        aiBrandVoice: preset.aiBrandVoice,
+        taskTypes: preset.taskTypes as any,
+        autoTaskConfig: {
+          workTypes: preset.autoTaskWorkTypes,
+          subjects: preset.autoTaskSubjects,
+          announceTemplate: preset.autoTaskAnnounceTemplate,
+          deliverTemplate: preset.autoTaskDeliverTemplate,
+          announceTaskTitleTemplate: preset.autoTaskAnnounceTaskTitleTemplate,
+          followupTitleTemplate: preset.autoTaskFollowupTitleTemplate,
+          followupDays: 3,
+        } as any,
+      },
+    });
+
+    // 2. Criar templates de mensagem (skip se ja existir com o mesmo nome)
+    let templatesCreated = 0;
+    for (const tpl of preset.messageTemplates) {
+      const existing = await prisma.messageTemplate.findFirst({
+        where: { workspaceId, name: tpl.name },
+      });
+      if (existing) continue;
+      // Extrair variaveis {xxx} do content
+      const variables = Array.from(new Set((tpl.content.match(/\{(\w+)\}/g) || []).map((v) => v.slice(1, -1))));
+      await prisma.messageTemplate.create({
+        data: {
+          workspaceId,
+          name: tpl.name,
+          content: tpl.content,
+          category: tpl.category as any,
+          channel: tpl.channel as any,
+          variables,
+        },
+      });
+      templatesCreated++;
+    }
+
+    // 3. Criar campos personalizados de Contact (skip se ja existir com o mesmo key)
+    let customFieldsCreated = 0;
+    for (const cf of preset.customFields) {
+      const existing = await prisma.customField.findFirst({
+        where: { workspaceId, entity: cf.entity, key: cf.key },
+      });
+      if (existing) continue;
+      await prisma.customField.create({
+        data: {
+          workspaceId,
+          entity: cf.entity,
+          name: cf.name,
+          key: cf.key,
+          type: cf.type as any,
+          options: cf.options || [],
+          position: cf.position,
+        },
+      });
+      customFieldsCreated++;
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        workspaceId,
+        userId: req.user!.id,
+        action: 'UPDATE',
+        entity: 'workspace',
+        description: `Preset '${preset.label}' aplicado por ${req.user!.email}. Templates novos: ${templatesCreated}, campos personalizados novos: ${customFieldsCreated}.`,
+      },
+    });
+
+    const io = (global as any).io;
+    if (io) io.to(`workspace:${workspaceId}`).emit('workspace:updated', workspace);
+
+    res.json({
+      workspace,
+      templatesCreated,
+      customFieldsCreated,
+      preset: preset.label,
+    });
   } catch (e) { next(e); }
 });
 

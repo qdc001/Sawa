@@ -86,6 +86,13 @@ model Workspace {
   // Contact no schema — so a label visivel muda.
   contactLabelSingular          String    @default("Contacto")
   contactLabelPlural            String    @default("Contactos")
+  // Terminologia customizavel para Marcacoes (Fase 3.4: clinicas usam "Consulta").
+  appointmentLabelSingular      String    @default("Marcação")
+  appointmentLabelPlural        String    @default("Marcações")
+  // Tipos de consulta/marcacao configuraveis. Array de
+  // { key, label, defaultDurationMin }. Ex: [{key:'primeira',label:'Primeira consulta',defaultDurationMin:45}]
+  // Vazio = sem dropdown de tipo (usa so texto livre no titulo).
+  appointmentTypes              Json      @default("[]")
   // Subscrição/plano: STARTER | GROWTH | BUSINESS | ENTERPRISE
   plan                          String    @default("STARTER")
   trialEndsAt                   DateTime?

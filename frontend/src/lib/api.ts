@@ -183,6 +183,9 @@ export interface Workspace {
   aiBrandVoice?: string | null;
   contactLabelSingular?: string;
   contactLabelPlural?: string;
+  appointmentLabelSingular?: string;
+  appointmentLabelPlural?: string;
+  appointmentTypes?: Array<{ key: string; label: string; defaultDurationMin: number }>;
 }
 
 export interface DigestTemplate {

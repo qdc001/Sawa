@@ -4,6 +4,7 @@ import { MessageSquare, Phone, Radio, GitBranch, Users, ScrollText, Zap, Bot, Ch
 import { useAuthStore } from './store';
 import AppLayout from './components/layout/AppLayout';
 import GroupedRouteLayout from './components/layout/GroupedRouteLayout';
+import { useTerminology } from './lib/terminology';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
@@ -39,6 +40,18 @@ function Protected({ children }: { children: React.ReactNode }) {
 function Public({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
   return !isAuthenticated ? <>{children}</> : <Navigate to="/" replace />;
+}
+
+// Wrapper que usa a terminologia dinamica do workspace para a tab de Agenda.
+// "Marcações" pode virar "Consultas" para clinicas.
+function AgendaGroupLayout() {
+  const terms = useTerminology();
+  return (
+    <GroupedRouteLayout items={[
+      { path: '/tasks', label: 'Tarefas', icon: CheckSquare },
+      { path: '/appointments', label: terms.appointments, icon: CalendarClock },
+    ]} />
+  );
 }
 
 export default function App() {
@@ -84,11 +97,8 @@ export default function App() {
             <Route path="chatbots" element={<ChatbotsPage />} />
           </Route>
 
-          {/* Agenda agrupa Tarefas e Marcacoes (Fase 3) */}
-          <Route element={<GroupedRouteLayout items={[
-            { path: '/tasks', label: 'Tarefas', icon: CheckSquare },
-            { path: '/appointments', label: 'Marcações', icon: CalendarClock },
-          ]} />}>
+          {/* Agenda agrupa Tarefas e Marcacoes/Consultas (label dinamica) */}
+          <Route element={<AgendaGroupLayout />}>
             <Route path="tasks" element={<TasksPage />} />
             <Route path="appointments" element={<AppointmentsPage />} />
           </Route>

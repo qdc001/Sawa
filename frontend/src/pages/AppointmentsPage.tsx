@@ -7,6 +7,7 @@ import { Plus, Loader2, Trash2, X, CalendarClock, MapPin, User as UserIcon, Sear
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { useTerminology } from '../lib/terminology';
+import { useAuthStore } from '../store';
 
 interface Contact {
   id: string;
@@ -66,7 +67,7 @@ export default function AppointmentsPage() {
     if (filterFrom) params.set('from', new Date(filterFrom).toISOString());
     api.get(`/appointments?${params.toString()}`)
       .then(({ data }) => setItems(Array.isArray(data) ? data : []))
-      .catch(() => toast.error('Erro a carregar marcações'))
+      .catch(() => toast.error(`Erro a carregar ${terms.appointments.toLowerCase()}`))
       .finally(() => setLoading(false));
   };
 
@@ -83,11 +84,11 @@ export default function AppointmentsPage() {
   }, [items]);
 
   const del = async (a: Appointment) => {
-    if (!confirm(`Eliminar marcação "${a.title}"?`)) return;
+    if (!confirm(`Eliminar ${terms.appointment.toLowerCase()} "${a.title}"?`)) return;
     try {
       await api.delete(`/appointments/${a.id}`);
       setItems((p) => p.filter((x) => x.id !== a.id));
-      toast.success('Marcação eliminada');
+      toast.success(`${terms.appointment} eliminada`);
     } catch { toast.error('Erro a eliminar'); }
   };
 
@@ -105,10 +106,10 @@ export default function AppointmentsPage() {
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h1 className="text-lg font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
           <CalendarClock size={18} style={{ color: 'var(--primary)' }} />
-          Marcações
+          {terms.appointments}
         </h1>
         <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
-          {items.length} {items.length === 1 ? 'marcação' : 'marcações'}
+          {items.length} {items.length === 1 ? terms.appointment.toLowerCase() : terms.appointments.toLowerCase()}
         </span>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           <select
@@ -132,7 +133,7 @@ export default function AppointmentsPage() {
             onClick={() => setCreating(true)}
             className="btn btn-primary flex items-center gap-1.5"
           >
-            <Plus size={14} /> Nova marcação
+            <Plus size={14} /> Nova {terms.appointment.toLowerCase()}
           </button>
         </div>
       </div>
@@ -143,7 +144,7 @@ export default function AppointmentsPage() {
       ) : grouped.length === 0 ? (
         <div className="text-center py-12" style={{ color: 'var(--text-muted)' }}>
           <CalendarClock size={32} className="mx-auto mb-2 opacity-40" />
-          <p className="text-sm">Sem marcações. Cria a primeira para começar.</p>
+          <p className="text-sm">Sem {terms.appointments.toLowerCase()}. Cria {terms.appointment === 'Consulta' ? 'a primeira' : 'a primeira'} para começar.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -236,6 +237,7 @@ export default function AppointmentsPage() {
         <AppointmentModal
           appointment={editing}
           contactLabel={terms.contact}
+          appointmentLabel={terms.appointment}
           onClose={() => { setCreating(false); setEditing(null); }}
           onSaved={(saved) => {
             if (editing) {
@@ -254,14 +256,18 @@ export default function AppointmentsPage() {
 
 // ============ Modal de criacao/edicao ============
 function AppointmentModal({
-  appointment, contactLabel, onClose, onSaved,
+  appointment, contactLabel, appointmentLabel, onClose, onSaved,
 }: {
   appointment: Appointment | null;
   contactLabel: string;
+  appointmentLabel: string;
   onClose: () => void;
   onSaved: (a: Appointment) => void;
 }) {
   const isEdit = !!appointment?.id;
+  const workspace = (useAuthStore((s) => s.workspace) as any);
+  const appointmentTypes: Array<{ key: string; label: string; defaultDurationMin: number }> =
+    Array.isArray(workspace?.appointmentTypes) ? workspace.appointmentTypes : [];
   const [title, setTitle] = useState(appointment?.title || '');
   const [description, setDescription] = useState(appointment?.description || '');
   const [location, setLocation] = useState(appointment?.location || '');
@@ -313,7 +319,7 @@ function AppointmentModal({
         ? await api.patch(`/appointments/${appointment!.id}`, body)
         : await api.post('/appointments', body);
       onSaved(data);
-      toast.success(isEdit ? 'Marcação actualizada' : 'Marcação criada');
+      toast.success(isEdit ? `${appointmentLabel} actualizada` : `${appointmentLabel} criada`);
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Erro a guardar');
     } finally { setSaving(false); }
@@ -332,7 +338,7 @@ function AppointmentModal({
       >
         <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid var(--border)' }}>
           <h3 className="font-bold text-base">
-            {isEdit ? 'Editar marcação' : 'Nova marcação'}
+            {isEdit ? `Editar ${appointmentLabel.toLowerCase()}` : `Nova ${appointmentLabel.toLowerCase()}`}
           </h3>
           <button onClick={onClose}><X size={18} /></button>
         </div>
@@ -379,6 +385,33 @@ function AppointmentModal({
             </div>
           </div>
 
+          {/* Tipo de consulta (se o workspace tiver appointmentTypes configurados) */}
+          {appointmentTypes.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Tipo</label>
+              <div className="flex flex-wrap gap-1">
+                {appointmentTypes.map((tp) => (
+                  <button
+                    key={tp.key}
+                    type="button"
+                    onClick={() => {
+                      setTitle(tp.label);
+                      setDurationMin(tp.defaultDurationMin);
+                    }}
+                    className="text-xs px-2 py-1 rounded"
+                    style={{
+                      background: title === tp.label ? 'var(--primary)' : 'var(--surface-3)',
+                      color: title === tp.label ? 'white' : 'var(--text-secondary)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    {tp.label} <span className="opacity-60">· {tp.defaultDurationMin}min</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Titulo */}
           <div>
             <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Título *</label>
@@ -386,7 +419,7 @@ function AppointmentModal({
               className="input-base w-full"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Consulta de rotina, Reunião de proposta..."
+              placeholder={appointmentTypes.length > 0 ? 'Escolhe um tipo acima ou escreve livre' : 'Consulta de rotina, reunião...'}
             />
           </div>
 
@@ -455,7 +488,7 @@ function AppointmentModal({
           {/* Notas (apos a marcacao) */}
           {isEdit && (status === 'COMPLETED' || status === 'NO_SHOW') && (
             <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Notas pós-marcação</label>
+              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Notas pós-{appointmentLabel.toLowerCase()}</label>
               <textarea
                 className="input-base w-full"
                 rows={3}
@@ -480,7 +513,7 @@ function AppointmentModal({
             disabled={saving || !contactId || !title.trim()}
             className="btn btn-primary flex-1 py-2 flex items-center justify-center gap-2"
           >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : (isEdit ? 'Guardar' : 'Criar marcação')}
+            {saving ? <Loader2 size={14} className="animate-spin" /> : (isEdit ? 'Guardar' : `Criar ${appointmentLabel.toLowerCase()}`)}
           </button>
         </div>
       </div>

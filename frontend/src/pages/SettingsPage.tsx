@@ -857,6 +857,31 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* Preset vertical: aplica configuracao completa (terminologia,
+              tipos, templates, campos personalizados) para um sector especifico
+              com um so clique. Non-destrutivo em templates/campos existentes. */}
+          <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+            <label className="block text-sm font-medium mb-1">Preset por sector</label>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+              Aplica de uma vez a configuração completa para um vertical: terminologia (Pacientes/Consultas), persona da Leizy, tipos de tarefa, tipos de trabalho da auto-tarefa, tipos de consulta, campos personalizados (data de nascimento, alergias, plano de saúde, NUIT...) e templates de mensagem (lembrete de consulta, resultado disponível, etc.). Templates e campos já existentes não são sobrescritos.
+            </p>
+            <button
+              onClick={async () => {
+                if (!confirm('Aplicar preset de Clínica? Vai actualizar terminologia, sector, persona da Leizy, tipos de tarefa, auto-tarefa e tipos de consulta. Templates de mensagem e campos personalizados já existentes serão preservados; só serão adicionados os que faltam.')) return;
+                try {
+                  const { data } = await api.post('/workspaces/me/apply-preset', { preset: 'clinic' });
+                  toast.success(`Preset ${data.preset} aplicado. ${data.templatesCreated} templates + ${data.customFieldsCreated} campos novos. Recarregando...`);
+                  setTimeout(() => window.location.reload(), 1200);
+                } catch (e: any) {
+                  toast.error(e.response?.data?.message || 'Erro a aplicar preset');
+                }
+              }}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              <span>🏥</span> Aplicar preset de Clínica
+            </button>
+          </div>
+
           {/* Terminologia customizavel (Fase 3 da reconfiguracao):
               cada workspace pode chamar os seus "Contactos" de Pacientes,
               Clientes, Formandos, etc. sem afectar o modelo tecnico. */}

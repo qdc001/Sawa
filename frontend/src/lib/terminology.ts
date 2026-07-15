@@ -9,8 +9,10 @@
 import { useAuthStore } from '../store';
 
 export interface Terminology {
-  contact: string;     // singular, ex: "Paciente"
-  contacts: string;    // plural, ex: "Pacientes"
+  contact: string;         // ex: "Paciente"
+  contacts: string;        // ex: "Pacientes"
+  appointment: string;     // ex: "Consulta"
+  appointments: string;    // ex: "Consultas"
 }
 
 export function useTerminology(): Terminology {
@@ -18,6 +20,8 @@ export function useTerminology(): Terminology {
   return {
     contact: (workspace?.contactLabelSingular?.trim() || 'Contacto'),
     contacts: (workspace?.contactLabelPlural?.trim() || 'Contactos'),
+    appointment: (workspace?.appointmentLabelSingular?.trim() || 'Marcação'),
+    appointments: (workspace?.appointmentLabelPlural?.trim() || 'Marcações'),
   };
 }
 
