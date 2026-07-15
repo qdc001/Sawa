@@ -14,7 +14,7 @@ const router = Router();
 // Garante que so OWNER e ADMIN editam a config da IA Vendedora.
 function requireAdmin(req: AuthRequest) {
   if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
-    throw new AppError('Apenas administradores podem alterar a configuracao da IA Vendedora', 403);
+    throw new AppError('Apenas administradores podem alterar a configuracao da Leizy', 403);
   }
 }
 

@@ -74,7 +74,7 @@ export default function PlanLimitsAdmin() {
     <div className="card p-5">
       <h2 className="text-base font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Limites de tokens LLM por plano</h2>
       <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-        Define quantos tokens (input + output) cada plano pode consumir por dia e por mês. Usa <code>-1</code> para "sem limite". Quando um workspace atinge o limite, novas chamadas à IA Vendedora, Coach, Chatbot e Copilot são bloqueadas até ao reset (diário às 00:00 UTC, mensal no dia 1).
+        Define quantos tokens (input + output) cada plano pode consumir por dia e por mês. Usa <code>-1</code> para "sem limite". Quando um workspace atinge o limite, novas chamadas à Leizy (assistente, treino, chatbot legado, copilot) são bloqueadas até ao reset (diário às 00:00 UTC, mensal no dia 1).
       </p>
 
       <div className="overflow-x-auto">

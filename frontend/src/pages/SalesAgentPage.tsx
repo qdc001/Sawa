@@ -63,7 +63,7 @@ export default function SalesAgentPage() {
       setSectors(secs);
       setKnowledge(kn);
     } catch {
-      toast.error('Erro ao carregar configuração da IA Vendedora');
+      toast.error('Erro ao carregar configuração da Leizy');
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
@@ -110,7 +110,7 @@ export default function SalesAgentPage() {
             <Sparkles size={22} style={{ color: 'var(--primary)' }} /> Leizy
           </h1>
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            A camada de inteligência do Klaru. Configura a personalidade, o sector em que opera, instruções específicas e vê a memória que ela vai construindo com o tempo.
+            A assistente inteligente do Klaru. Compreende cada conversa, aprende com o teu tom e ajuda a equipa a comunicar melhor com pacientes. Configura a personalidade, o contexto em que opera, instruções específicas e vê a memória que ela vai construindo com o tempo.
           </p>
         </div>
         <button className="btn btn-primary flex items-center gap-2" onClick={save} disabled={saving}>
@@ -127,7 +127,7 @@ export default function SalesAgentPage() {
           { id: 'persona', label: 'Persona', icon: Sparkles },
           { id: 'sector', label: 'Sector', icon: Building2 },
           { id: 'instructions', label: 'Instruções', icon: MessageSquare },
-          { id: 'coach', label: 'Treinar IA', icon: GraduationCap },
+          { id: 'coach', label: 'Treinar Leizy', icon: GraduationCap },
           { id: 'memory', label: 'Memória aprendida', icon: Brain },
         ] as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
           <button
@@ -152,9 +152,9 @@ export default function SalesAgentPage() {
         <div className="lg:col-span-2 space-y-5">
           {tab === 'persona' && (
             <div className="card p-5">
-              <h2 className="text-base font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Quem é a IA</h2>
+              <h2 className="text-base font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Quem é a Leizy</h2>
               <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-                Dá-lhe nome e papel. Em conversas, ela apresenta-se desta forma quando faz sentido.
+                Dá-lhe nome e papel. Em conversas, ela apresenta-se desta forma quando faz sentido. Recomendado: recepcionista virtual, assistente de agendamento, apoio ao paciente.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -171,7 +171,7 @@ export default function SalesAgentPage() {
                   <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Papel</label>
                   <input
                     className="input-base w-full mt-1"
-                    placeholder="Ex: consultor de vendas, assistente de marcações"
+                    placeholder="Ex: recepcionista virtual, assistente de agendamento, apoio ao paciente"
                     value={config.aiAgentRole || ''}
                     onChange={(e) => update({ aiAgentRole: e.target.value })}
                     maxLength={60}
@@ -198,7 +198,7 @@ export default function SalesAgentPage() {
             <div className="card p-5">
               <h2 className="text-base font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Sector de actividade</h2>
               <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-                O sector escolhido determina vocabulário, objecções típicas, perguntas de descoberta e tácticas de fecho que a IA usa.
+                O sector escolhido determina vocabulário, tom e conhecimento contextual que a Leizy usa nas respostas. Para clínicas, ela reencaminha automaticamente sintomas ou pedidos de diagnóstico à equipa clínica.
               </p>
               <div className="space-y-2">
                 {sectors.map((s) => {
@@ -232,13 +232,13 @@ export default function SalesAgentPage() {
             <div className="card p-5">
               <h2 className="text-base font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Instruções específicas</h2>
               <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-                Escreve aqui regras suas que a IA deve cumprir sempre. Tudo o que estiver aqui é injectado no prompt e tem prioridade alta.
-                A IA tem acesso ao <b>pipeline</b> e <b>etapa actual</b> do lead, ao <b>catálogo de produtos</b> (com ficheiros que pode enviar), ao histórico das últimas 30 mensagens e às notas internas da equipa. Podes escrever instruções condicionais por etapa.
+                Escreve aqui regras que a Leizy deve cumprir sempre. Tudo o que estiver aqui é injectado no prompt e tem prioridade alta.
+                A Leizy tem acesso ao <b>histórico</b> das últimas 30 mensagens, às <b>notas internas</b> da equipa, aos <b>ficheiros</b> anexados, e ao <b>estado</b> do paciente. Podes escrever regras condicionais.
               </p>
               <textarea
                 className="input-base w-full"
                 rows={12}
-                placeholder={`Ex:\n- Sempre sugere visita guiada antes de enviar proposta.\n- Nunca prometas prazos abaixo de 5 dias úteis.\n- Se o lead pedir desconto antes da terceira mensagem, redirige para "podemos falar disso quando tivermos o pacote definido".\n\nCondicional por etapa do pipeline:\n- Etapa "Prospecção": faz 1 ou 2 perguntas de descoberta, não envies proposta.\n- Etapa "Qualificação": pergunta orçamento estimado e prazo de decisão.\n- Etapa "Negociação": envia o produto "Pacote Premium" e responde com tom mais directo.\n- Etapa "Fecho": confirma detalhes e marca próximo passo (visita, contrato, pagamento).`}
+                placeholder={`Ex:\n- Nunca dês diagnóstico. Se o paciente descrever sintomas, responde com empatia e reencaminha "vou passar a sua mensagem à equipa clínica".\n- Se o paciente pedir marcação, verifica disponibilidade e propõe 2 horários.\n- Se o paciente perguntar preço, envia a tabela geral e sugere avaliação para orçamento personalizado.\n- Confirmações de consulta: sempre com data, hora e endereço.\n- Nunca escrevas em tom informal com pacientes idosos; usa "você".`}
                 value={config.aiAgentInstructions || ''}
                 onChange={(e) => update({ aiAgentInstructions: e.target.value })}
                 maxLength={8000}
@@ -253,7 +253,7 @@ export default function SalesAgentPage() {
             <div className="card p-5">
               <h2 className="text-base font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Memória aprendida</h2>
               <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-                Aqui aparecem padrões que a IA aprendeu sozinha a partir das tuas correcções e dos fechos de leads. Este texto é gerado pelo job nocturno (próxima Fase do plano).
+                Aqui aparecem padrões que a Leizy aprendeu sozinha a partir das tuas correcções e das conversas bem sucedidas. Este texto é gerado pelo job nocturno.
               </p>
               {config.aiLearnedMemory ? (
                 <div className="rounded-lg p-4 text-sm whitespace-pre-wrap" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>

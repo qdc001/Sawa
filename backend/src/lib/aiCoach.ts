@@ -64,8 +64,8 @@ export function buildCoachSystemPrompt(opts: {
   sector?: string | null;
   existingRules: Array<Pick<AiCoachingRule, 'id' | 'situation' | 'recommendedAction' | 'category' | 'isActive' | 'source'>>;
 }): string {
-  const name = opts.agentName?.trim() || 'a IA Vendedora';
-  const role = opts.agentRole?.trim() || 'consultor de vendas';
+  const name = opts.agentName?.trim() || 'a Leizy';
+  const role = opts.agentRole?.trim() || 'assistente inteligente de relacionamento com pacientes';
   const sector = opts.sector?.trim() || 'desconhecido';
 
   const rulesBlock = opts.existingRules.length === 0
@@ -75,7 +75,7 @@ export function buildCoachSystemPrompt(opts: {
       ).join('\n');
 
   return [
-    `Es um coach especialista em treinar IAs vendedoras. O teu trabalho e conversar com o dono do CRM para perceber como ele quer que "${name}" (${role}, sector ${sector}) responda em cada situacao, e transformar essas instrucoes em regras estruturadas reutilizaveis.`,
+    `Es um coach especialista em treinar assistentes inteligentes de relacionamento. O teu trabalho e conversar com o dono do Klaru para perceber como ele quer que "${name}" (${role}, sector ${sector}) responda em cada situacao, e transformar essas instrucoes em regras estruturadas reutilizaveis. Para clinicas, a "${name}" nunca faz diagnostico nem prescreve; reencaminha essas questoes a equipa clinica.`,
     ``,
     `Linguagem obrigatoria: portugues europeu/mocambicano. Nunca uses o travessao "—" em nenhuma circunstancia: usa virgula, dois pontos ou parenteses. Sem brasileirismos (e "ficheiro" nao "arquivo", "ecra" nao "tela", "actual" nao "atual", "projecto" nao "projeto", "optimo" nao "otimo"). Tom directo, profissional, caloroso.`,
     ``,
@@ -103,7 +103,7 @@ export function buildCoachSystemPrompt(opts: {
     ``,
     `O array "actions" so deve ter entradas quando ha mesmo algo a aplicar. Em mensagens de clarificacao ou perguntas, devolve "actions": [].`,
     `Nunca inventes IDs de regras: usa apenas os IDs listados acima quando precisares de referir uma regra existente.`,
-    `Em "rule.situation" e "rule.recommendedAction" escreve com frases completas e accionaveis para a IA Vendedora consumir.`,
+    `Em "rule.situation" e "rule.recommendedAction" escreve com frases completas e accionaveis para a Leizy consumir.`,
     `Em "rule.keywords" inclui 3 a 8 palavras lowercase em PT que apareceriam na mensagem do lead que dispara esta regra (ex: "preco", "desconto", "demo").`,
   ].join('\n');
 }
@@ -371,7 +371,7 @@ function buildAutoLearnPrompt(samples: LearnSample[]): string {
   ).join('\n\n');
 
   return [
-    `Es um analista que estuda interaccoes reais entre uma IA Vendedora e leads, e identifica padroes de sucesso para transformar em regras reutilizaveis.`,
+    `Es um analista que estuda interaccoes reais entre uma assistente inteligente (a Leizy) e pacientes/clientes, e identifica padroes de sucesso para transformar em regras reutilizaveis.`,
     ``,
     `Linguagem: portugues europeu/mocambicano, sem brasileirismos, NUNCA uses o travessao "—".`,
     ``,

@@ -23,7 +23,7 @@ const router = Router();
 
 function requireAdmin(req: AuthRequest) {
   if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
-    throw new AppError('Apenas administradores podem treinar a IA Vendedora', 403);
+    throw new AppError('Apenas administradores podem treinar a Leizy', 403);
   }
 }
 

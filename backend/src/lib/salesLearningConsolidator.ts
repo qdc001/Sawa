@@ -49,7 +49,7 @@ function buildSamples(records: any[]): EditedSample[] {
 function buildConsolidationPrompt(samples: EditedSample[], existingMemory: string | null): string {
   const lines = samples.map((s, i) => `${i + 1}.\n  IA propos: "${s.proposed}"\n  Humano enviou: "${s.sent}"`).join('\n\n');
   return [
-    `Es um analista de padroes de comunicacao a estudar diferencas entre o que uma IA vendedora propos e o que o humano realmente enviou ao lead. O objectivo e extrair 3 a 6 ensinamentos curtos e accionaveis que a IA deve incorporar nas proximas respostas, para soar mais como a marca.`,
+    `Es um analista de padroes de comunicacao a estudar diferencas entre o que a Leizy (assistente inteligente) propos e o que o humano realmente enviou ao paciente/cliente. O objectivo e extrair 3 a 6 ensinamentos curtos e accionaveis que a Leizy deve incorporar nas proximas respostas, para soar mais como a equipa da clinica.`,
     ``,
     `Regras para os ensinamentos:`,
     `- Escreve em portugues europeu/mocambicano, frases curtas, sem brasileirismos.`,
@@ -78,7 +78,7 @@ export async function consolidateWorkspaceMemory(workspaceId: string): Promise<{
   // So consolida se a IA esta efectivamente em uso
   const enabledIds = Array.isArray(ws.aiSalesEnabledConversationIds) ? (ws.aiSalesEnabledConversationIds as any[]).length : 0;
   if (!ws.aiSalesEnabled && enabledIds === 0) {
-    return { updated: false, samples: 0, reason: 'IA Vendedora nao activa neste workspace' };
+    return { updated: false, samples: 0, reason: 'Leizy nao activa neste workspace' };
   }
 
   const edited = await prisma.aiSalesSuggestion.findMany({

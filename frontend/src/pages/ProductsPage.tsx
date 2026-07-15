@@ -109,7 +109,7 @@ function ProductModal({ initial, currency, initialTab = 'general', onClose, onSa
               </div>
               <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
                 <input type="checkbox" checked={form.isActive !== false} onChange={(e) => set('isActive', e.target.checked)} />
-                Activo (disponível para propostas e para a IA Vendedora)
+                Activo (disponível para propostas e para a Leizy)
               </label>
             </div>
             <div className="flex justify-end gap-2 mt-5">
@@ -121,7 +121,7 @@ function ProductModal({ initial, currency, initialTab = 'general', onClose, onSa
           savedId ? (
             <>
               <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-                Anexa imagens, PDFs, vídeos e outros ficheiros a este produto. A IA Vendedora vai poder enviá-los ao lead quando fizer sentido (brochuras, fotos, tabela de preços, testemunhos).
+                Anexa imagens, PDFs, vídeos e outros ficheiros a este produto. A Leizy vai poder enviá-los ao lead quando fizer sentido (brochuras, fotos, tabela de preços, testemunhos).
               </p>
               <ProductFilesPanel productId={savedId} />
               <div className="flex justify-end mt-5">

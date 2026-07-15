@@ -605,7 +605,7 @@ export default function InboxPage() {
             contactId: sel!.contact?.id, leadId: sel!.leadId, sendReceipt: true,
           }).catch(() => {});
         }
-        // Auto-trigger da IA Vendedora: mensagem inbound nova em conversa
+        // Auto-trigger da Leizy: mensagem inbound nova em conversa
         // onde a IA esta ligada (global ou por conversa). Despoletado uma
         // unica vez por mensagem (Set ref); o painel mostra-a quando chegar.
         if (
@@ -650,7 +650,7 @@ export default function InboxPage() {
       if (sel?.contact?.id === data.contactId) setMessages([]);
     };
 
-    // IA Vendedora: backend acabou de criar uma sugestao para alguma conversa.
+    // Leizy: backend acabou de criar uma sugestao para alguma conversa.
     // Se for da conversa actualmente aberta, mostra-a no painel. Caso contrario,
     // o utilizador pode encontra-la quando abrir a conversa em causa.
     const onAiSalesSuggestion = (sug: AiSalesSuggestion) => {
@@ -662,13 +662,13 @@ export default function InboxPage() {
       }
     };
 
-    // IA Vendedora: alguem decidiu uma sugestao (aprovou/editou/descartou).
+    // Leizy: alguem decidiu uma sugestao (aprovou/editou/descartou).
     // Limpa o painel se a sugestao actual e a que foi decidida.
     const onAiSalesDecided = (sug: AiSalesSuggestion) => {
       setSalesSuggestion((prev) => (prev && prev.id === sug.id) ? null : prev);
     };
 
-    // IA Vendedora: outro utilizador reiniciou o contexto deste contacto.
+    // Leizy: outro utilizador reiniciou o contexto deste contacto.
     // Se a conversa actual e essa, limpa qualquer sugestao em ecra.
     const onAiSalesContextReset = (data: { contactId: string }) => {
       const sel = selectedRef.current;
@@ -751,7 +751,7 @@ export default function InboxPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
 
-  // IA Vendedora (Fase 3): runtime config, sugestao pendente da conversa
+  // Leizy (Fase 3): runtime config, sugestao pendente da conversa
   // activa, modo edicao no painel e flag de "a IA esta a pensar" para
   // mostrar indicador enquanto o backend devolve a sugestao.
   const [salesConfig, setSalesConfig] = useState<AiSalesRuntimeConfig | null>(null);
@@ -766,7 +766,7 @@ export default function InboxPage() {
   const salesConfigRef = useRef<AiSalesRuntimeConfig | null>(null);
   const requestSalesSuggestionRef = useRef<((contactId: string, leadId: string | null | undefined, triggerMessageId?: string | null) => void) | null>(null);
 
-  // Carrega config inicial da IA Vendedora (1x ao montar)
+  // Carrega config inicial da Leizy (1x ao montar)
   useEffect(() => {
     if (!workspace?.id) return;
     api.get('/sales-agent/runtime-config')
@@ -780,7 +780,7 @@ export default function InboxPage() {
       .catch(() => {/* silenciar: feature opcional */});
   }, [workspace?.id]);
 
-  // Verifica se a IA Vendedora deve actuar nesta conversa.
+  // Verifica se a Leizy deve actuar nesta conversa.
   // Activa se: a) toggle global ON; ou b) o contactId esta no array
   // de conversas onde foi ligada manualmente.
   const isSalesAiActiveForContact = (contactId?: string | null): boolean => {
@@ -789,7 +789,7 @@ export default function InboxPage() {
     return (salesConfig.aiSalesEnabledConversationIds || []).includes(contactId);
   };
 
-  // Liga/desliga a IA Vendedora para uma conversa especifica.
+  // Liga/desliga a Leizy para uma conversa especifica.
   // Faz PATCH /sales-agent/config com a nova lista.
   const toggleSalesAiForContact = async (contactId: string) => {
     if (!salesConfig) return;
@@ -800,7 +800,7 @@ export default function InboxPage() {
     try {
       await api.patch('/sales-agent/config', { aiSalesEnabledConversationIds: next });
       setSalesConfig({ ...salesConfig, aiSalesEnabledConversationIds: next });
-      toast.success(next.includes(contactId) ? 'IA Vendedora ligada nesta conversa' : 'IA Vendedora desligada');
+      toast.success(next.includes(contactId) ? 'Leizy ligada nesta conversa' : 'Leizy desligada');
       if (!next.includes(contactId)) {
         setSalesSuggestion(null);
         setSalesEditing(false);
@@ -894,7 +894,7 @@ export default function InboxPage() {
   // passa a ler so mensagens criadas depois deste momento. Sugestoes PENDING
   // sao descartadas no backend.
   const resetSalesAiContext = async (contactId: string, leadId?: string | null) => {
-    if (!window.confirm('Reiniciar o contexto da IA Vendedora para este contacto? A IA vai esquecer todas as mensagens anteriores e a proxima resposta sera como se fosse a primeira interaccao.')) return;
+    if (!window.confirm('Reiniciar o contexto da Leizy para este contacto? A Leizy vai esquecer todas as mensagens anteriores e a próxima resposta será como se fosse a primeira interacção.')) return;
     try {
       const { data } = await api.post('/sales-agent/reset-context', { contactId, leadId: leadId || undefined });
       setSalesSuggestion(null);
@@ -1627,9 +1627,9 @@ export default function InboxPage() {
 
   // Pesquisa local nas mensagens
   const filteredMessages = useMemo(() => {
-    // Esconde marker de reset de contexto da IA Vendedora (mensagem
+    // Esconde marker de reset de contexto da Leizy (mensagem
     // interna tecnica, nao tem valor visual). Em vez dela mostramos
-    // um divisor "Contexto da IA reiniciado" no proprio chat.
+    // um divisor "Contexto da Leizy reiniciado" no proprio chat.
     let list = messages.filter((m) => !(m.isInternal && m.content === '__AI_CONTEXT_RESET__'));
     if (advSearchType) list = list.filter((m) => m.type === advSearchType);
     if (advSearchFrom) {
@@ -1872,7 +1872,7 @@ export default function InboxPage() {
                     <p className="font-semibold text-sm truncate">{fullName(selected.contact)}</p>
                     {selected.contact && isSalesAiActiveForContact(selected.contact.id) && (
                       <span
-                        title="IA Vendedora activa nesta conversa"
+                        title="Leizy activa nesta conversa"
                         className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0"
                         style={{ background: '#DCFCE7', color: '#166534' }}
                       >
@@ -1949,10 +1949,10 @@ export default function InboxPage() {
                         <button
                           onClick={() => { toggleSalesAiForContact(selected.contact!.id); setShowHeaderMenu(false); }}
                           className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left"
-                          title={salesConfig.aiSalesEnabled ? 'IA Vendedora globalmente activa' : 'Liga/desliga nesta conversa'}
+                          title={salesConfig.aiSalesEnabled ? 'Leizy globalmente activa' : 'Liga/desliga nesta conversa'}
                         >
                           <Bot size={14} style={{ color: isSalesAiActiveForContact(selected.contact.id) ? '#16A34A' : 'var(--text-muted)' }} />
-                          <span className="flex-1">IA Vendedora</span>
+                          <span className="flex-1">Leizy</span>
                           <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
                             style={{ background: isSalesAiActiveForContact(selected.contact.id) ? '#DCFCE7' : 'var(--surface-3)',
                               color: isSalesAiActiveForContact(selected.contact.id) ? '#166534' : 'var(--text-muted)' }}>
@@ -1972,10 +1972,10 @@ export default function InboxPage() {
                         <button
                           onClick={() => { resetSalesAiContext(selected.contact!.id, selected.leadId); setShowHeaderMenu(false); }}
                           className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left"
-                          title="A IA passa a esquecer todas as mensagens anteriores deste contacto"
+                          title="A Leizy passa a esquecer todas as mensagens anteriores deste contacto"
                         >
                           <RefreshCw size={14} style={{ color: '#F59E0B' }} />
-                          <span className="flex-1">Reiniciar contexto da IA</span>
+                          <span className="flex-1">Reiniciar contexto da Leizy</span>
                         </button>
                       </>
                     )}
@@ -2299,21 +2299,21 @@ export default function InboxPage() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Painel IA Vendedora (Fase 3): indicador "a pensar" + sugestao pendente */}
+            {/* Painel Leizy (Fase 3): indicador "a pensar" + sugestao pendente */}
             {selected && selected.contact && isSalesAiActiveForContact(selected.contact.id) && (salesGenerating || salesSuggestion) && (
               <div className="px-4 py-3 flex-shrink-0" style={{ background: '#F0FDF4', borderTop: '1px solid #BBF7D0' }}>
                 {salesGenerating && !salesSuggestion ? (
                   <div className="flex items-center gap-2 text-xs" style={{ color: '#166534' }}>
                     <Loader2 size={14} className="animate-spin" />
                     <Bot size={14} />
-                    <span>IA Vendedora a preparar resposta...</span>
+                    <span>Leizy a preparar resposta...</span>
                   </div>
                 ) : salesSuggestion ? (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-xs">
                       <Bot size={14} style={{ color: '#166534' }} />
                       <span className="font-semibold" style={{ color: '#166534' }}>
-                        Sugestao da IA Vendedora
+                        Sugestao da Leizy
                       </span>
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: '#DCFCE7', color: '#166534' }}>
                         {salesSuggestion.action === 'send_text' ? 'Responder' :

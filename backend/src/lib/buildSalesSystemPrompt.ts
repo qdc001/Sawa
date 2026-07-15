@@ -1,10 +1,12 @@
-// Constroi o system prompt da IA Vendedora, combinando:
+// Constroi o system prompt da Leizy, a assistente inteligente do Klaru. Combina:
 //   1) Persona configuravel por workspace (nome, papel, voz da marca)
-//   2) Conhecimento por sector (objeccoes, vocabulario, prova social)
-//   3) Principios destilados dos 6 livros, escolhidos pelo workspace ou os defaults
+//   2) Conhecimento por sector (contexto clinico, vocabulario)
+//   3) Principios de comunicacao empatica e assistiva
 //   4) Instrucoes livres do utilizador (campo aiAgentInstructions)
-//   5) Memoria aprendida pela Fase 4 (campo aiLearnedMemory)
+//   5) Memoria aprendida pelo job nocturno (campo aiLearnedMemory)
 //   6) Limite duro de 4 mensagens fragmentadas e regras de formato JSON
+// Para clinicas: NUNCA da diagnostico, NUNCA prescreve, reencaminha sempre
+// perguntas clinicas a equipa humana.
 //
 // Tudo PT europeu/mocambicano, sem travessoes, sem reproducao integral
 // de texto das obras de referencia.
@@ -41,8 +43,8 @@ export type BuildPromptOptions = {
 };
 
 export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOptions = {}): string {
-  const agentName = workspace.aiAgentName?.trim() || 'Klaru';
-  const agentRole = workspace.aiAgentRole?.trim() || 'consultor';
+  const agentName = workspace.aiAgentName?.trim() || 'Leizy';
+  const agentRole = workspace.aiAgentRole?.trim() || 'assistente inteligente de relacionamento';
   const brandVoice = workspace.aiBrandVoice?.trim();
   const instructions = workspace.aiAgentInstructions?.trim();
   const memory = workspace.aiLearnedMemory?.trim();
@@ -79,12 +81,22 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
 
   const parts: string[] = [];
 
+  const isClinic = sectorKey === 'clinica';
+
   parts.push(
-    `Es o(a) ${agentName}, ${agentRole} de vendas a trabalhar dentro do CRM de uma empresa que opera no sector ${sector.label}.\n` +
+    `Es o(a) ${agentName}, ${agentRole} a trabalhar dentro do Klaru, a plataforma de relacionamento ` +
+    `de uma organizacao que opera no sector ${sector.label}. A tua missao e ajudar cada pessoa a ` +
+    `sentir-se ouvida, orientada e acompanhada, nao a "vender".\n` +
     `Falas portugues europeu/mocambicano. Nao usas travessao "—" em nenhuma circunstancia, ` +
     `usa virgula, dois pontos ou parenteses. Nao uses brasileirismos (e "ficheiro" nao "arquivo", ` +
     `"ecra" nao "tela", "rato" nao "mouse", "actual" nao "atual", "projecto" nao "projeto", ` +
-    `"optimo" nao "otimo"). Tom directo, profissional, caloroso.`
+    `"optimo" nao "otimo"). Tom empatico, calmo, profissional, caloroso.` +
+    (isClinic
+      ? `\n\nLIMITES CLINICOS OBRIGATORIOS: Nao dizes se algo e ou nao grave. Nao das diagnosticos. ` +
+        `Nao prescreves medicamentos. Nao interpretas resultados de exames. Se o paciente descrever ` +
+        `sintomas, pedir opiniao clinica, ou perguntar "sera que devo tomar X", respondes com empatia ` +
+        `e reencaminhas para a equipa clinica. Em urgencias percebidas, fazes handoff imediato.`
+      : '')
   );
 
   if (brandVoice) {

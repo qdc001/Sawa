@@ -98,7 +98,7 @@ export default function SettingsPage() {
   const [testingAssignmentNotify, setTestingAssignmentNotify] = useState(false);
   const [savingWs, setSavingWs] = useState(false);
 
-  // IA Vendedora (Fase 3) - config de runtime
+  // Leizy (Fase 3) - config de runtime
   const [salesAiEnabled, setSalesAiEnabled] = useState(false);
   const [salesAiMode, setSalesAiMode] = useState<'supervised' | 'auto'>('supervised');
   const [salesAiMaxParts, setSalesAiMaxParts] = useState(4);
@@ -165,7 +165,7 @@ export default function SettingsPage() {
       setWsApptReminderHours(typeof data.appointmentReminderHours === 'number' ? data.appointmentReminderHours : 24);
       setWsApptReminderTemplate(data.appointmentReminderTemplate || '');
       setWsAutoAssign(!!data.autoAssignEnabled);
-      // IA Vendedora runtime
+      // Leizy runtime
       api.get('/sales-agent/runtime-config').then(({ data: rc }) => {
         setSalesAiEnabled(!!rc.aiSalesEnabled);
         setSalesAiMode(rc.aiSalesMode === 'auto' ? 'auto' : 'supervised');
@@ -359,9 +359,9 @@ export default function SettingsPage() {
         aiSalesMaxParts: salesAiMaxParts,
         aiSalesHandoffTriggers: salesAiHandoffTriggers,
       });
-      toast.success('IA Vendedora actualizada');
+      toast.success('Leizy actualizada');
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Erro a guardar IA Vendedora');
+      toast.error(err.response?.data?.message || 'Erro a guardar Leizy');
     } finally {
       setSavingSalesAi(false);
     }
@@ -1011,10 +1011,10 @@ export default function SettingsPage() {
             </p>
           </div>
 
-          {/* IA Vendedora (Fase 3): runtime config */}
+          {/* Leizy (Fase 3): runtime config */}
           <div className="border-t pt-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">IA Vendedora</p>
+              <p className="text-sm font-semibold">Leizy</p>
               <button
                 onClick={saveSalesAiConfig}
                 disabled={savingSalesAi}
@@ -1024,15 +1024,15 @@ export default function SettingsPage() {
               </button>
             </div>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Define se a IA Vendedora actua em todas as conversas (global) ou apenas nas que ligares manualmente no Inbox. Em modo supervisionado, cada sugestao espera aprovacao humana antes de ser enviada.
+              Define se a Leizy actua em todas as conversas (global) ou apenas nas que ligares manualmente no Inbox. Em modo supervisionado, cada sugestao espera aprovacao humana antes de ser enviada.
             </p>
 
             <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
               <input type="checkbox" checked={salesAiEnabled} onChange={(e) => setSalesAiEnabled(e.target.checked)} />
-              Activar IA Vendedora em todas as conversas
+              Activar Leizy em todas as conversas
             </label>
             <p className="text-[11px] pl-6" style={{ color: 'var(--text-muted)' }}>
-              Se desligado, a IA so actua nas conversas que o utilizador liga no menu da conversa.
+              Se desligado, a Leizy só actua nas conversas que o utilizador liga manualmente no menu da conversa.
             </p>
 
             <div>
@@ -1530,7 +1530,7 @@ function OptionListEditor({ title, options, defaults, onChange }: {
   );
 }
 
-// Painel de memoria aprendida pela IA Vendedora. Mostra o texto consolidado
+// Painel de memoria aprendida pela Leizy. Mostra o texto consolidado
 // pelo job nocturno (lib/salesLearningConsolidator) e permite editar
 // manualmente ou despoletar a consolidacao sob demanda.
 function SalesAiLearnedMemoryPanel() {
@@ -1631,9 +1631,9 @@ function SalesAiLearnedMemoryPanel() {
   );
 }
 
-// Painel de auditoria da IA Vendedora. Mostra historial de sugestoes
+// Painel de auditoria da Leizy. Mostra historial de sugestoes
 // com filtros por estado, expande detalhe ao clicar. Usado dentro do
-// tab Workspace, na seccao IA Vendedora.
+// tab Workspace, na seccao Leizy.
 function SalesAiAuditPanel() {
   const [items, setItems] = useState<AiSalesSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
