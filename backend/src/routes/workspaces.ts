@@ -25,7 +25,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled, aiBrandVoice, contactLabelSingular, contactLabelPlural, appointmentLabelSingular, appointmentLabelPlural, appointmentTypes } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled, aiBrandVoice, contactLabelSingular, contactLabelPlural, appointmentLabelSingular, appointmentLabelPlural, appointmentTypes, appointmentReminderEnabled, appointmentReminderHours, appointmentReminderTemplate } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -56,6 +56,9 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(appointmentLabelSingular !== undefined && { appointmentLabelSingular: String(appointmentLabelSingular).trim() || 'Marcação' }),
         ...(appointmentLabelPlural !== undefined && { appointmentLabelPlural: String(appointmentLabelPlural).trim() || 'Marcações' }),
         ...(appointmentTypes !== undefined && { appointmentTypes }),
+        ...(appointmentReminderEnabled !== undefined && { appointmentReminderEnabled: !!appointmentReminderEnabled }),
+        ...(appointmentReminderHours !== undefined && { appointmentReminderHours: Math.max(1, Math.min(168, Number(appointmentReminderHours) || 24)) }),
+        ...(appointmentReminderTemplate !== undefined && { appointmentReminderTemplate: appointmentReminderTemplate || null }),
       },
     });
     await prisma.auditLog.create({

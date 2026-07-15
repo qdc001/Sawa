@@ -75,6 +75,9 @@ export default function SettingsPage() {
   const [wsAiBrandVoice, setWsAiBrandVoice] = useState('');
   const [wsContactSingular, setWsContactSingular] = useState('Contacto');
   const [wsContactPlural, setWsContactPlural] = useState('Contactos');
+  const [wsApptReminderEnabled, setWsApptReminderEnabled] = useState(true);
+  const [wsApptReminderHours, setWsApptReminderHours] = useState(24);
+  const [wsApptReminderTemplate, setWsApptReminderTemplate] = useState('');
   const [wsAutoAssign, setWsAutoAssign] = useState(false);
   const [wsTaskTypes, setWsTaskTypes] = useState<TaskOption[]>([]);
   const [wsTaskPriorities, setWsTaskPriorities] = useState<TaskOption[]>([]);
@@ -158,6 +161,9 @@ export default function SettingsPage() {
       setWsAiBrandVoice(data.aiBrandVoice || '');
       setWsContactSingular(data.contactLabelSingular || 'Contacto');
       setWsContactPlural(data.contactLabelPlural || 'Contactos');
+      setWsApptReminderEnabled(data.appointmentReminderEnabled !== false);
+      setWsApptReminderHours(typeof data.appointmentReminderHours === 'number' ? data.appointmentReminderHours : 24);
+      setWsApptReminderTemplate(data.appointmentReminderTemplate || '');
       setWsAutoAssign(!!data.autoAssignEnabled);
       // IA Vendedora runtime
       api.get('/sales-agent/runtime-config').then(({ data: rc }) => {
@@ -379,6 +385,9 @@ export default function SettingsPage() {
         aiBrandVoice: wsAiBrandVoice,
         contactLabelSingular: wsContactSingular,
         contactLabelPlural: wsContactPlural,
+        appointmentReminderEnabled: wsApptReminderEnabled,
+        appointmentReminderHours: wsApptReminderHours,
+        appointmentReminderTemplate: wsApptReminderTemplate,
         taskTypes: wsTaskTypes,
         taskPriorities: wsTaskPriorities,
         taskStatuses: wsTaskStatuses,
@@ -880,6 +889,47 @@ export default function SettingsPage() {
             >
               <span>🏥</span> Aplicar preset de Clínica
             </button>
+          </div>
+
+          {/* Lembretes automaticos de consulta (Fase 4 clinica) */}
+          <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+            <label className="flex items-center gap-2 text-sm font-medium mb-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={wsApptReminderEnabled}
+                onChange={(e) => setWsApptReminderEnabled(e.target.checked)}
+              />
+              Lembretes automáticos de consulta por WhatsApp
+            </label>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+              O Klaru envia mensagem ao paciente antes de cada consulta agendada ou confirmada. Cada consulta só recebe um lembrete.
+            </p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Antecedência (horas)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  className="input-base w-full"
+                  value={wsApptReminderHours}
+                  onChange={(e) => setWsApptReminderHours(Number(e.target.value) || 24)}
+                  disabled={!wsApptReminderEnabled}
+                />
+              </div>
+            </div>
+            <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Template da mensagem (opcional)</label>
+            <textarea
+              className="input-base w-full"
+              rows={3}
+              placeholder="Olá {nome}, apenas para lembrar que temos consulta amanhã, dia {data} às {hora}. Se precisar reagendar, responda a esta mensagem. Obrigada, {clinica}."
+              value={wsApptReminderTemplate}
+              onChange={(e) => setWsApptReminderTemplate(e.target.value)}
+              disabled={!wsApptReminderEnabled}
+            />
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              Placeholders: <code>{'{nome}'}</code>, <code>{'{data}'}</code>, <code>{'{hora}'}</code>, <code>{'{clinica}'}</code>, <code>{'{tipo}'}</code>. Se deixares vazio, usa-se o texto default.
+            </p>
           </div>
 
           {/* Terminologia customizavel (Fase 3 da reconfiguracao):

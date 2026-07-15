@@ -59,6 +59,7 @@ import { checkEvolutionInstances } from './lib/evolutionMonitor';
 import { runDailyDigests } from './lib/dailyTaskDigest';
 import { runDailyLearningConsolidation } from './lib/salesLearningConsolidator';
 import { runDailyAutoLearn } from './lib/aiCoach';
+import { runAppointmentReminders } from './lib/appointmentReminders';
 
 const app = express();
 const httpServer = createServer(app);
@@ -233,6 +234,13 @@ setInterval(() => {
 setInterval(() => {
   runDailyAutoLearn().catch((e) => console.error('runDailyAutoLearn error:', e));
 }, 15 * 60_000);
+
+// Lembretes automaticos de consultas — corre a cada 5 minutos. A funcao
+// verifica todos os workspaces e envia mensagens para consultas cuja
+// startsAt cai na janela [now + Xh - 5min, now + Xh + 5min].
+setInterval(() => {
+  runAppointmentReminders().catch((e) => console.error('runAppointmentReminders error:', e));
+}, 5 * 60_000);
 
 (global as any).io = io;
 export { io };

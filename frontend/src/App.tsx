@@ -54,6 +54,41 @@ function AgendaGroupLayout() {
   );
 }
 
+// Helper que devolve true se o workspace actual e uma clinica.
+function useIsClinic(): boolean {
+  const workspace = useAuthStore((s) => s.workspace) as any;
+  return workspace?.sector === 'clinica';
+}
+
+// Wrapper para o grupo Automacoes/Chatbots. Em clinicas, chatbots com fluxos
+// rigidos foram absorvidos conceptualmente pela Leizy, portanto so mostra a
+// tab de Regras.
+function AutomationsGroupLayout() {
+  const isClinic = useIsClinic();
+  const items = isClinic
+    ? [{ path: '/automations', label: 'Rotinas', icon: Zap }]
+    : [
+        { path: '/automations', label: 'Regras', icon: Zap },
+        { path: '/chatbots', label: 'Chatbots', icon: Bot },
+      ];
+  return <GroupedRouteLayout items={items} />;
+}
+
+// Wrapper para o grupo Pipeline. Em clinicas, este grupo inteiro nao aparece
+// na sidebar (Segundo corte). Se algum utilizador chegar por URL directa,
+// mostra so a tab Pipeline (sem Leads/Propostas).
+function PipelineGroupLayout() {
+  const isClinic = useIsClinic();
+  const items = isClinic
+    ? [{ path: '/pipeline', label: 'Pipeline', icon: GitBranch }]
+    : [
+        { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
+        { path: '/leads', label: 'Leads', icon: Users },
+        { path: '/quotes', label: 'Propostas', icon: ScrollText },
+      ];
+  return <GroupedRouteLayout items={items} />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -79,20 +114,13 @@ export default function App() {
             <Route path="broadcasts" element={<BroadcastsPage />} />
           </Route>
 
-          <Route element={<GroupedRouteLayout items={[
-            { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
-            { path: '/leads', label: 'Leads', icon: Users },
-            { path: '/quotes', label: 'Propostas', icon: ScrollText },
-          ]} />}>
+          <Route element={<PipelineGroupLayout />}>
             <Route path="pipeline" element={<PipelinePage />} />
             <Route path="leads" element={<LeadsPage />} />
             <Route path="quotes" element={<QuotesPage />} />
           </Route>
 
-          <Route element={<GroupedRouteLayout items={[
-            { path: '/automations', label: 'Regras', icon: Zap },
-            { path: '/chatbots', label: 'Chatbots', icon: Bot },
-          ]} />}>
+          <Route element={<AutomationsGroupLayout />}>
             <Route path="automations" element={<AutomationsPage />} />
             <Route path="chatbots" element={<ChatbotsPage />} />
           </Route>

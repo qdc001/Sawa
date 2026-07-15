@@ -21,18 +21,17 @@ import { useIsMobile } from '../../lib/useIsMobile';
 // continua acessivel por URL directa, mas nao aparece no drawer, porque a
 // UX naquele tamanho de ecra e demasiado apertada (drag-and-drop com dedo,
 // builders com muitos nos, etc.).
-// Fase 2 da reconfiguracao: sidebar limpa com 7 entradas operacionais.
-// Cada uma engloba sub-paginas relacionadas atraves de tabs internas.
-//   Conversas   inclui Chamadas e Broadcasts (via tabs)
-//   Pipeline    inclui Leads e Propostas (via tabs)
-//   Automacoes  inclui Chatbots (via tabs)
-// As paginas /calls /broadcasts /leads /quotes /chatbots continuam
-// acessiveis por URL directa — apenas saem do menu principal.
-const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean }[] = [
+// Sidebar operacional. Cada entrada pode ter `hideForSectors` (array de
+// sectores onde nao aparece) para adequar o produto ao vertical. Ex: numa
+// clinica, "Pipeline" (comercial) desaparece porque a jornada do paciente
+// nao e um funil comercial.
+const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean; hideForSectors?: string[] }[] = [
   { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
-  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline', desktopOnly: true },
+  // Pipeline/Leads/Propostas: escondidos em clinicas (Segundo corte).
+  // Continuam acessiveis por URL directa para nao quebrar links guardados.
+  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline', desktopOnly: true, hideForSectors: ['clinica'] },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
   { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
@@ -84,8 +83,10 @@ export default function AppLayout() {
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const [t] = useT();
   const terms = useTerminology();
+  const currentSector = (workspace as any)?.sector || 'outro';
   const navItems = navConfig
     .filter((n) => !(isMobile && n.desktopOnly))
+    .filter((n) => !(n.hideForSectors && n.hideForSectors.includes(currentSector)))
     .map((n) => ({
       ...n,
       // Item Contactos usa a label customizada do workspace (Fase 3).

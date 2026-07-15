@@ -93,6 +93,12 @@ model Workspace {
   // { key, label, defaultDurationMin }. Ex: [{key:'primeira',label:'Primeira consulta',defaultDurationMin:45}]
   // Vazio = sem dropdown de tipo (usa so texto livre no titulo).
   appointmentTypes              Json      @default("[]")
+  // Lembretes automaticos de consulta (Fase 4 clinica).
+  // Job cron corre a cada 5min; envia mensagem X horas antes de cada consulta
+  // que ainda nao tem reminderSentAt.
+  appointmentReminderEnabled    Boolean   @default(true)
+  appointmentReminderHours      Int       @default(24)
+  appointmentReminderTemplate   String?
   // Subscrição/plano: STARTER | GROWTH | BUSINESS | ENTERPRISE
   plan                          String    @default("STARTER")
   trialEndsAt                   DateTime?

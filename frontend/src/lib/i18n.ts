@@ -50,7 +50,7 @@ const dict: Record<string, Record<Lang, string>> = {
   'nav.inbox': { pt: 'Comunicação', en: 'Communication' },
   'nav.calls': { pt: 'Chamadas', en: 'Calls' },
   'nav.tasks': { pt: 'Agenda', en: 'Agenda' },
-  'nav.automations': { pt: 'Automações', en: 'Automations' },
+  'nav.automations': { pt: 'Rotinas Automáticas', en: 'Automated Routines' },
   'nav.broadcasts': { pt: 'Broadcasts', en: 'Broadcasts' },
   'nav.chatbots': { pt: 'Chatbots', en: 'Chatbots' },
   'nav.salesAgent': { pt: 'Leizy', en: 'Leizy' },

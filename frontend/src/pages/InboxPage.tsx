@@ -1990,7 +1990,7 @@ export default function InboxPage() {
                       </a>
                     )}
                     <button onClick={() => { handleCsatRequest(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
-                      <ThumbsUp size={14} style={{ color: '#F59E0B' }} /> Pedir avaliação CSAT
+                      <ThumbsUp size={14} style={{ color: '#F59E0B' }} /> Pedir avaliação pós-consulta
                     </button>
                     <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
                     <button onClick={() => { handleExport('txt'); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
