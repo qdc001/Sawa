@@ -132,9 +132,32 @@ async function deepseekRequest(
   // 8192, similar ao que fazemos no Gemini. Nao afecta preco porque o
   // DeepSeek so cobra os tokens realmente gerados.
   const expandedMax = Math.min(8192, Math.max(maxTokens, maxTokens * 4));
+
+  // DeepSeek em response_format=json_object EXIGE mencao explicita a "JSON"
+  // nas mensagens (doc oficial), senao gera reasoning + content vazio. Ao
+  // contrario do Groq/OpenAI que sao permissivos. Se nenhuma mensagem
+  // referir JSON, appendamos uma instrucao curta ao ultimo system para
+  // desbloquear o modelo sem alterar semantica.
+  let effectiveMessages = messages;
+  if (jsonMode) {
+    const anyMentionsJson = messages.some((m) => /json/i.test(m.content));
+    if (!anyMentionsJson) {
+      effectiveMessages = [...messages];
+      // Encontra ultimo system para appendar; se nao houver, cria um.
+      const lastSystemIdx = [...effectiveMessages].reverse().findIndex((m) => m.role === 'system');
+      const suffix = '\n\nDevolve SEMPRE a resposta como um objecto JSON valido.';
+      if (lastSystemIdx === -1) {
+        effectiveMessages.unshift({ role: 'system', content: 'Devolve SEMPRE a resposta como um objecto JSON valido.' });
+      } else {
+        const realIdx = effectiveMessages.length - 1 - lastSystemIdx;
+        effectiveMessages[realIdx] = { ...effectiveMessages[realIdx], content: effectiveMessages[realIdx].content + suffix };
+      }
+    }
+  }
+
   const body: any = {
     model,
-    messages,
+    messages: effectiveMessages,
     temperature,
     max_tokens: expandedMax,
     stream: false,
@@ -260,16 +283,60 @@ export async function callDeepseekText(
   return raw;
 }
 
+// Tenta extrair um objecto JSON de dentro de texto livre (usado em fallback).
+function extractJsonBlock(text: string): string | null {
+  if (!text) return null;
+  // Preferir fence ```json ... ```
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) return fenced[1].trim();
+  // Ou primeiro { ... } equilibrado
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end > start) return text.slice(start, end + 1);
+  return null;
+}
+
 export async function callDeepseekJson<T = any>(
   model: string,
   messages: LlmMsg[],
   maxTokens: number,
   temperature = 0.7,
 ): Promise<{ json: T; raw: string; promptTokens?: number; completionTokens?: number }> {
-  const result = await deepseekRequest(model, messages, temperature, maxTokens, true);
+  let result: { raw: string; promptTokens?: number; completionTokens?: number };
+  try {
+    result = await deepseekRequest(model, messages, temperature, maxTokens, true);
+  } catch (e: any) {
+    // DeepSeek em jsonMode as vezes devolve content vazio quando o prompt e
+    // longo (historico grande) ou quando ja respondeu em turnos anteriores.
+    // Retry sem response_format (modo texto livre) e extraimos o JSON.
+    if (e?.status === 502 && /resposta vazia/i.test(e?.message || '')) {
+      console.warn('[deepseek] retry sem response_format apos content vazio em jsonMode');
+      const alt = await deepseekRequest(model, messages, temperature, maxTokens, false);
+      const block = extractJsonBlock(alt.raw);
+      if (!block) {
+        throw Object.assign(new Error(`DeepSeek fallback: nao encontrei JSON no texto livre: ${alt.raw.slice(0, 200)}`), { status: 502 });
+      }
+      try {
+        const json = JSON.parse(block);
+        return { json: json as T, raw: block, promptTokens: alt.promptTokens, completionTokens: alt.completionTokens };
+      } catch (parseErr: any) {
+        throw Object.assign(new Error(`DeepSeek fallback: JSON invalido: ${parseErr.message}. Bruto: ${block.slice(0, 200)}`), { status: 502 });
+      }
+    }
+    throw e;
+  }
   let json: any;
   try { json = JSON.parse(result.raw); } catch {
-    throw Object.assign(new Error('DeepSeek devolveu conteudo nao-JSON: ' + result.raw.slice(0, 200)), { status: 502 });
+    // Segunda tentativa: extrair de dentro do texto (o modelo as vezes envolve em markdown apesar do jsonMode).
+    const block = extractJsonBlock(result.raw);
+    if (block) {
+      try { json = JSON.parse(block); }
+      catch {
+        throw Object.assign(new Error('DeepSeek devolveu conteudo nao-JSON: ' + result.raw.slice(0, 200)), { status: 502 });
+      }
+    } else {
+      throw Object.assign(new Error('DeepSeek devolveu conteudo nao-JSON: ' + result.raw.slice(0, 200)), { status: 502 });
+    }
   }
   return { json: json as T, raw: result.raw, promptTokens: result.promptTokens, completionTokens: result.completionTokens };
 }
