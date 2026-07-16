@@ -16,7 +16,12 @@ import { getCreds } from './integrationCrypto';
 // isto e mais fiavel que URL (nao depende de a Evolution conseguir
 // aceder ao nosso host). Se o mediaUrl ja for absoluto (http/https), devolve
 // null para o caller usar como URL directa.
-function resolveMediaPayload(mediaUrl: string): { base64?: string; url?: string } {
+//
+// Devolve `missing: true` quando o path e local mas o ficheiro nao existe no
+// disco (caso comum de mensagens migradas do M.E.T.A. antigo cujos ficheiros
+// nao foram trazidos). O caller deve tratar como erro em vez de tentar enviar
+// path relativo invalido para a Evolution.
+function resolveMediaPayload(mediaUrl: string): { base64?: string; url?: string; missing?: boolean } {
   if (!mediaUrl) return {};
   // URL absoluto — usar como esta
   if (/^https?:\/\//i.test(mediaUrl)) {
@@ -28,11 +33,12 @@ function resolveMediaPayload(mediaUrl: string): { base64?: string; url?: string 
       try {
         const buf = fs.readFileSync(filePath);
         return { base64: buf.toString('base64') };
-      } catch { /* fallback URL */ }
+      } catch { /* fallback URL — o ficheiro pode estar acessivel via HTTP externo */ }
     }
     return { url: mediaUrl };
   }
-  // URL relativo (/uploads/xxx) — ler do disco
+  // URL relativo (/uploads/xxx) — ler do disco. Se nao existe, sinalizamos
+  // explicitamente para o caller nao tentar enviar path relativo invalido.
   if (mediaUrl.startsWith('/uploads/')) {
     const filePath = path.join(__dirname, '../../uploads', path.basename(mediaUrl));
     try {
@@ -40,7 +46,7 @@ function resolveMediaPayload(mediaUrl: string): { base64?: string; url?: string 
       return { base64: buf.toString('base64') };
     } catch (e: any) {
       console.error('[whatsappSend] falha a ler ficheiro local:', filePath, e.message);
-      return {};
+      return { missing: true };
     }
   }
   return { url: mediaUrl };
@@ -77,6 +83,9 @@ export async function sendWhatsAppOut(
         if (type === 'AUDIO' && mediaUrl) {
           path = `/message/sendWhatsAppAudio/${creds.instanceName}`;
           const resolved = resolveMediaPayload(mediaUrl);
+          if (resolved.missing) {
+            return { ok: false, error: 'Ficheiro de audio nao encontrado no disco. Se a mensagem foi importada do CRM antigo, os ficheiros nao foram trazidos. Refaz o upload.' };
+          }
           // Evolution v2 aceita base64 puro (sem prefixo data:) ou URL.
           body.audio = resolved.base64 || resolved.url || mediaUrl;
         } else if (type !== 'TEXT' && mediaUrl) {
@@ -87,6 +96,9 @@ export async function sendWhatsAppOut(
           // prefixo "data:mime;base64,") ou URL absoluta. O mimetype vai
           // no campo separado body.mimetype.
           const resolved = resolveMediaPayload(mediaUrl);
+          if (resolved.missing) {
+            return { ok: false, error: 'Ficheiro nao encontrado no disco. Se este anexo foi importado do CRM antigo (M.E.T.A.), o ficheiro nao foi trazido. Refaz o upload para reenviar.' };
+          }
           body.media = resolved.base64 || resolved.url || mediaUrl;
           body.caption = content && content !== 'Anexo' ? content : '';
           if (fileName && fileName.trim()) {
