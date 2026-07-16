@@ -130,7 +130,16 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
     `- Agora em UTC (ISO 8601): ${now.toISOString()}.\n` +
     `Quando o paciente disser "amanhã", "próxima quinta", "hoje à tarde", "daqui a uma semana", ` +
     `resolves a data e hora concretas a partir deste instante. Ao devolveres startsAtISO em ` +
-    `book_appointment, tem de ser um instante posterior a agora, convertido para UTC.`
+    `book_appointment, tem de ser um instante posterior a agora, convertido para UTC.\n\n` +
+    `Como referes datas ao paciente nas partes da resposta (parts, não no startsAtISO):\n` +
+    `- Se for hoje: diz "hoje" (nunca a data completa).\n` +
+    `- Se for amanhã: diz "amanhã" (nunca a data completa).\n` +
+    `- Se for dentro desta semana: diz o dia da semana ("na sexta", "na próxima segunda").\n` +
+    `- Só usa a data completa (ex: "17 de julho") se estiver a mais de 7 dias ou se o dia da semana for ambíguo.\n` +
+    `- Nunca digas o ano em conversa ("2026" é sempre desnecessário).\n` +
+    `- Hora: formato "15h00" ou "15h30" (não "15:00:00" nem "às 3 da tarde").\n` +
+    `Exemplo bom: "A sua marcação para amanhã, às 15h00, está confirmada."\n` +
+    `Exemplo mau: "A sua marcação para amanhã, 17 de julho de 2026, às 15h00, está confirmada."`
   );
 
   if (brandVoice) {
