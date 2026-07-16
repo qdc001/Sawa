@@ -1,22 +1,25 @@
 // Camada de abstraccao entre o codigo aplicacional e o provider LLM activo.
 //
-// Permite alternar entre Groq e Gemini sem tocar nos call sites: basta mudar
-// a env LLM_PROVIDER. Continua a usar Groq para transcricao de audio
-// (whisper), que e endpoint diferente e nao tem equivalente directo no
-// Gemini.
+// Permite alternar entre Groq / Gemini / DeepSeek sem tocar nos call sites:
+// basta mudar a env LLM_PROVIDER. Continua a usar Groq para transcricao de
+// audio (whisper), que e endpoint diferente e nao tem equivalente directo
+// nos outros.
 //
 // Variaveis de ambiente:
-//   LLM_PROVIDER       = "groq" (default) | "gemini"
+//   LLM_PROVIDER       = "groq" (default) | "gemini" | "deepseek"
 //   GROQ_API_KEY       = chave Groq (e GROQ_API_KEY_2..10 para pool)
 //   GROQ_MODEL         = modelo Groq default (ex: llama-3.3-70b-versatile)
-//   GEMINI_API_KEY     = chave Google AI Studio
+//   GEMINI_API_KEY     = chave Google AI Studio (formato AIzaSy...)
 //   GEMINI_MODEL       = modelo Gemini default (ex: gemini-2.5-flash)
+//   DEEPSEEK_API_KEY   = chave DeepSeek (formato sk-...)
+//   DEEPSEEK_MODEL     = modelo DeepSeek default (ex: deepseek-v4-flash)
 
 import { callGroqWithLimiter, callGroqJsonWithLimiter, getLimiterStats } from './groqLimiter';
 import { callGeminiText, callGeminiJson, getGeminiStats } from './geminiClient';
+import { callDeepseekText, callDeepseekJson, getDeepseekStats } from './deepseekClient';
 import { checkLimitOrThrow, recordUsage, LlmFeature } from './aiUsage';
 
-export type LlmProvider = 'groq' | 'gemini';
+export type LlmProvider = 'groq' | 'gemini' | 'deepseek';
 export type LlmMsg = { role: 'system' | 'user' | 'assistant'; content: string };
 export type LlmTrackOpts = {
   workspaceId?: string;
@@ -35,21 +38,32 @@ function resolveProviderAndModel(
   if (modelOverride && modelOverride.trim()) {
     return { provider, model: modelOverride.trim() };
   }
-  const model = provider === 'gemini'
-    ? (process.env.GEMINI_MODEL || 'gemini-2.5-flash')
-    : (process.env.GROQ_MODEL || 'llama-3.3-70b-versatile');
+  let model: string;
+  switch (provider) {
+    case 'gemini':
+      model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      break;
+    case 'deepseek':
+      model = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+      break;
+    default:
+      model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+  }
   return { provider, model };
 }
 
 export function getActiveLlmProvider(): LlmProvider {
-  return (process.env.LLM_PROVIDER || 'groq').toLowerCase() === 'gemini' ? 'gemini' : 'groq';
+  const p = (process.env.LLM_PROVIDER || 'groq').toLowerCase();
+  if (p === 'gemini') return 'gemini';
+  if (p === 'deepseek') return 'deepseek';
+  return 'groq';
 }
 
 export function getActiveLlmModel(override?: string | null): string {
   if (override && override.trim()) return override.trim();
-  if (getActiveLlmProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-  }
+  const p = getActiveLlmProvider();
+  if (p === 'gemini') return process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  if (p === 'deepseek') return process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
   return process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 }
 
@@ -75,6 +89,8 @@ export async function callLlm(
   let completionTokens: number | undefined;
   if (provider === 'gemini') {
     raw = await callGeminiText(m, messages, maxTokens, temperature);
+  } else if (provider === 'deepseek') {
+    raw = await callDeepseekText(m, messages, maxTokens, temperature);
   } else {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw Object.assign(new Error('GROQ_API_KEY nao configurada'), { status: 500 });
@@ -109,6 +125,8 @@ export async function callLlmJson<T = any>(
   let result: { json: T; raw: string; promptTokens?: number; completionTokens?: number };
   if (provider === 'gemini') {
     result = await callGeminiJson<T>(m, messages, maxTokens, temperature);
+  } else if (provider === 'deepseek') {
+    result = await callDeepseekJson<T>(m, messages, maxTokens, temperature);
   } else {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw Object.assign(new Error('GROQ_API_KEY nao configurada'), { status: 500 });
@@ -133,5 +151,6 @@ export function getLlmStats() {
     activeModel: getActiveLlmModel(),
     groq: getLimiterStats(),
     gemini: getGeminiStats(),
+    deepseek: getDeepseekStats(),
   };
 }

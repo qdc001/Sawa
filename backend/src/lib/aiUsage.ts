@@ -135,7 +135,7 @@ export async function checkLimitOrThrow(workspaceId: string): Promise<void> {
 // critico nem dispara excepcao se falhar a gravar).
 export async function recordUsage(opts: {
   workspaceId: string;
-  provider: 'groq' | 'gemini';
+  provider: 'groq' | 'gemini' | 'deepseek';
   model: string;
   feature: LlmFeature;
   promptTokens?: number;
