@@ -112,17 +112,7 @@ export default function PatientProfilePanel({ contactId, onClose }: Props) {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => { onClose(); navigate(`/quotes?contactId=${contactId}&new=1`); }}
-              className="btn text-xs py-1.5 px-3 flex items-center gap-1.5"
-              style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
-              title="Criar orçamento de tratamento para este paciente"
-            >
-              <ScrollText size={12} /> Novo orçamento
-            </button>
-            <button onClick={onClose}><X size={18} /></button>
-          </div>
+          <button onClick={onClose}><X size={18} /></button>
         </div>
 
         {loading || !profile ? (

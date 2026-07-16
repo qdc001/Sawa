@@ -31,7 +31,6 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean; deskto
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
-  { path: '/quotes', icon: ScrollText, key: 'nav.quotes' },
   { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
 ];
