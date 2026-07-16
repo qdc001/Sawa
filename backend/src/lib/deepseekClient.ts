@@ -320,8 +320,13 @@ export async function callDeepseekJson<T = any>(
         { role: 'assistant', content: '{' },
       ];
       const alt = await deepseekRequest(model, primed, temperature, maxTokens, false);
-      // O modelo continua a partir de "{"; reconstruimos.
-      const reconstructed = ('{' + alt.raw).trim();
+      // Alguns providers devolvem so a continuacao (nao inclui o prefill),
+      // outros reenviam o prefill inteiro. Normalizamos: se ja comeca por
+      // '{', usamos directamente; senao prependamos. Depois colapsamos
+      // qualquer '{{' inicial acidental.
+      let reconstructed = alt.raw.trim();
+      if (!reconstructed.startsWith('{')) reconstructed = '{' + reconstructed;
+      reconstructed = reconstructed.replace(/^\{+/, '{');
       const block = extractJsonBlock(reconstructed) || reconstructed;
       try {
         const json = JSON.parse(block);
