@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Building2, MessageSquare, Brain, ChevronRight, GraduationCap } from 'lucide-react';
+import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Building2, MessageSquare, Brain, ChevronRight, GraduationCap, Power, Zap, Eye, AlertTriangle } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import AiCoachingPanel from '../components/AiCoachingPanel';
@@ -53,6 +53,10 @@ export default function SalesAgentPage() {
   const [sectors, setSectors] = useState<SectorInfo[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgePreview | null>(null);
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
+  // Runtime config: activada + modo de operacao. Mostrado sempre no topo.
+  const [aiSalesEnabled, setAiSalesEnabled] = useState<boolean>(false);
+  const [aiSalesMode, setAiSalesMode] = useState<'supervised' | 'auto'>('supervised');
+  const [savingRuntime, setSavingRuntime] = useState<null | 'toggle' | 'mode'>(null);
   const workspace = useAuthStore((s) => s.workspace) as any;
   const isClinic = workspace?.sector === 'clinica';
   const isLegacy = useIsLegacy();
@@ -60,19 +64,55 @@ export default function SalesAgentPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [{ data: cfg }, { data: secs }, { data: kn }] = await Promise.all([
+      const [{ data: cfg }, { data: secs }, { data: kn }, { data: rc }] = await Promise.all([
         api.get('/sales-agent/config'),
         api.get('/sales-agent/sectors'),
         api.get('/sales-agent/knowledge'),
+        api.get('/sales-agent/runtime-config'),
       ]);
       setConfig(cfg);
       setSectors(secs);
       setKnowledge(kn);
+      setAiSalesEnabled(!!rc.aiSalesEnabled);
+      setAiSalesMode(rc.aiSalesMode === 'auto' ? 'auto' : 'supervised');
     } catch {
       toast.error('Erro ao carregar configuração da Leizy');
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+
+  // Save inline do toggle activada. Optimista: actualiza UI e reverte em erro.
+  const toggleEnabled = async (next: boolean) => {
+    setSavingRuntime('toggle');
+    const prev = aiSalesEnabled;
+    setAiSalesEnabled(next);
+    try {
+      await api.patch('/sales-agent/config', { aiSalesEnabled: next });
+      toast.success(next ? 'Leizy activada em todas as conversas' : 'Leizy desactivada (só actua onde ligares manualmente)');
+    } catch (e: any) {
+      setAiSalesEnabled(prev);
+      toast.error(e.response?.data?.message || 'Erro ao actualizar');
+    } finally { setSavingRuntime(null); }
+  };
+
+  // Save inline do modo. Confirmacao humana antes de passar para autonomo,
+  // porque em auto a Leizy envia sem aprovacao humana.
+  const changeMode = async (next: 'supervised' | 'auto') => {
+    if (next === aiSalesMode) return;
+    if (next === 'auto' && !window.confirm('Passar a modo Autónomo? A Leizy vai enviar mensagens e criar marcações/tarefas SEM aprovação humana. Só usa quando já tiveres confiança nas respostas dela.')) {
+      return;
+    }
+    setSavingRuntime('mode');
+    const prev = aiSalesMode;
+    setAiSalesMode(next);
+    try {
+      await api.patch('/sales-agent/config', { aiSalesMode: next });
+      toast.success(next === 'auto' ? 'Modo Autónomo activo' : 'Modo Supervisionado activo');
+    } catch (e: any) {
+      setAiSalesMode(prev);
+      toast.error(e.response?.data?.message || 'Erro ao actualizar');
+    } finally { setSavingRuntime(null); }
+  };
 
   const update = (patch: Partial<AgentConfig>) => {
     if (!config) return;
@@ -126,6 +166,68 @@ export default function SalesAgentPage() {
       </div>
 
       <AiUsageBars />
+
+      {/* Operação: sempre visível no topo. Toggle activar + modo. */}
+      <div className="card p-4 mb-5 flex flex-wrap items-center gap-4" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center gap-2">
+          <Power size={16} style={{ color: aiSalesEnabled ? 'var(--primary)' : 'var(--text-muted)' }} />
+          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={aiSalesEnabled}
+              disabled={savingRuntime === 'toggle'}
+              onChange={(e) => toggleEnabled(e.target.checked)}
+            />
+            <span>Activar em todas as conversas</span>
+            {savingRuntime === 'toggle' && <Loader2 size={12} className="animate-spin" />}
+          </label>
+        </div>
+
+        <div className="h-6 w-px" style={{ background: 'var(--border)' }} />
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Modo:</span>
+          <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+            <button
+              onClick={() => changeMode('supervised')}
+              disabled={savingRuntime === 'mode'}
+              className="px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 transition-colors"
+              style={{
+                background: aiSalesMode === 'supervised' ? 'var(--primary)' : 'transparent',
+                color: aiSalesMode === 'supervised' ? '#fff' : 'var(--text-secondary)',
+              }}
+              title="Cada sugestão espera aprovação humana antes de ser enviada"
+            >
+              <Eye size={12} /> Supervisionado
+            </button>
+            <button
+              onClick={() => changeMode('auto')}
+              disabled={savingRuntime === 'mode'}
+              className="px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 transition-colors"
+              style={{
+                background: aiSalesMode === 'auto' ? '#B45309' : 'transparent',
+                color: aiSalesMode === 'auto' ? '#fff' : 'var(--text-secondary)',
+              }}
+              title="A Leizy envia mensagens e cria marcações/tarefas sem aprovação humana"
+            >
+              <Zap size={12} /> Autónomo
+            </button>
+          </div>
+          {savingRuntime === 'mode' && <Loader2 size={12} className="animate-spin" style={{ color: 'var(--text-muted)' }} />}
+        </div>
+
+        {aiSalesMode === 'auto' && (
+          <div className="flex items-center gap-1.5 text-xs" style={{ color: '#B45309' }}>
+            <AlertTriangle size={13} />
+            <span>A Leizy envia e agenda sem aprovação. Confirma que estás confiante.</span>
+          </div>
+        )}
+        {!aiSalesEnabled && (
+          <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <span>Só actua nas conversas onde a ligares manualmente no menu do Inbox.</span>
+          </div>
+        )}
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b overflow-x-auto" style={{ borderColor: 'var(--border)' }}>
