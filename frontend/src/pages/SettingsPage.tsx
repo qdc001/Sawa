@@ -481,14 +481,15 @@ export default function SettingsPage() {
     } finally { setResetDataLoading(false); }
   };
 
-  // Menu Definicoes definitivo do Klaru (posicionamento clinico).
-  // Eliminados: Notificacoes, Produtos, Modelos, Templates de email, Auto-tarefa.
-  // Rotas continuam acessiveis por URL (?tab=notifications etc) para
-  // administradores que precisem, mas nao aparecem no menu.
+  // Menu Definicoes do Klaru (posicionamento clinico).
+  // Produtos foi reintroduzido como 'Servicos' (catalogo de procedimentos
+  // clinicos com precos). Propostas reintroduzida como 'Orcamentos' (para
+  // gerar orcamento de tratamento a partir dos servicos).
   const tabs = [
     { v: 'profile' as const, label: t('settings.profile'), icon: UserIcon },
     { v: 'preferences' as const, label: t('settings.preferences'), icon: Palette },
     { v: 'security' as const, label: t('settings.security'), icon: Shield },
+    { v: 'products' as const, label: t('nav.products'), icon: Package },
     { v: 'billing' as const, label: t('nav.billing'), icon: CreditCard },
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: t('settings.workspace'), icon: Building2 }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: t('settings.audit'), icon: History }] : []),

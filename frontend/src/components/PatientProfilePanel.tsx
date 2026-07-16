@@ -3,7 +3,8 @@
 // header da conversa, ou como aba no perfil do contacto.
 
 import { useEffect, useState } from 'react';
-import { X, Loader2, AlertTriangle, Calendar, MessageSquare, ClipboardList, Sparkles, Phone, Mail, Building2, MapPin, UserIcon } from 'lucide-react';
+import { X, Loader2, AlertTriangle, Calendar, MessageSquare, ClipboardList, Sparkles, Phone, Mail, Building2, MapPin, UserIcon, ScrollText } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { useTerminology } from '../lib/terminology';
@@ -70,6 +71,7 @@ export default function PatientProfilePanel({ contactId, onClose }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const terms = useTerminology();
+  const navigate = useNavigate();
 
   useEffect(() => {
     setLoading(true);
@@ -110,7 +112,17 @@ export default function PatientProfilePanel({ contactId, onClose }: Props) {
               )}
             </div>
           </div>
-          <button onClick={onClose}><X size={18} /></button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { onClose(); navigate(`/quotes?contactId=${contactId}&new=1`); }}
+              className="btn text-xs py-1.5 px-3 flex items-center gap-1.5"
+              style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+              title="Criar orçamento de tratamento para este paciente"
+            >
+              <ScrollText size={12} /> Novo orçamento
+            </button>
+            <button onClick={onClose}><X size={18} /></button>
+          </div>
         </div>
 
         {loading || !profile ? (

@@ -115,8 +115,9 @@ export default function App() {
           <Route element={<PipelineGroupLayout />}>
             <Route path="pipeline" element={<PipelinePage />} />
             <Route path="leads" element={<LeadsPage />} />
-            <Route path="quotes" element={<QuotesPage />} />
           </Route>
+          {/* Orcamentos e um modulo autonomo (sem sub-nav de Pipeline) */}
+          <Route path="quotes" element={<QuotesPage />} />
 
           <Route element={<AutomationsGroupLayout />}>
             <Route path="automations" element={<AutomationsPage />} />

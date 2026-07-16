@@ -22,14 +22,16 @@ import { useIsMobile } from '../../lib/useIsMobile';
 // UX naquele tamanho de ecra e demasiado apertada (drag-and-drop com dedo,
 // builders com muitos nos, etc.).
 // Sidebar operacional definitiva do Klaru (posicionamento clinico).
-// Pipeline (funil comercial) eliminado do menu principal. Rotas /pipeline,
-// /leads, /quotes, /calls, /chatbots continuam acessiveis por URL para nao
-// quebrar links antigos ou dados existentes, mas nao aparecem em lado nenhum.
+// Pipeline (funil comercial) eliminado do menu principal. /calls e /chatbots
+// continuam acessiveis por URL para nao quebrar dados existentes.
+// Servicos (catalogo) fica em Definicoes. Orcamentos ficam no menu principal
+// porque a recepcao precisa ver os orcamentos abertos do dia.
 const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean }[] = [
   { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
+  { path: '/quotes', icon: ScrollText, key: 'nav.quotes' },
   { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
 ];
