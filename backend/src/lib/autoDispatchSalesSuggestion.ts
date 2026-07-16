@@ -147,6 +147,16 @@ export async function executeSuggestionAction(
     try {
       const payload = suggestion.actionPayload as any;
       const startsAt = new Date(payload.startsAtISO);
+      // Defesa: rejeitar datas invalidas ou no passado (LLM pode ignorar o
+      // bloco temporal do prompt e devolver algo pre-2026).
+      if (isNaN(startsAt.getTime())) {
+        executionError = `startsAtISO invalido: "${payload.startsAtISO}".`;
+      } else if (startsAt.getTime() < Date.now() - 60_000) {
+        executionError = `Nao marco no passado (${startsAt.toISOString()} ja passou). Confirma o dia e hora certos com o paciente.`;
+      }
+      if (executionError) {
+        return { createdEntity: null, executionError };
+      }
       // Detectar conflitos: outra consulta do mesmo contacto na mesma hora
       // (janela de +/- 15min) e ja com estado activo.
       const existing = await prisma.appointment.findFirst({

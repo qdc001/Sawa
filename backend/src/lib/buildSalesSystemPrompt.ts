@@ -21,6 +21,9 @@ export type BuildPromptOptions = {
   activePrincipleKeys?: string[];
   // Limite de mensagens fragmentadas (default 4 conforme plano).
   maxFragments?: number;
+  // Instante actual a injectar no prompt. Default: now(). Parametrizavel
+  // para testes deterministicos.
+  now?: Date;
   // Catalogo de produtos disponiveis para a IA poder anexar via send_product.
   // Quando vazio (ou ausente), o prompt nao convida a usar send_product.
   productCatalog?: Array<{
@@ -108,6 +111,26 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
         `sintomas, pedir opinião clínica, ou perguntar "será que devo tomar X", respondes com empatia ` +
         `e reencaminhas para a equipa clínica. Em urgências percebidas, fazes handoff imediato.`
       : '')
+  );
+
+  // Bloco temporal: sem isto o LLM inventa a data actual e o startsAtISO
+  // do book_appointment fica errado. Timezone default 'Africa/Maputo' vem
+  // do schema (Workspace.timezone).
+  const now = opts.now || new Date();
+  const tz = (workspace as any).timezone || 'Africa/Maputo';
+  const fmtWeekday = new Intl.DateTimeFormat('pt-PT', { weekday: 'long', timeZone: tz });
+  const fmtDate = new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'long', year: 'numeric', timeZone: tz });
+  const fmtTime = new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
+  const weekdayLocal = fmtWeekday.format(now);
+  const dateLocal = fmtDate.format(now);
+  const timeLocal = fmtTime.format(now);
+  parts.push(
+    `Referência temporal (usa esta como a única verdadeira, não confies em datas que possas ter aprendido):\n` +
+    `- Agora, hora local (${tz}): ${weekdayLocal}, ${dateLocal}, ${timeLocal}.\n` +
+    `- Agora em UTC (ISO 8601): ${now.toISOString()}.\n` +
+    `Quando o paciente disser "amanhã", "próxima quinta", "hoje à tarde", "daqui a uma semana", ` +
+    `resolves a data e hora concretas a partir deste instante. Ao devolveres startsAtISO em ` +
+    `book_appointment, tem de ser um instante posterior a agora, convertido para UTC.`
   );
 
   if (brandVoice) {
