@@ -62,6 +62,7 @@ import { runDailyAutoLearn } from './lib/aiCoach';
 import { runAppointmentReminders } from './lib/appointmentReminders';
 import { runReactivationJob, runBirthdayJob, runPostConsultFollowupJob } from './lib/aiProactiveJobs';
 import knowledgeRoutes from './routes/knowledge';
+import patientProfileRoutes from './routes/patientProfile';
 
 const app = express();
 const httpServer = createServer(app);
@@ -164,6 +165,7 @@ app.use('/api/auto-task', authMiddleware, autoTaskRoutes);
 app.use('/api/billing', authMiddleware, billingRoutes);
 app.use('/api/appointments', authMiddleware, appointmentRoutes);
 app.use('/api/knowledge', authMiddleware, knowledgeRoutes);
+app.use('/api/patient-profile', authMiddleware, patientProfileRoutes);
 
 
 // Error handler (must be last)

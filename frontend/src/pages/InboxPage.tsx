@@ -17,6 +17,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import AutoTaskModal from '../components/AutoTaskModal';
 import TaskConflictDialog from '../components/TaskConflictDialog';
 import { openWhatsAppForCall } from '../lib/whatsappCall';
+import PatientProfilePanel from '../components/PatientProfilePanel';
 import { downloadFile } from '../lib/downloadFile';
 import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
@@ -705,6 +706,7 @@ export default function InboxPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
   const [showAutoTask, setShowAutoTask] = useState(false);
+  const [showPatientProfile, setShowPatientProfile] = useState(false);
 
   // Dados auxiliares
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -1862,14 +1864,25 @@ export default function InboxPage() {
                     <ChevronLeft size={20} style={{ color: 'var(--text-primary)' }} />
                   </button>
                 )}
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0" style={{ background: 'var(--primary)' }}>
+                <button
+                  onClick={() => selected.contact?.id && setShowPatientProfile(true)}
+                  disabled={!selected.contact?.id}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 hover:opacity-80 transition-opacity"
+                  style={{ background: 'var(--primary)' }}
+                  title="Ver ficha do paciente"
+                >
                   {selected.contact?.avatar ? (
                     <img src={selected.contact.avatar} className="w-full h-full rounded-full object-cover" alt="" />
                   ) : selected.contact?.type === 'COMPANY' ? <Building2 size={16} /> : (selected.contact?.firstName?.[0] || '?').toUpperCase()}
-                </div>
-                <div className="min-w-0">
+                </button>
+                <button
+                  onClick={() => selected.contact?.id && setShowPatientProfile(true)}
+                  disabled={!selected.contact?.id}
+                  className="min-w-0 text-left hover:opacity-80 transition-opacity"
+                  title="Ver ficha do paciente"
+                >
                   <div className="flex items-center gap-1.5">
-                    <p className="font-semibold text-sm truncate">{fullName(selected.contact)}</p>
+                    <p className="font-semibold text-sm truncate underline decoration-dotted underline-offset-2">{fullName(selected.contact)}</p>
                     {selected.contact && isSalesAiActiveForContact(selected.contact.id) && (
                       <span
                         title="Leizy activa nesta conversa"
@@ -1899,7 +1912,7 @@ export default function InboxPage() {
                       </span>
                     )}
                   </div>
-                </div>
+                </button>
               </div>
               <div className="flex items-center gap-0.5 flex-shrink-0 relative">
                 <button
@@ -1971,16 +1984,9 @@ export default function InboxPage() {
                         </button>
                       </>
                     )}
-                    {selected.contact?.whatsapp && (
-                      <a href={`https://wa.me/${cleanPhone(selected.contact.whatsapp)}`} target="_blank" rel="noreferrer" className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100" onClick={() => setShowHeaderMenu(false)}>
-                        <MessageCircle size={14} style={{ color: '#25D366' }} /> Abrir no WhatsApp
-                      </a>
-                    )}
-                    {selected.contact?.phone && (
-                      <a href={`tel:${cleanPhone(selected.contact.phone)}`} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100" onClick={() => setShowHeaderMenu(false)}>
-                        <Phone size={14} /> Telefonar
-                      </a>
-                    )}
+                    {/* 'Abrir no WhatsApp' e 'Telefonar' eliminados:
+                        Klaru consolida tudo no CRM, nao envia o utilizador
+                        para fora. */}
                     <button onClick={() => { handleCsatRequest(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       <ThumbsUp size={14} style={{ color: '#F59E0B' }} /> Pedir avaliação pós-consulta
                     </button>
@@ -2497,16 +2503,9 @@ export default function InboxPage() {
                 >
                   <Zap size={14} />
                 </button>
-                {selected.contact?.id && (
-                  <button
-                    onClick={() => setShowAutoTask(true)}
-                    className="text-xs px-2 py-1 rounded font-medium"
-                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
-                    title="Enviar mensagem e criar/actualizar tarefa"
-                  >
-                    <CalendarClock size={11} className="inline mr-1" /> Enviar com tarefa
-                  </button>
-                )}
+                {/* 'Enviar com tarefa' eliminado. As tarefas criam-se
+                    directamente na pagina Agenda ou automaticamente pela
+                    Leizy quando o paciente pede algo. */}
                 <button onClick={handleAISuggest} disabled={aiLoading} className="text-xs px-2 py-1 rounded font-medium ml-auto"
                   style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
                   {aiLoading ? <Loader2 size={11} className="animate-spin inline" /> : <Sparkles size={11} className="inline mr-1" />}
@@ -2774,6 +2773,12 @@ export default function InboxPage() {
       )}
 
       {/* Modais */}
+      {showPatientProfile && selected?.contact?.id && (
+        <PatientProfilePanel
+          contactId={selected.contact.id}
+          onClose={() => setShowPatientProfile(false)}
+        />
+      )}
       {showAutoTask && selected?.contact?.id && (
         <AutoTaskModal
           contactId={selected.contact.id}
