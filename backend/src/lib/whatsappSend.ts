@@ -84,7 +84,7 @@ export async function sendWhatsAppOut(
           path = `/message/sendWhatsAppAudio/${creds.instanceName}`;
           const resolved = resolveMediaPayload(mediaUrl);
           if (resolved.missing) {
-            return { ok: false, error: 'Ficheiro de audio nao encontrado no disco. Se a mensagem foi importada do CRM antigo, os ficheiros nao foram trazidos. Refaz o upload.' };
+            return { ok: false, error: 'Ficheiro de áudio não encontrado no disco. Se a mensagem foi importada do CRM antigo, os ficheiros não foram trazidos. Refaz o upload.' };
           }
           // Evolution v2 aceita base64 puro (sem prefixo data:) ou URL.
           body.audio = resolved.base64 || resolved.url || mediaUrl;
@@ -97,7 +97,7 @@ export async function sendWhatsAppOut(
           // no campo separado body.mimetype.
           const resolved = resolveMediaPayload(mediaUrl);
           if (resolved.missing) {
-            return { ok: false, error: 'Ficheiro nao encontrado no disco. Se este anexo foi importado do CRM antigo (M.E.T.A.), o ficheiro nao foi trazido. Refaz o upload para reenviar.' };
+            return { ok: false, error: 'Ficheiro não encontrado no disco. Se este anexo foi importado do CRM antigo (M.E.T.A.), o ficheiro não foi trazido. Refaz o upload para reenviar.' };
           }
           body.media = resolved.base64 || resolved.url || mediaUrl;
           body.caption = content && content !== 'Anexo' ? content : '';

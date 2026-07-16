@@ -36,7 +36,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
     const doc = await prisma.knowledgeDocument.findFirst({
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
-    if (!doc) throw new AppError('Documento nao encontrado', 404);
+    if (!doc) throw new AppError('Documento não encontrado', 404);
     res.json(doc);
   } catch (e) { next(e); }
 });
@@ -45,11 +45,11 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     if (!['OWNER', 'ADMIN', 'MANAGER'].includes(req.user!.role)) {
-      throw new AppError('Sem permissao', 403);
+      throw new AppError('Sem permissão', 403);
     }
     const { title, content, category } = req.body || {};
-    if (!title || !String(title).trim()) throw new AppError('Titulo obrigatorio', 400);
-    if (!content || !String(content).trim()) throw new AppError('Conteudo obrigatorio', 400);
+    if (!title || !String(title).trim()) throw new AppError('Título obrigatório', 400);
+    if (!content || !String(content).trim()) throw new AppError('Conteúdo obrigatório', 400);
 
     const cleanContent = String(content).trim();
     const doc = await prisma.knowledgeDocument.create({
@@ -85,12 +85,12 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     if (!['OWNER', 'ADMIN', 'MANAGER'].includes(req.user!.role)) {
-      throw new AppError('Sem permissao', 403);
+      throw new AppError('Sem permissão', 403);
     }
     const existing = await prisma.knowledgeDocument.findFirst({
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
-    if (!existing) throw new AppError('Documento nao encontrado', 404);
+    if (!existing) throw new AppError('Documento não encontrado', 404);
 
     const { title, content, category, isActive } = req.body || {};
     const data: any = {};
@@ -133,12 +133,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     if (!['OWNER', 'ADMIN', 'MANAGER'].includes(req.user!.role)) {
-      throw new AppError('Sem permissao', 403);
+      throw new AppError('Sem permissão', 403);
     }
     const existing = await prisma.knowledgeDocument.findFirst({
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
-    if (!existing) throw new AppError('Documento nao encontrado', 404);
+    if (!existing) throw new AppError('Documento não encontrado', 404);
     await prisma.knowledgeDocument.delete({ where: { id: existing.id } });
     res.json({ ok: true });
   } catch (e) { next(e); }

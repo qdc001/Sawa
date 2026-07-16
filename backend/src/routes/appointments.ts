@@ -52,7 +52,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
       include: appointmentInclude,
     });
-    if (!item) throw new AppError('Marcacao nao encontrada', 404);
+    if (!item) throw new AppError('Marcação não encontrada', 404);
     res.json(item);
   } catch (e) { next(e); }
 });
@@ -61,16 +61,16 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { contactId, leadId, assignedToId, title, description, location, startsAt, durationMin, status, notes } = req.body;
-    if (!contactId) throw new AppError('contactId obrigatorio', 400);
-    if (!title || !String(title).trim()) throw new AppError('Titulo obrigatorio', 400);
-    if (!startsAt) throw new AppError('Data de inicio obrigatoria', 400);
+    if (!contactId) throw new AppError('contactId obrigatório', 400);
+    if (!title || !String(title).trim()) throw new AppError('Título obrigatório', 400);
+    if (!startsAt) throw new AppError('Data de início obrigatória', 400);
 
     // Validar que o contact pertence ao workspace
     const contact = await prisma.contact.findFirst({
       where: { id: contactId, workspaceId: req.user!.workspaceId },
       select: { id: true },
     });
-    if (!contact) throw new AppError('Contacto invalido', 400);
+    if (!contact) throw new AppError('Contacto inválido', 400);
 
     const item = await prisma.appointment.create({
       data: {
@@ -104,7 +104,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
       select: { id: true },
     });
-    if (!existing) throw new AppError('Marcacao nao encontrada', 404);
+    if (!existing) throw new AppError('Marcação não encontrada', 404);
 
     const { title, description, location, startsAt, durationMin, status, notes, assignedToId, leadId } = req.body;
     const data: any = {};
@@ -138,7 +138,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
       select: { id: true },
     });
-    if (!existing) throw new AppError('Marcacao nao encontrada', 404);
+    if (!existing) throw new AppError('Marcação não encontrada', 404);
     await prisma.appointment.delete({ where: { id: req.params.id } });
 
     const io = req.app.get('io');

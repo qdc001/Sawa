@@ -69,7 +69,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
       },
       include: taskInclude,
     });
-    if (!task) throw new AppError('Tarefa nao encontrada', 404);
+    if (!task) throw new AppError('Tarefa não encontrada', 404);
     res.json(task);
   } catch (e) { next(e); }
 });
@@ -94,7 +94,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       const existing = await findOpenTaskForContact(finalContactId);
       if (existing) {
         return res.status(409).json({
-          message: 'Este contacto ja tem uma tarefa aberta. Conclui-a antes de criar outra.',
+          message: 'Este contacto já tem uma tarefa aberta. Conclui-a antes de criar outra.',
           existingTask: existing,
         });
       }
@@ -164,7 +164,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
         const conflict = await findOpenTaskForContact(targetContactId, req.params.id);
         if (conflict) {
           return res.status(409).json({
-            message: 'Este contacto ja tem uma tarefa aberta. Conclui-a antes.',
+            message: 'Este contacto já tem uma tarefa aberta. Conclui-a antes.',
             existingTask: conflict,
           });
         }

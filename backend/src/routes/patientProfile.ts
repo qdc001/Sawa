@@ -29,7 +29,7 @@ router.get('/:contactId', async (req: AuthRequest, res: Response, next) => {
         tags: { include: { tag: true } },
       },
     });
-    if (!contact) throw new AppError('Paciente nao encontrado', 404);
+    if (!contact) throw new AppError('Paciente não encontrado', 404);
 
     const [cfValues, appointments, tasks, recentMessages, pendingLeizy, messageCount] = await Promise.all([
       // Custom fields com o valor

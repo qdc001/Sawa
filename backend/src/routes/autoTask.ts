@@ -122,9 +122,9 @@ function lookupSubject(config: AutoTaskConfig, subjectLabel: string): { artigo: 
 router.post('/announce', async (req: AuthRequest, res: Response, next) => {
   try {
     const { contactId, subject, typeKey, customTypeLabel, dueDate, leadId, updateTaskId } = req.body || {};
-    if (!contactId) throw new AppError('contactId obrigatorio', 400);
-    if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatorio', 400);
-    if (!dueDate) throw new AppError('Data obrigatoria (formato DD/MM)', 400);
+    if (!contactId) throw new AppError('contactId obrigatório', 400);
+    if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatório', 400);
+    if (!dueDate) throw new AppError('Data obrigatória (formato DD/MM)', 400);
 
     const workspace = await prisma.workspace.findUnique({
       where: { id: req.user!.workspaceId },
@@ -133,14 +133,14 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
     const tz = workspace?.timezone || 'Africa/Maputo';
 
     const parsedDate = ddmmToDate(String(dueDate).trim(), tz);
-    if (!parsedDate) throw new AppError('Data invalida. Usa DD/MM ou DD/MM/YYYY', 400);
+    if (!parsedDate) throw new AppError('Data inválida. Usa DD/MM ou DD/MM/YYYY', 400);
 
     const contact = await prisma.contact.findFirst({
       where: { id: contactId, workspaceId: req.user!.workspaceId },
     });
-    if (!contact) throw new AppError('Contacto nao encontrado', 404);
+    if (!contact) throw new AppError('Contacto não encontrado', 404);
     const phone = contact.whatsapp || contact.phone;
-    if (!phone) throw new AppError('Contacto sem numero de WhatsApp', 400);
+    if (!phone) throw new AppError('Contacto sem número de WhatsApp', 400);
 
     // Regra: 1 tarefa aberta por contacto. Se updateTaskId veio (o utilizador
     // escolheu "Actualizar existente" no dialog de conflito) reaproveitamos
@@ -158,7 +158,7 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
     });
     if (openExisting && (!updateTaskId || updateTaskId !== openExisting.id)) {
       return res.status(409).json({
-        message: 'Este contacto ja tem uma tarefa aberta. Conclui-a antes de criar outra.',
+        message: 'Este contacto já tem uma tarefa aberta. Conclui-a antes de criar outra.',
         existingTask: openExisting,
       });
     }
@@ -263,15 +263,15 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
   try {
     const { contactId, subject, typeKey, customTypeLabel, taskToCompleteId, leadId, attachmentUrl, attachmentName, updateTaskId } = req.body || {};
     console.log('[deliver] recebido', { contactId: !!contactId, subject, taskToCompleteId, updateTaskId, hasAttachment: !!attachmentUrl });
-    if (!contactId) throw new AppError('contactId obrigatorio', 400);
-    if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatorio', 400);
+    if (!contactId) throw new AppError('contactId obrigatório', 400);
+    if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatório', 400);
 
     const contact = await prisma.contact.findFirst({
       where: { id: contactId, workspaceId: req.user!.workspaceId },
     });
-    if (!contact) throw new AppError('Contacto nao encontrado', 404);
+    if (!contact) throw new AppError('Contacto não encontrado', 404);
     const phone = contact.whatsapp || contact.phone;
-    if (!phone) throw new AppError('Contacto sem numero de WhatsApp', 400);
+    if (!phone) throw new AppError('Contacto sem número de WhatsApp', 400);
 
     // Regra: 1 tarefa aberta por contacto. O /deliver fecha a antiga (taskToCompleteId)
     // e cria um follow-up. Se ha alguma outra tarefa aberta que nao seja a que se vai
@@ -292,7 +292,7 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
     const stillOpen = openTasks.filter((t) => t.id !== taskToCompleteId && t.id !== updateTaskId);
     if (stillOpen.length > 0) {
       return res.status(409).json({
-        message: `Este contacto ja tem uma tarefa aberta ("${stillOpen[0].title}") que nao vai ser fechada. Conclui-a antes.`,
+        message: `Este contacto já tem uma tarefa aberta ("${stillOpen[0].title}") que não vai ser fechada. Conclui-a antes.`,
         existingTask: stillOpen[0],
       });
     }
@@ -469,7 +469,7 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
 router.get('/open-tasks', async (req: AuthRequest, res: Response, next) => {
   try {
     const contactId = String(req.query.contactId || '');
-    if (!contactId) throw new AppError('contactId obrigatorio', 400);
+    if (!contactId) throw new AppError('contactId obrigatório', 400);
     const tasks = await prisma.task.findMany({
       where: {
         contactId,
