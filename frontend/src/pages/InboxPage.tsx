@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
@@ -1177,19 +1177,32 @@ export default function InboxPage() {
   // o utilizador ja estava perto do fundo. Evita arrastar para baixo a cada
   // polling de 8s ou quando o utilizador subiu para ler historico antigo.
   //
-  // IMPORTANTE: quando o utilizador muda de conversa, messages fica vazia
-  // temporariamente durante o carregamento da API. So actualizamos a ref da
-  // conversa DEPOIS de termos scrollado para o fundo, para que a proxima
-  // render (quando as mensagens carregarem) ainda saiba que foi mudanca de
-  // conversa e faca scroll ao fundo.
+  // Auto-scroll ao fundo quando muda de conversa OU quando chega mensagem nova
+  // e o utilizador esta perto do fundo. useLayoutEffect corre SYNCRONO apos o
+  // DOM ser actualizado (antes do paint), portanto o scroll acontece na mesma
+  // frame que o render das mensagens e o utilizador nao ve "flash" a meio.
+  //
+  // Alem disso, ligamos um ResizeObserver ao container: sempre que a altura
+  // do container muda (imagens/videos que carregam depois), refazemos o
+  // scroll se ainda estamos no modo "colar ao fundo". Isto garante que o
+  // chat abre SEMPRE na mensagem mais recente, sem depender de retries
+  // temporais que podem falhar.
   const lastMsgIdRef = useRef<string | null>(null);
   const prevSelectedKeyRef = useRef<string | null>(null);
-  useEffect(() => {
+  const stickToBottomRef = useRef<boolean>(true);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+
+  const scrollToBottomNow = () => {
+    const container = messagesEndRef.current?.parentElement;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  };
+
+  useLayoutEffect(() => {
     const lastId = messages.length > 0 ? messages[messages.length - 1].id : null;
     const prevId = lastMsgIdRef.current;
     const conversationChanged = prevSelectedKeyRef.current !== selectedKey;
 
-    // Sem mensagens ainda: nao mexer nas refs (aguardamos as mensagens carregarem)
     if (!lastId) {
       lastMsgIdRef.current = null;
       return;
@@ -1197,49 +1210,63 @@ export default function InboxPage() {
 
     lastMsgIdRef.current = lastId;
 
-    // Mudou de conversa e mensagens ja carregaram: scroll instantaneo ao fundo.
-    // Refazemos varias vezes porque imagens/videos podem esticar o container
-    // apos o scroll inicial. O utilizador ainda pode scrollar manualmente entre
-    // as tentativas: interrompemos se detectarmos que ele afastou-se do fundo.
     if (conversationChanged) {
       prevSelectedKeyRef.current = selectedKey;
-      const targetKey = selectedKey;
-      const stickToBottom = () => {
-        const container = messagesEndRef.current?.parentElement;
-        if (!container) return;
-        // Directo: scrollTop = scrollHeight e mais fiavel que scrollIntoView
-        // quando o container ainda esta a receber conteudo com altura variavel.
-        container.scrollTop = container.scrollHeight;
-      };
-      requestAnimationFrame(stickToBottom);
-      // Retries para acomodar carregamento assincrono de imagens/thumbs.
-      const retries = [80, 250, 600, 1200];
-      retries.forEach((delay) => {
-        setTimeout(() => {
-          // Se o utilizador mudou de conversa entretanto, nao mexer.
-          if (prevSelectedKeyRef.current !== targetKey) return;
-          const container = messagesEndRef.current?.parentElement;
-          if (!container) return;
-          const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-          // So refaz o scroll se ainda estamos perto do fundo (o utilizador
-          // nao scrollou para cima manualmente).
-          if (distanceFromBottom < 400) stickToBottom();
-        }, delay);
+      stickToBottomRef.current = true;
+      // Scroll imediato agora, sincrono com o paint
+      scrollToBottomNow();
+      // Retry num rAF para apanhar qualquer layout que so estabilize depois
+      requestAnimationFrame(() => {
+        if (stickToBottomRef.current) scrollToBottomNow();
       });
       return;
     }
 
-    // Mesma conversa, mesma ultima mensagem: nao mexer (polling sem novidade)
     if (lastId === prevId) return;
 
-    // Chegou mensagem nova: so faz scroll se o utilizador estiver perto do fundo
+    // Mensagem nova na mesma conversa: so scroll se estamos perto do fundo
     const container = messagesEndRef.current?.parentElement;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     if (distanceFromBottom < 220) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      scrollToBottomNow();
     }
   }, [messages, selectedKey]);
+
+  // ResizeObserver: reage a imagens/videos que carregam depois e esticam
+  // o container. Enquanto o utilizador nao scrolla para cima manualmente,
+  // mantemos colado ao fundo.
+  useEffect(() => {
+    const container = messagesEndRef.current?.parentElement;
+    if (!container) return;
+    if (resizeObserverRef.current) resizeObserverRef.current.disconnect();
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
+    ro.observe(container);
+    // Observar tambem cada child directo para apanhar imagens/videos
+    Array.from(container.children).forEach((child) => {
+      if (child instanceof Element) ro.observe(child);
+    });
+    resizeObserverRef.current = ro;
+    return () => { ro.disconnect(); };
+  }, [selectedKey]);
+
+  // Detectar quando o utilizador scrolla manualmente para cima. Se afastar
+  // >220px do fundo, desactiva o "colar ao fundo" (nao interferimos com o
+  // que ele quer ler). Volta a activar quando ele scrolla de volta ao fundo.
+  useEffect(() => {
+    const container = messagesEndRef.current?.parentElement;
+    if (!container) return;
+    const onScroll = () => {
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      stickToBottomRef.current = distanceFromBottom < 220;
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  }, [selectedKey]);
 
   // Nota: não seleccionamos nenhuma conversa automaticamente.
   // O utilizador deve clicar na conversa que quer abrir. Isto evita abrir
