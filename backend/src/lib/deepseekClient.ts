@@ -126,11 +126,17 @@ async function deepseekRequest(
   let currentKey = getActiveKey() || API_KEY_POOL[0];
   const triedKeys = new Set<string>();
 
+  // DeepSeek V4 tem reasoning nativo que consome ~200-500 tokens antes de
+  // gerar o content visivel. Se max_tokens for apertado (ex: 1000 no coach),
+  // o reasoning come tudo e o content sai vazio. Expandimos 4x com cap de
+  // 8192, similar ao que fazemos no Gemini. Nao afecta preco porque o
+  // DeepSeek so cobra os tokens realmente gerados.
+  const expandedMax = Math.min(8192, Math.max(maxTokens, maxTokens * 4));
   const body: any = {
     model,
     messages,
     temperature,
-    max_tokens: maxTokens,
+    max_tokens: expandedMax,
     stream: false,
   };
   if (jsonMode) {
@@ -161,11 +167,20 @@ async function deepseekRequest(
       const data: any = await res.json().catch(() => null);
       if (!data) throw Object.assign(new Error('Resposta invalida do DeepSeek'), { status: 502 });
       const choice = data.choices?.[0];
-      const text: string = choice?.message?.content || '';
+      const text: string = (choice?.message?.content || '').trim();
       const finish = choice?.finish_reason;
-      if (!text) throw Object.assign(new Error(`DeepSeek devolveu resposta vazia (finish=${finish})`), { status: 502 });
+      const reasoningTokens = data.usage?.completion_tokens_details?.reasoning_tokens;
+      const completionTokens = data.usage?.completion_tokens;
+      if (!text) {
+        // Content vazio: quase sempre reasoning ate esgotar max_tokens.
+        // Devolve mensagem descritiva para o diagnostico.
+        const detail = reasoningTokens
+          ? `reasoning consumiu ${reasoningTokens}/${completionTokens} tokens, nao sobrou para o content (finish=${finish}, max_tokens=${expandedMax}). Aumenta max_tokens ou muda para deepseek-v4-pro que tem thinking mais eficiente.`
+          : `content vazio, finish=${finish}, tokens=${completionTokens}`;
+        throw Object.assign(new Error(`DeepSeek devolveu resposta vazia: ${detail}`), { status: 502 });
+      }
       if (finish === 'length') {
-        console.warn(`[deepseek] resposta truncada (finish=length). tokens=${data.usage?.completion_tokens}. Amostra: ${text.slice(0, 200)}`);
+        console.warn(`[deepseek] resposta truncada (finish=length). completion=${completionTokens} reasoning=${reasoningTokens || 0}. Amostra: ${text.slice(0, 200)}`);
       }
       return {
         raw: text,
