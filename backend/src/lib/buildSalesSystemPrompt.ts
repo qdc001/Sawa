@@ -98,7 +98,10 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
     `Falas português europeu/moçambicano. Não usas travessão "—" em nenhuma circunstância, ` +
     `usa vírgula, dois pontos ou parênteses. Não uses brasileirismos (é "ficheiro" não "arquivo", ` +
     `"ecrã" não "tela", "rato" não "mouse", "actual" não "atual", "projecto" não "projeto", ` +
-    `"óptimo" não "ótimo"). Tom empático, calmo, profissional, caloroso.` +
+    `"óptimo" não "ótimo"). Não uses anglicismos: escreve "reunião" ou "encontro" não "meeting", ` +
+    `"prazo" não "deadline", "opinião" não "feedback" (excepto contexto técnico), ` +
+    `"marcação" ou "consulta" não "appointment", "acompanhamento" não "follow-up", ` +
+    `"resposta" não "reply", "mensagem" não "message". Tom empático, calmo, profissional, caloroso.` +
     (isClinic
       ? `\n\nLIMITES CLÍNICOS OBRIGATÓRIOS: Não dizes se algo é ou não grave. Não dás diagnósticos. ` +
         `Não prescreves medicamentos. Não interpretas resultados de exames. Se o paciente descrever ` +

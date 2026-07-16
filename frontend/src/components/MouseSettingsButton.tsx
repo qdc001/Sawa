@@ -19,10 +19,9 @@ export default function MouseSettingsButton() {
         onClick={() => setOpen((v) => !v)}
         className="btn"
         style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
-        title="Configurar pan-scroll"
+        title="Configurar botão do rato para arrastar a vista"
       >
         <Mouse size={14} />
-        <span>Rato</span>
       </button>
       {open && (
         <div
@@ -30,7 +29,7 @@ export default function MouseSettingsButton() {
           style={{ background: 'var(--surface)' }}
         >
           <p className="text-xs px-2 py-1" style={{ color: 'var(--text-muted)' }}>
-            Botao do rato para mover a vista
+            Botão do rato para arrastar a vista
           </p>
           {OPTIONS.map((opt) => (
             <button
