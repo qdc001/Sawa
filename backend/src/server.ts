@@ -60,6 +60,8 @@ import { runDailyDigests } from './lib/dailyTaskDigest';
 import { runDailyLearningConsolidation } from './lib/salesLearningConsolidator';
 import { runDailyAutoLearn } from './lib/aiCoach';
 import { runAppointmentReminders } from './lib/appointmentReminders';
+import { runReactivationJob, runBirthdayJob, runPostConsultFollowupJob } from './lib/aiProactiveJobs';
+import knowledgeRoutes from './routes/knowledge';
 
 const app = express();
 const httpServer = createServer(app);
@@ -161,6 +163,7 @@ app.use('/api/ai-usage', authMiddleware, aiUsageRoutes);
 app.use('/api/auto-task', authMiddleware, autoTaskRoutes);
 app.use('/api/billing', authMiddleware, billingRoutes);
 app.use('/api/appointments', authMiddleware, appointmentRoutes);
+app.use('/api/knowledge', authMiddleware, knowledgeRoutes);
 
 
 // Error handler (must be last)
@@ -241,6 +244,23 @@ setInterval(() => {
 setInterval(() => {
   runAppointmentReminders().catch((e) => console.error('runAppointmentReminders error:', e));
 }, 5 * 60_000);
+
+// Leizy proactiva (Sprint 3+4.2):
+// Reactivacao: corre a cada hora, so executa 1x por dia por workspace
+setInterval(() => {
+  runReactivationJob().catch((e) => console.error('runReactivationJob error:', e));
+}, 60 * 60_000);
+
+// Aniversarios: corre a cada 15min, so executa quando a hora local do
+// workspace bate certo com birthdayGreetingHour
+setInterval(() => {
+  runBirthdayJob().catch((e) => console.error('runBirthdayJob error:', e));
+}, 15 * 60_000);
+
+// Follow-up pos-consulta: corre de hora em hora
+setInterval(() => {
+  runPostConsultFollowupJob().catch((e) => console.error('runPostConsultFollowupJob error:', e));
+}, 60 * 60_000);
 
 (global as any).io = io;
 export { io };

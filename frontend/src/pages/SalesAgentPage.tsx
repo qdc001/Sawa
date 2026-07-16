@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import AiCoachingPanel from '../components/AiCoachingPanel';
 import AiUsageBars from '../components/AiUsageBars';
 import { useAuthStore } from '../store';
+import LeizyKnowledgePanel from '../components/LeizyKnowledgePanel';
 
 type SectorKey = 'imobiliaria' | 'clinica' | 'escola' | 'consultoria' | 'outro';
 
@@ -41,7 +42,7 @@ interface KnowledgePreview {
   stats: { principlesAvailable: number; principlesActive: number; sectorsAvailable: number };
 }
 
-type Tab = 'persona' | 'sector' | 'instructions' | 'coach' | 'memory';
+type Tab = 'persona' | 'sector' | 'instructions' | 'knowledge' | 'coach' | 'memory';
 
 export default function SalesAgentPage() {
   const [tab, setTab] = useState<Tab>('persona');
@@ -131,6 +132,7 @@ export default function SalesAgentPage() {
           // Tab "Sector" removida do produto: o preset da instalacao ja fixa
           // o sector clinico. Configurar mais aqui nao acrescenta valor.
           { id: 'instructions', label: 'Instruções', icon: MessageSquare },
+          { id: 'knowledge', label: 'Conhecimento', icon: BookOpen },
           { id: 'coach', label: 'Treinar Leizy', icon: GraduationCap },
           { id: 'memory', label: 'Memória aprendida', icon: Brain },
         ] as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
@@ -151,6 +153,8 @@ export default function SalesAgentPage() {
 
       {tab === 'coach' ? (
         <AiCoachingPanel />
+      ) : tab === 'knowledge' ? (
+        <div className="max-w-3xl"><LeizyKnowledgePanel /></div>
       ) : (
       <div>
         <div className="space-y-5 max-w-3xl">

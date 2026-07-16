@@ -99,6 +99,23 @@ model Workspace {
   appointmentReminderEnabled    Boolean   @default(true)
   appointmentReminderHours      Int       @default(24)
   appointmentReminderTemplate   String?
+  // === Leizy proactiva (Sprint 3 do cumprimento do manual) ===
+  // Reactivacao: cron nocturno identifica pacientes sem consulta ha N meses.
+  // A Leizy prepara mensagem personalizada, mete em fila (AiSalesSuggestion).
+  reactivationEnabled           Boolean   @default(true)
+  reactivationDaysThreshold     Int       @default(180)   // 6 meses default
+  reactivationLastRunAt         DateTime?
+  // Aniversario do paciente: cron diario le birth_date custom field, envia
+  // mensagem personalizada gerada pela Leizy.
+  birthdayGreetingEnabled       Boolean   @default(true)
+  birthdayGreetingHour          Int       @default(9)     // 0-23 hora local
+  birthdayGreetingLastRunAt     DateTime?
+  birthdayGreetingTemplate      String?
+  // Follow-up pos-consulta: N dias apos Appointment COMPLETED, se ainda nao
+  // houve resposta ao paciente, a Leizy envia mensagem de acompanhamento.
+  postConsultFollowupEnabled    Boolean   @default(true)
+  postConsultFollowupDays       Int       @default(3)
+  postConsultFollowupTemplate   String?
   // Subscrição/plano: STARTER | GROWTH | BUSINESS | ENTERPRISE
   plan                          String    @default("STARTER")
   trialEndsAt                   DateTime?
@@ -191,6 +208,8 @@ model Workspace {
   aiCoachConversations AiCoachConversation[]
   aiUsageLogs          AiUsageLog[]
   appointments         Appointment[]
+  knowledgeDocuments   KnowledgeDocument[]
+  knowledgeChunks      KnowledgeChunk[]
 
   // === Tracking de consumo de tokens LLM ===
   // Cache do uso actual para evitar somar a tabela em cada chamada.
@@ -1211,6 +1230,12 @@ model AiSalesSuggestion {
   // Se action=send_product, qual produto e que ficheiros enviar.
   productId        String?
   productFileIds   Json      @default("[]")
+  // Se action=book_appointment, o payload (title, startsAtISO, durationMin, notes).
+  // Se action=create_task, o payload (title, description, priority, dueInDays).
+  actionPayload    Json?
+  // Se accao concreta ja foi executada, o ID do recurso criado (Appointment / Task).
+  createdEntityType String?  // 'appointment' | 'task'
+  createdEntityId   String?
   // Justificativa interna: porque escolheu esta resposta (debug + auditoria).
   reasoning        String?   @db.Text
   // Chaves dos principios que a IA usou (string[]). Util para o painel.
@@ -1382,6 +1407,9 @@ model Appointment {
   reminderSentAt DateTime?
   // Notas apos a marcacao (relato, receita, proximos passos)
   notes         String?
+  // Marcada pela Leizy? Se true, a recepcao ve indicador visual e o
+  // createdById fica null (nenhum humano criou).
+  createdByAi   Boolean           @default(false)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   createdById   String?
@@ -1403,4 +1431,54 @@ enum AppointmentStatus {
   COMPLETED   // aconteceu
   CANCELED    // cancelada por qualquer lado antes da hora
   NO_SHOW     // cliente nao apareceu
+}
+
+// Base de conhecimento da Leizy (Sprint 4 do cumprimento do manual).
+// Um documento e um ficheiro ou texto que o admin faz upload (tabela de precos,
+// procedimentos, planos de saude aceites, protocolos internos). O documento
+// e fatiado em chunks (KnowledgeChunk) que sao pesquisaveis via full-text
+// search do Postgres e injectados no prompt da Leizy quando relevantes.
+model KnowledgeDocument {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  title        String
+  // Texto completo em UTF-8 (extraido de PDF ou copy-paste directo)
+  content      String
+  // Categoria livre para o admin organizar. Ex: 'precos', 'procedimentos',
+  // 'planos-saude', 'protocolos'. Nao filtra a pesquisa, so ajuda a listar.
+  category     String?
+  sourceType   String    @default("text")  // 'text' | 'pdf' | 'docx'
+  sourceUrl    String?   // se veio de upload, url do ficheiro guardado
+  fileSizeKb   Int       @default(0)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  createdById  String?
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  chunks    KnowledgeChunk[]
+
+  @@index([workspaceId, isActive])
+  @@map("knowledge_documents")
+}
+
+// Chunk pesquisavel. Cria-se ~1 chunk por 500 palavras. O campo `content`
+// tem indice GIN para full-text search em portugues.
+model KnowledgeChunk {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  documentId   String
+  // Indice do chunk dentro do documento (para debug / ordem)
+  chunkIndex   Int
+  content      String
+  // Cache de palavras-chave para melhorar match. Array de palavras lowercase.
+  keywords     String[] @default([])
+  createdAt    DateTime @default(now())
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document  KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([documentId])
+  @@map("knowledge_chunks")
 }

@@ -78,6 +78,14 @@ export default function SettingsPage() {
   const [wsApptReminderEnabled, setWsApptReminderEnabled] = useState(true);
   const [wsApptReminderHours, setWsApptReminderHours] = useState(24);
   const [wsApptReminderTemplate, setWsApptReminderTemplate] = useState('');
+  const [wsReactivationEnabled, setWsReactivationEnabled] = useState(true);
+  const [wsReactivationDays, setWsReactivationDays] = useState(180);
+  const [wsBirthdayEnabled, setWsBirthdayEnabled] = useState(true);
+  const [wsBirthdayHour, setWsBirthdayHour] = useState(9);
+  const [wsBirthdayTemplate, setWsBirthdayTemplate] = useState('');
+  const [wsFollowupEnabled, setWsFollowupEnabled] = useState(true);
+  const [wsFollowupDays, setWsFollowupDays] = useState(3);
+  const [wsFollowupTemplate, setWsFollowupTemplate] = useState('');
   const [wsAutoAssign, setWsAutoAssign] = useState(false);
   const [wsTaskTypes, setWsTaskTypes] = useState<TaskOption[]>([]);
   const [wsTaskPriorities, setWsTaskPriorities] = useState<TaskOption[]>([]);
@@ -164,6 +172,14 @@ export default function SettingsPage() {
       setWsApptReminderEnabled(data.appointmentReminderEnabled !== false);
       setWsApptReminderHours(typeof data.appointmentReminderHours === 'number' ? data.appointmentReminderHours : 24);
       setWsApptReminderTemplate(data.appointmentReminderTemplate || '');
+      setWsReactivationEnabled(data.reactivationEnabled !== false);
+      setWsReactivationDays(typeof data.reactivationDaysThreshold === 'number' ? data.reactivationDaysThreshold : 180);
+      setWsBirthdayEnabled(data.birthdayGreetingEnabled !== false);
+      setWsBirthdayHour(typeof data.birthdayGreetingHour === 'number' ? data.birthdayGreetingHour : 9);
+      setWsBirthdayTemplate(data.birthdayGreetingTemplate || '');
+      setWsFollowupEnabled(data.postConsultFollowupEnabled !== false);
+      setWsFollowupDays(typeof data.postConsultFollowupDays === 'number' ? data.postConsultFollowupDays : 3);
+      setWsFollowupTemplate(data.postConsultFollowupTemplate || '');
       setWsAutoAssign(!!data.autoAssignEnabled);
       // Leizy runtime
       api.get('/sales-agent/runtime-config').then(({ data: rc }) => {
@@ -388,6 +404,14 @@ export default function SettingsPage() {
         appointmentReminderEnabled: wsApptReminderEnabled,
         appointmentReminderHours: wsApptReminderHours,
         appointmentReminderTemplate: wsApptReminderTemplate,
+        reactivationEnabled: wsReactivationEnabled,
+        reactivationDaysThreshold: wsReactivationDays,
+        birthdayGreetingEnabled: wsBirthdayEnabled,
+        birthdayGreetingHour: wsBirthdayHour,
+        birthdayGreetingTemplate: wsBirthdayTemplate,
+        postConsultFollowupEnabled: wsFollowupEnabled,
+        postConsultFollowupDays: wsFollowupDays,
+        postConsultFollowupTemplate: wsFollowupTemplate,
         taskTypes: wsTaskTypes,
         taskPriorities: wsTaskPriorities,
         taskStatuses: wsTaskStatuses,
@@ -929,6 +953,105 @@ export default function SettingsPage() {
             <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
               Placeholders: <code>{'{nome}'}</code>, <code>{'{data}'}</code>, <code>{'{hora}'}</code>, <code>{'{clinica}'}</code>, <code>{'{tipo}'}</code>. Se deixares vazio, usa-se o texto default.
             </p>
+          </div>
+
+          {/* Leizy proactiva: 3 jobs (reactivacao, aniversario, follow-up) */}
+          <div className="border-t pt-4 space-y-4" style={{ borderColor: 'var(--border)' }}>
+            <div>
+              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Leizy proactiva</p>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                A Leizy passa a contactar pacientes sem esperar que eles escrevam primeiro. Três rotinas automáticas independentes.
+              </p>
+            </div>
+
+            {/* Reactivacao */}
+            <div className="rounded p-3" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer mb-2">
+                <input type="checkbox" checked={wsReactivationEnabled} onChange={(e) => setWsReactivationEnabled(e.target.checked)} />
+                Reactivação de pacientes inactivos
+              </label>
+              <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+                Todas as noites a Leizy identifica pacientes sem consulta há N meses e prepara mensagem de reactivação na fila de sugestões (podes aprovar antes de enviar).
+              </p>
+              <div className="flex items-center gap-2">
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>Após</label>
+                <input
+                  type="number"
+                  min={30}
+                  max={730}
+                  className="input-base text-sm w-20 py-1"
+                  value={wsReactivationDays}
+                  onChange={(e) => setWsReactivationDays(Number(e.target.value) || 180)}
+                  disabled={!wsReactivationEnabled}
+                />
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>dias sem consulta</span>
+              </div>
+            </div>
+
+            {/* Aniversario */}
+            <div className="rounded p-3" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer mb-2">
+                <input type="checkbox" checked={wsBirthdayEnabled} onChange={(e) => setWsBirthdayEnabled(e.target.checked)} />
+                Aniversário do paciente
+              </label>
+              <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+                No dia do aniversário do paciente (lido do campo "Data de nascimento") a Leizy envia mensagem à hora que definires.
+              </p>
+              <div className="flex items-center gap-2 mb-2">
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>Enviar às</label>
+                <select
+                  className="input-base text-sm w-24 py-1"
+                  value={wsBirthdayHour}
+                  onChange={(e) => setWsBirthdayHour(Number(e.target.value))}
+                  disabled={!wsBirthdayEnabled}
+                >
+                  {Array.from({ length: 24 }).map((_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+                </select>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>(hora local)</span>
+              </div>
+              <textarea
+                className="input-base text-sm w-full"
+                rows={2}
+                placeholder="Olá {nome}, hoje é o seu dia. Toda a equipa deseja-lhe um feliz aniversário."
+                value={wsBirthdayTemplate}
+                onChange={(e) => setWsBirthdayTemplate(e.target.value)}
+                disabled={!wsBirthdayEnabled}
+              />
+              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Placeholder: <code>{'{nome}'}</code>.</p>
+            </div>
+
+            {/* Follow-up pos-consulta */}
+            <div className="rounded p-3" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer mb-2">
+                <input type="checkbox" checked={wsFollowupEnabled} onChange={(e) => setWsFollowupEnabled(e.target.checked)} />
+                Follow-up pós-consulta
+              </label>
+              <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+                N dias após uma consulta ficar marcada como realizada, a Leizy pergunta ao paciente como está a correr. Só envia se ainda não houve outra mensagem para ele depois da consulta.
+              </p>
+              <div className="flex items-center gap-2 mb-2">
+                <label className="text-xs" style={{ color: 'var(--text-muted)' }}>Após</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  className="input-base text-sm w-20 py-1"
+                  value={wsFollowupDays}
+                  onChange={(e) => setWsFollowupDays(Number(e.target.value) || 3)}
+                  disabled={!wsFollowupEnabled}
+                />
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>dias</span>
+              </div>
+              <textarea
+                className="input-base text-sm w-full"
+                rows={2}
+                placeholder="Olá {nome}, passaram alguns dias desde a sua consulta. Como está a correr?"
+                value={wsFollowupTemplate}
+                onChange={(e) => setWsFollowupTemplate(e.target.value)}
+                disabled={!wsFollowupEnabled}
+              />
+              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Placeholders: <code>{'{nome}'}</code>, <code>{'{tipo}'}</code>.</p>
+            </div>
           </div>
 
           {/* Terminologia customizavel (Fase 3 da reconfiguracao):

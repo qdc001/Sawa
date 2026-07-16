@@ -40,6 +40,14 @@ export type BuildPromptOptions = {
     category?: string | null;
     examples?: Array<{ leadMessage: string; aiResponse: string }>;
   }>;
+  // Contexto do paciente (Sprint 1): alergias, idade, historico de consultas.
+  patientContext?: string;
+  hasCriticalPatientInfo?: boolean;
+  // Base de conhecimento (Sprint 4): chunks relevantes para a mensagem actual.
+  knowledgeChunks?: Array<{
+    documentTitle: string;
+    content: string;
+  }>;
 };
 
 export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOptions = {}): string {
@@ -146,6 +154,35 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
     );
   }
 
+  // Contexto do paciente (Sprint 1 do cumprimento do manual): idade, plano de
+  // saude, alergias, historico de consultas. Tem prioridade sobre principios
+  // gerais porque e informacao factual sobre o interlocutor actual.
+  if (opts.patientContext && opts.patientContext.trim()) {
+    parts.push(
+      `Contexto do paciente que te fala neste momento (usa naturalmente, nunca cites como se estivesses a ler ficha):\n\n${opts.patientContext}`
+    );
+    if (opts.hasCriticalPatientInfo) {
+      parts.push(
+        `LEMBRE: Este paciente tem informacao clinica critica registada acima (ex: alergias, medicacao). ` +
+        `Se ele perguntar sobre medicamentos, tratamentos, procedimentos, ou descrever sintomas, faz handoff imediato para a equipa clinica.`
+      );
+    }
+  }
+
+  // Base de conhecimento (Sprint 4): documentos que o admin carregou (tabela
+  // de precos, procedimentos, planos aceites). Aparecem so os chunks
+  // relevantes para a mensagem actual.
+  const kb = (opts.knowledgeChunks || []).filter((c) => c && c.content);
+  if (kb.length > 0) {
+    const kbBlock = kb.map((c, i) =>
+      `[Fonte ${i + 1}: ${c.documentTitle}]\n${c.content.trim().slice(0, 800)}`
+    ).join('\n\n');
+    parts.push(
+      `Informacao oficial da clinica que podes usar para responder (fonte primaria de verdade, tem prioridade sobre principios gerais):\n\n${kbBlock}\n\n` +
+      `Quando esta informacao responde a pergunta do paciente, usa-a com confianca. Nao cites "Fonte X" ao paciente, incorpora naturalmente na resposta.`
+    );
+  }
+
   // Regras situacionais ensinadas pelo admin atraves do coach ou aprendidas
   // automaticamente a partir de conversas com sinal positivo. Tem prioridade
   // sobre os principios genericos quando a situacao se encaixa.
@@ -169,9 +206,21 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
     `Regras de formato da resposta (cumprir a risca):\n` +
     `- Devolves SEMPRE um unico objecto JSON valido (sem markdown, sem texto antes ou depois).\n` +
     `- A forma exacta e: {\n` +
-    `    "action": "send_text" | "send_product" | "handoff" | "wait",\n` +
-    `    "parts": string[],          // entre 1 e ${maxFragments} mensagens curtas para enviar ao lead\n` +
+    `    "action": "send_text" | "send_product" | "book_appointment" | "create_task" | "handoff" | "wait",\n` +
+    `    "parts": string[],          // entre 1 e ${maxFragments} mensagens curtas para enviar ao paciente\n` +
     `    "productId": string | null, // obrigatorio so se action="send_product", senao null\n` +
+    `    "appointment": {            // obrigatorio so se action="book_appointment", senao null\n` +
+    `      "title": string,          // ex: "Primeira consulta", "Retorno", "Avaliacao"\n` +
+    `      "startsAtISO": string,    // ISO 8601 UTC, ex: "2026-07-12T14:00:00Z"\n` +
+    `      "durationMin": number,    // 15-120\n` +
+    `      "notes": string | null    // qualquer detalhe (ex: "paciente pediu manha", "primeira vez")\n` +
+    `    } | null,\n` +
+    `    "task": {                   // obrigatorio so se action="create_task", senao null\n` +
+    `      "title": string,          // ex: "Enviar precos de branqueamento a Sofia"\n` +
+    `      "description": string,\n` +
+    `      "priority": "LOW" | "MEDIUM" | "HIGH" | "URGENT",\n` +
+    `      "dueInDays": number       // 0-30, quantos dias no futuro\n` +
+    `    } | null,\n` +
     `    "principlesUsed": string[], // chaves dos principios escolhidos (ex: "voss_labeling")\n` +
     `    "reasoning": string         // 1-2 frases explicando porque escolheste esta resposta (em PT-MZ)\n` +
     `  }.\n` +
@@ -180,12 +229,24 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
     `proposta, fecho podem ser partes separadas).\n` +
     `- Nao excedas ${maxFragments} partes. Se a mensagem couber em 1, usa 1.\n` +
     `- Nunca inventas nomes de clientes, numeros, datas ou casos. Se nao sabes, omites.\n` +
-    `- action="handoff" quando o lead pede falar com humano, ameaca, pede reembolso, mostra raiva, ` +
+    `- action="handoff" quando o paciente pede falar com humano, ameaca, pede reembolso, mostra raiva, ` +
     `ou a duvida sai do teu dominio. Em handoff, parts pode conter uma frase de transicao curta.\n` +
-    `- action="wait" se o lead pediu para falar mais tarde ou se ainda nao ha nada substantivo a dizer. ` +
+    `- action="wait" se o paciente pediu para falar mais tarde ou se ainda nao ha nada substantivo a dizer. ` +
     `Em wait, parts pode ser array vazio.\n` +
+    `- action="book_appointment" SO quando o paciente confirma UM horario concreto (dia + hora). ` +
+    `Antes de marcar, propoe pelo menos 2 opcoes em parts (send_text) e espera que ele escolha. ` +
+    `A startsAtISO tem de ser um UTC concreto, dia+hora resolvidos, nao "amanha" abstracto. ` +
+    `Se ele der so uma parte (ex: "quinta"), pergunta a hora antes de marcar. ` +
+    `Depois de marcar, parts pode conter a confirmacao ("Perfeito, marquei ${'{data}'} as ${'{hora}'}."). ` +
+    `NAO uses book_appointment se ha um AVISO CLINICO importante no contexto do paciente ` +
+    `(ex: alergia a anestesia) — nesses casos, faz handoff para a equipa clinica ver primeiro.\n` +
+    `- action="create_task" quando o paciente pede algo que precisa de intervencao humana ` +
+    `posterior (ex: "gostava de saber o preco do branqueamento", "podem enviar o meu orcamento?"). ` +
+    `Cria a tarefa com titulo claro para a equipa saber o que fazer, e em parts avisa o paciente ` +
+    `("Vou pedir a equipa para lhe enviar essa informacao ate ${'{dias}'} dias."). Prioridade default MEDIUM. ` +
+    `Nao criar tarefa se ja tens a informacao na base de conhecimento — nesse caso send_text.\n` +
     `- principlesUsed deve listar 2 a 4 chaves dos principios que orientaram a resposta. Nunca cites ` +
-    `principios pelo nome ao lead, sao so para auditoria interna.`
+    `principios pelo nome ao paciente, sao so para auditoria interna.`
   );
 
   return parts.join('\n\n');

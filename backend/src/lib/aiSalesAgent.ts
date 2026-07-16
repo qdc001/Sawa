@@ -15,6 +15,8 @@
 
 import prisma from './prisma';
 import { buildSalesSystemPrompt } from './buildSalesSystemPrompt';
+import { buildPatientContextBlock } from './aiPatientContext';
+import { retrieveRelevantKnowledge } from './aiKnowledgeRetrieval';
 import { callLlmJson, getActiveLlmProvider } from './llmProvider';
 import { SALES_PRINCIPLES, DEFAULT_ACTIVE_PRINCIPLES } from '../data/salesKnowledge';
 import { selectRelevantRules, markRulesApplied } from './aiCoach';
@@ -45,10 +47,26 @@ export type GenerateOptions = {
   model?: string;
 };
 
+export type AgentAppointmentPayload = {
+  title: string;
+  startsAtISO: string;
+  durationMin: number;
+  notes?: string | null;
+};
+
+export type AgentTaskPayload = {
+  title: string;
+  description?: string;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  dueInDays?: number;
+};
+
 export type AgentSuggestion = {
-  action: 'send_text' | 'send_product' | 'handoff' | 'wait';
+  action: 'send_text' | 'send_product' | 'book_appointment' | 'create_task' | 'handoff' | 'wait';
   parts: string[];
   productId: string | null;
+  appointment: AgentAppointmentPayload | null;
+  task: AgentTaskPayload | null;
   principlesUsed: string[];
   reasoning: string;
 };
@@ -61,9 +79,9 @@ export class AgentError extends Error {
   }
 }
 
-// Sanitiza o JSON devolvido pela Groq para a forma estavel que esperamos.
+// Sanitiza o JSON devolvido pela LLM para a forma estavel que esperamos.
 function normalizeSuggestion(raw: any, maxParts: number): AgentSuggestion {
-  const allowedActions = new Set(['send_text', 'send_product', 'handoff', 'wait']);
+  const allowedActions = new Set(['send_text', 'send_product', 'book_appointment', 'create_task', 'handoff', 'wait']);
   const action = allowedActions.has(raw?.action) ? raw.action : 'send_text';
 
   const partsRaw = Array.isArray(raw?.parts) ? raw.parts : (Array.isArray(raw?.messages) ? raw.messages : []);
@@ -74,6 +92,30 @@ function normalizeSuggestion(raw: any, maxParts: number): AgentSuggestion {
 
   const productId = typeof raw?.productId === 'string' && raw.productId.trim() ? raw.productId.trim() : null;
 
+  // Appointment payload
+  let appointment: AgentAppointmentPayload | null = null;
+  if (raw?.appointment && typeof raw.appointment === 'object') {
+    const a = raw.appointment;
+    const startsAtISO = typeof a.startsAtISO === 'string' && !isNaN(new Date(a.startsAtISO).getTime()) ? a.startsAtISO : null;
+    const title = typeof a.title === 'string' && a.title.trim() ? a.title.trim().slice(0, 200) : null;
+    const durationMin = Number.isFinite(a.durationMin) ? Math.max(5, Math.min(240, Math.trunc(a.durationMin))) : 30;
+    if (startsAtISO && title) {
+      appointment = { title, startsAtISO, durationMin, notes: typeof a.notes === 'string' ? a.notes.slice(0, 500) : null };
+    }
+  }
+
+  // Task payload
+  let task: AgentTaskPayload | null = null;
+  if (raw?.task && typeof raw.task === 'object') {
+    const t = raw.task;
+    const title = typeof t.title === 'string' && t.title.trim() ? t.title.trim().slice(0, 200) : null;
+    if (title) {
+      const p = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(t.priority) ? t.priority : 'MEDIUM';
+      const dueInDays = Number.isFinite(t.dueInDays) ? Math.max(0, Math.min(30, Math.trunc(t.dueInDays))) : 1;
+      task = { title, description: typeof t.description === 'string' ? t.description.slice(0, 1000) : '', priority: p, dueInDays };
+    }
+  }
+
   const principlesRaw = Array.isArray(raw?.principlesUsed) ? raw.principlesUsed : [];
   const principlesUsed = principlesRaw
     .filter((k: any) => typeof k === 'string' && SALES_PRINCIPLES[k])
@@ -81,17 +123,25 @@ function normalizeSuggestion(raw: any, maxParts: number): AgentSuggestion {
 
   const reasoning = typeof raw?.reasoning === 'string' ? raw.reasoning.trim().slice(0, 500) : '';
 
-  // Se action e send_text e nao ha parts, isso e invalido.
+  // send_text e send_product precisam de parts; outras actions podem ter parts vazio.
   if ((action === 'send_text' || action === 'send_product') && parts.length === 0) {
     throw new AgentError('IA devolveu resposta sem mensagens utilizaveis', 502);
   }
-
-  // Se action e send_product mas o productId esta vazio, degrade para send_text.
   if (action === 'send_product' && !productId) {
-    return { action: 'send_text', parts, productId: null, principlesUsed, reasoning };
+    return { action: 'send_text', parts, productId: null, appointment: null, task: null, principlesUsed, reasoning };
+  }
+  // book_appointment sem payload valido: degrade para send_text pedindo horario
+  if (action === 'book_appointment' && !appointment) {
+    if (parts.length === 0) parts.push('Pode confirmar o dia e a hora que prefere?');
+    return { action: 'send_text', parts, productId: null, appointment: null, task: null, principlesUsed, reasoning };
+  }
+  // create_task sem payload valido: degrade para send_text
+  if (action === 'create_task' && !task) {
+    if (parts.length === 0) parts.push('Combinado, vou pedir a equipa para tratar disso.');
+    return { action: 'send_text', parts, productId: null, appointment: null, task: null, principlesUsed, reasoning };
   }
 
-  return { action, parts, productId, principlesUsed, reasoning };
+  return { action, parts, productId, appointment, task, principlesUsed, reasoning };
 }
 
 export async function generateSalesSuggestion(opts: GenerateOptions) {
@@ -192,6 +242,15 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
   const lastInboundText = lastInboundMsg?.content || lastInboundMsg?.transcription || '';
   const coachingRules = await selectRelevantRules(opts.workspaceId, lastInboundText, 20).catch(() => []);
 
+  // Sprint 1 do cumprimento do manual: contexto do paciente (alergias,
+  // idade, historico de consultas, volume de comunicacao).
+  const patientCtx = await buildPatientContextBlock(opts.workspaceId, opts.contactId)
+    .catch((e) => { console.error('[aiSalesAgent] patient context erro:', e.message); return { block: '', hasCriticalInfo: false }; });
+
+  // Sprint 4: chunks da base de conhecimento relevantes para a ultima mensagem.
+  const kbChunks = await retrieveRelevantKnowledge(opts.workspaceId, lastInboundText, 3)
+    .catch((e) => { console.error('[aiSalesAgent] knowledge retrieval erro:', e.message); return []; });
+
   const systemPrompt = buildSalesSystemPrompt(workspace, {
     activePrincipleKeys: activeKeys,
     maxFragments: maxParts,
@@ -210,6 +269,9 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
       category: r.category,
       examples: Array.isArray(r.examples) ? (r.examples as any[]).filter((e) => e && e.leadMessage && e.aiResponse) : [],
     })),
+    patientContext: patientCtx.block,
+    hasCriticalPatientInfo: patientCtx.hasCriticalInfo,
+    knowledgeChunks: kbChunks,
   });
 
   // 4. Monta o historico (ordem cronologica, mais antigo primeiro).
@@ -289,6 +351,12 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
     markRulesApplied(coachingRules.map((r) => r.id)).catch(() => {});
   }
 
+  // Serializar payload da accao concreta se aplicavel
+  const actionPayload =
+    suggestion.action === 'book_appointment' && suggestion.appointment ? { ...suggestion.appointment }
+    : suggestion.action === 'create_task' && suggestion.task ? { ...suggestion.task }
+    : null;
+
   const saved = await prisma.aiSalesSuggestion.create({
     data: {
       workspaceId: opts.workspaceId,
@@ -299,6 +367,7 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
       action: suggestion.action,
       productId: suggestion.productId,
       productFileIds: [] as any,
+      actionPayload: actionPayload as any,
       reasoning: suggestion.reasoning,
       principlesUsed: suggestion.principlesUsed as any,
       modelUsed: `${providerLabel}:${model || 'default'}`,
@@ -448,7 +517,10 @@ export async function maybeTriggerSalesSuggestion(opts: {
 
     // Modo autonomo: aprova e despacha automaticamente accoes nao-criticas.
     // Handoff e wait nao sao auto-despachados: humano deve confirmar.
-    if (ws.aiSalesMode === 'auto' && (normalized.action === 'send_text' || normalized.action === 'send_product')) {
+    // book_appointment e create_task sao auto-despachados: sao accoes concretas
+    // com trace clara (aparecem no Appointment / Task com createdByAi=true).
+    const autoDispatchable = new Set(['send_text', 'send_product', 'book_appointment', 'create_task']);
+    if (ws.aiSalesMode === 'auto' && autoDispatchable.has(normalized.action)) {
       try {
         const { autoDispatchSuggestion } = await import('./autoDispatchSalesSuggestion');
         await autoDispatchSuggestion(suggestion.id, opts.io);

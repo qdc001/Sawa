@@ -25,7 +25,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled, aiBrandVoice, contactLabelSingular, contactLabelPlural, appointmentLabelSingular, appointmentLabelPlural, appointmentTypes, appointmentReminderEnabled, appointmentReminderHours, appointmentReminderTemplate } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute, dailyDigestTemplate, dailyDigestWeekdays, assignmentNotifyEnabled, aiBrandVoice, contactLabelSingular, contactLabelPlural, appointmentLabelSingular, appointmentLabelPlural, appointmentTypes, appointmentReminderEnabled, appointmentReminderHours, appointmentReminderTemplate, reactivationEnabled, reactivationDaysThreshold, birthdayGreetingEnabled, birthdayGreetingHour, birthdayGreetingTemplate, postConsultFollowupEnabled, postConsultFollowupDays, postConsultFollowupTemplate } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -59,6 +59,14 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(appointmentReminderEnabled !== undefined && { appointmentReminderEnabled: !!appointmentReminderEnabled }),
         ...(appointmentReminderHours !== undefined && { appointmentReminderHours: Math.max(1, Math.min(168, Number(appointmentReminderHours) || 24)) }),
         ...(appointmentReminderTemplate !== undefined && { appointmentReminderTemplate: appointmentReminderTemplate || null }),
+        ...(reactivationEnabled !== undefined && { reactivationEnabled: !!reactivationEnabled }),
+        ...(reactivationDaysThreshold !== undefined && { reactivationDaysThreshold: Math.max(30, Math.min(730, Number(reactivationDaysThreshold) || 180)) }),
+        ...(birthdayGreetingEnabled !== undefined && { birthdayGreetingEnabled: !!birthdayGreetingEnabled }),
+        ...(birthdayGreetingHour !== undefined && { birthdayGreetingHour: Math.max(0, Math.min(23, Number(birthdayGreetingHour) || 9)) }),
+        ...(birthdayGreetingTemplate !== undefined && { birthdayGreetingTemplate: birthdayGreetingTemplate || null }),
+        ...(postConsultFollowupEnabled !== undefined && { postConsultFollowupEnabled: !!postConsultFollowupEnabled }),
+        ...(postConsultFollowupDays !== undefined && { postConsultFollowupDays: Math.max(1, Math.min(30, Number(postConsultFollowupDays) || 3)) }),
+        ...(postConsultFollowupTemplate !== undefined && { postConsultFollowupTemplate: postConsultFollowupTemplate || null }),
       },
     });
     await prisma.auditLog.create({
