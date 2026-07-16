@@ -6,7 +6,7 @@ import { buildSalesSystemPrompt } from '../lib/buildSalesSystemPrompt';
 import { SALES_PRINCIPLES, SOURCE_BOOKS, DEFAULT_ACTIVE_PRINCIPLES } from '../data/salesKnowledge';
 import { SECTOR_KNOWLEDGE, listSectorKeys } from '../data/sectorKnowledge';
 import { generateSalesSuggestion, AgentError, AI_RESET_MARKER } from '../lib/aiSalesAgent';
-import { dispatchSalesParts } from '../lib/autoDispatchSalesSuggestion';
+import { dispatchSalesParts, executeSuggestionAction } from '../lib/autoDispatchSalesSuggestion';
 import { consolidateWorkspaceMemory } from '../lib/salesLearningConsolidator';
 
 const router = Router();
@@ -390,7 +390,7 @@ router.post('/suggestions/:id/approve', async (req: AuthRequest, res: Response, 
       return res.json({ suggestion: updated });
     }
 
-    // send_text / send_product: envia para o WhatsApp.
+    // send_text / send_product / book_appointment / create_task: envia para o WhatsApp.
     const phone = suggestion.contact.whatsapp || suggestion.contact.phone;
     if (!phone) throw new AppError('Contacto sem numero de WhatsApp/telefone', 400);
 
@@ -404,6 +404,23 @@ router.post('/suggestions/:id/approve', async (req: AuthRequest, res: Response, 
     }
 
     const io = (global as any).io;
+
+    // Executar accao concreta (book_appointment / create_task) ANTES de
+    // enviar. Se falhar (ex: conflito de horario), abortar com 409 para
+    // o humano poder ajustar (editar, descartar ou reset). Assim a Leizy
+    // nao anuncia ao paciente algo que nao aconteceu.
+    const { createdEntity, executionError } = await executeSuggestionAction(
+      { id: suggestion.id, workspaceId: suggestion.workspaceId, contactId: suggestion.contactId, leadId: suggestion.leadId, action: suggestion.action, actionPayload: suggestion.actionPayload },
+      io,
+    );
+    if (executionError) {
+      await prisma.aiSalesSuggestion.update({
+        where: { id: suggestion.id },
+        data: { errorDetail: executionError },
+      });
+      throw new AppError(executionError, 409);
+    }
+
     const dispatch = await dispatchSuggestion(
       suggestion.workspaceId,
       phone,
@@ -424,10 +441,12 @@ router.post('/suggestions/:id/approve', async (req: AuthRequest, res: Response, 
         finalParts: partsArr as any,
         sentMessageIds: dispatch.sentMessageIds as any,
         errorDetail: dispatch.error || null,
+        createdEntityType: createdEntity?.type || null,
+        createdEntityId: createdEntity?.id || null,
       },
     });
     if (io) io.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);
-    res.json({ suggestion: updated, dispatch });
+    res.json({ suggestion: updated, dispatch, createdEntity });
   } catch (e) { next(e); }
 });
 
@@ -465,6 +484,27 @@ router.post('/suggestions/:id/edit', async (req: AuthRequest, res: Response, nex
     }
 
     const io = (global as any).io;
+
+    // Se accao original era book_appointment / create_task, executar
+    // tambem no edit: o humano ajustou o texto mas a intencao mantem-se.
+    // Se o humano quiser suprimir a accao concreta, pode passar
+    // skipAction=true no body.
+    let createdEntity: { type: string; id: string } | null = null;
+    if (req.body?.skipAction !== true) {
+      const result = await executeSuggestionAction(
+        { id: suggestion.id, workspaceId: suggestion.workspaceId, contactId: suggestion.contactId, leadId: suggestion.leadId, action: suggestion.action, actionPayload: suggestion.actionPayload },
+        io,
+      );
+      if (result.executionError) {
+        await prisma.aiSalesSuggestion.update({
+          where: { id: suggestion.id },
+          data: { errorDetail: result.executionError },
+        });
+        throw new AppError(result.executionError, 409);
+      }
+      createdEntity = result.createdEntity;
+    }
+
     const dispatch = await dispatchSuggestion(
       suggestion.workspaceId,
       phone,
@@ -485,10 +525,12 @@ router.post('/suggestions/:id/edit', async (req: AuthRequest, res: Response, nex
         finalParts: finalParts as any,
         sentMessageIds: dispatch.sentMessageIds as any,
         errorDetail: dispatch.error || null,
+        createdEntityType: createdEntity?.type || null,
+        createdEntityId: createdEntity?.id || null,
       },
     });
     if (io) io.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);
-    res.json({ suggestion: updated, dispatch });
+    res.json({ suggestion: updated, dispatch, createdEntity });
   } catch (e) { next(e); }
 });
 

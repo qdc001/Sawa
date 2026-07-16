@@ -125,40 +125,21 @@ export async function dispatchSalesParts(opts: {
   return { sentMessageIds };
 }
 
-export async function autoDispatchSuggestion(suggestionId: string, io: any): Promise<void> {
-  const suggestion = await prisma.aiSalesSuggestion.findUnique({
-    where: { id: suggestionId },
-    include: { contact: true },
-  });
-  if (!suggestion) return;
-  if (suggestion.status !== 'PENDING') return;
-  const supported = new Set(['send_text', 'send_product', 'book_appointment', 'create_task']);
-  if (!supported.has(suggestion.action)) return;
-
-  const phone = suggestion.contact.whatsapp || suggestion.contact.phone;
-  if (!phone) {
-    await prisma.aiSalesSuggestion.update({
-      where: { id: suggestion.id },
-      data: { status: 'FAILED', decidedAt: new Date(), errorDetail: 'Contacto sem numero de WhatsApp/telefone' },
-    });
-    return;
-  }
-
-  const partsArr = Array.isArray(suggestion.parts) ? (suggestion.parts as any[]).filter((p) => typeof p === 'string') : [];
-
-  // Anexos de produto
-  let productFiles: Array<{ id: string; url: string; type: string; name?: string | null }> = [];
-  if (suggestion.action === 'send_product' && Array.isArray(suggestion.productFileIds)) {
-    const ids = (suggestion.productFileIds as any[]).filter((x) => typeof x === 'string');
-    if (ids.length > 0) {
-      const files = await prisma.file.findMany({ where: { id: { in: ids } } });
-      productFiles = files.map((f) => ({ id: f.id, url: f.url, type: f.mimeType, name: f.name }));
-    }
-  }
-
-  // === Executar accao concreta ANTES de enviar as parts ===
-  // Assim se a criacao falhar (ex: choque de horarios), a Leizy nao anuncia
-  // ao paciente algo que nao aconteceu.
+// Executa a accao concreta associada a uma sugestao (book_appointment /
+// create_task). Partilhada entre modo autonomo e aprovacao/edicao humana:
+// o comportamento tem de ser o mesmo para o humano avaliar realmente o que
+// a Leizy fara em auto.
+//
+// Devolve { createdEntity, executionError }:
+//  - createdEntity: null se accao nao produz entidade (send_text, handoff,
+//    wait, send_product) ou se falhou. Caso contrario { type, id }.
+//  - executionError: string com detalhe humano do que correu mal, para
+//    quem chama decidir se envia mensagem alternativa (auto) ou aborta
+//    e devolve erro ao humano (approve/edit).
+export async function executeSuggestionAction(
+  suggestion: { id: string; workspaceId: string; contactId: string; leadId: string | null; action: string; actionPayload: any },
+  io: any,
+): Promise<{ createdEntity: { type: string; id: string } | null; executionError: string | null }> {
   let createdEntity: { type: string; id: string } | null = null;
   let executionError: string | null = null;
 
@@ -254,8 +235,47 @@ export async function autoDispatchSuggestion(suggestionId: string, io: any): Pro
     }
   }
 
-  // Se a accao concreta falhou, ajustamos as parts para nao anunciar
-  // ao paciente algo que nao aconteceu.
+  return { createdEntity, executionError };
+}
+
+export async function autoDispatchSuggestion(suggestionId: string, io: any): Promise<void> {
+  const suggestion = await prisma.aiSalesSuggestion.findUnique({
+    where: { id: suggestionId },
+    include: { contact: true },
+  });
+  if (!suggestion) return;
+  if (suggestion.status !== 'PENDING') return;
+  const supported = new Set(['send_text', 'send_product', 'book_appointment', 'create_task']);
+  if (!supported.has(suggestion.action)) return;
+
+  const phone = suggestion.contact.whatsapp || suggestion.contact.phone;
+  if (!phone) {
+    await prisma.aiSalesSuggestion.update({
+      where: { id: suggestion.id },
+      data: { status: 'FAILED', decidedAt: new Date(), errorDetail: 'Contacto sem numero de WhatsApp/telefone' },
+    });
+    return;
+  }
+
+  const partsArr = Array.isArray(suggestion.parts) ? (suggestion.parts as any[]).filter((p) => typeof p === 'string') : [];
+
+  // Anexos de produto
+  let productFiles: Array<{ id: string; url: string; type: string; name?: string | null }> = [];
+  if (suggestion.action === 'send_product' && Array.isArray(suggestion.productFileIds)) {
+    const ids = (suggestion.productFileIds as any[]).filter((x) => typeof x === 'string');
+    if (ids.length > 0) {
+      const files = await prisma.file.findMany({ where: { id: { in: ids } } });
+      productFiles = files.map((f) => ({ id: f.id, url: f.url, type: f.mimeType, name: f.name }));
+    }
+  }
+
+  // Executar accao concreta ANTES de enviar as parts. Se falhar (ex: choque
+  // de horarios), a Leizy nao anuncia ao paciente algo que nao aconteceu.
+  const { createdEntity, executionError } = await executeSuggestionAction(
+    { id: suggestion.id, workspaceId: suggestion.workspaceId, contactId: suggestion.contactId, leadId: suggestion.leadId, action: suggestion.action, actionPayload: suggestion.actionPayload },
+    io,
+  );
+
   let effectiveParts = partsArr;
   if (executionError) {
     console.warn(`[autoDispatch] execution error for suggestion=${suggestion.id}: ${executionError}`);
