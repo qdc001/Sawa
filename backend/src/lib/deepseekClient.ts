@@ -307,20 +307,35 @@ export async function callDeepseekJson<T = any>(
     result = await deepseekRequest(model, messages, temperature, maxTokens, true);
   } catch (e: any) {
     // DeepSeek em jsonMode as vezes devolve content vazio quando o prompt e
-    // longo (historico grande) ou quando ja respondeu em turnos anteriores.
-    // Retry sem response_format (modo texto livre) e extraimos o JSON.
+    // longo (historico grande) ou quando o modelo decide que "so quer
+    // conversar" sem accoes. Retry sem response_format mas com prefill
+    // do assistant "{" para forcar output JSON. Se ainda vier texto livre,
+    // embrulhamos em {reply, actions:[]} como ultimo recurso (compatibilidade
+    // com o formato do coach, que e o unico caller que dispara este caminho
+    // na pratica).
     if (e?.status === 502 && /resposta vazia/i.test(e?.message || '')) {
-      console.warn('[deepseek] retry sem response_format apos content vazio em jsonMode');
-      const alt = await deepseekRequest(model, messages, temperature, maxTokens, false);
-      const block = extractJsonBlock(alt.raw);
-      if (!block) {
-        throw Object.assign(new Error(`DeepSeek fallback: nao encontrei JSON no texto livre: ${alt.raw.slice(0, 200)}`), { status: 502 });
-      }
+      console.warn('[deepseek] retry sem response_format + prefill apos content vazio em jsonMode');
+      const primed: LlmMsg[] = [
+        ...messages,
+        { role: 'assistant', content: '{' },
+      ];
+      const alt = await deepseekRequest(model, primed, temperature, maxTokens, false);
+      // O modelo continua a partir de "{"; reconstruimos.
+      const reconstructed = ('{' + alt.raw).trim();
+      const block = extractJsonBlock(reconstructed) || reconstructed;
       try {
         const json = JSON.parse(block);
         return { json: json as T, raw: block, promptTokens: alt.promptTokens, completionTokens: alt.completionTokens };
-      } catch (parseErr: any) {
-        throw Object.assign(new Error(`DeepSeek fallback: JSON invalido: ${parseErr.message}. Bruto: ${block.slice(0, 200)}`), { status: 502 });
+      } catch {
+        // Ultimo recurso: se veio texto livre conversacional (o modelo
+        // ignorou o prefill), embrulhamos como reply sem accoes.
+        const cleanText = alt.raw.trim();
+        if (cleanText && !cleanText.startsWith('{')) {
+          const wrapper = { reply: cleanText, actions: [] };
+          console.warn('[deepseek] fallback embrulhou texto livre como {reply, actions:[]}');
+          return { json: wrapper as unknown as T, raw: JSON.stringify(wrapper), promptTokens: alt.promptTokens, completionTokens: alt.completionTokens };
+        }
+        throw Object.assign(new Error(`DeepSeek fallback: JSON invalido apos prefill. Bruto: ${reconstructed.slice(0, 200)}`), { status: 502 });
       }
     }
     throw e;
