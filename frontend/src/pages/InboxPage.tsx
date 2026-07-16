@@ -18,6 +18,7 @@ import AutoTaskModal from '../components/AutoTaskModal';
 import TaskConflictDialog from '../components/TaskConflictDialog';
 import { openWhatsAppForCall } from '../lib/whatsappCall';
 import PatientProfilePanel from '../components/PatientProfilePanel';
+import { useIsLegacy } from '../lib/useUiMode';
 import { downloadFile } from '../lib/downloadFile';
 import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
@@ -423,6 +424,7 @@ export default function InboxPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
   const { user, workspace } = useAuthStore();
+  const isLegacy = useIsLegacy();
   const isAdmin = user?.role === 'OWNER' || user?.role === 'ADMIN';
   const isMobile = useIsMobile();
 
@@ -1951,7 +1953,15 @@ export default function InboxPage() {
                     ? <Eye size={15} style={{ color: '#3B82F6' }} />
                     : <EyeOff size={15} style={{ color: 'var(--text-muted)' }} />}
                 </button>
-                {/* Botao 'Chamar via WhatsApp' eliminado (Klaru posiciona-se para clinicas) */}
+                {isLegacy && (selected.contact?.whatsapp || selected.contact?.phone) && (
+                  <button
+                    onClick={() => openWhatsAppForCall(selected.contact?.whatsapp || selected.contact?.phone)}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 ml-1"
+                    title="Chamar via WhatsApp (abre a conversa; carrega no ícone 📞 ou 📹)"
+                  >
+                    <Phone size={16} style={{ color: '#25D366' }} />
+                  </button>
+                )}
                 <button onClick={handleCreateLeadFromConv} className="btn btn-primary text-xs py-1.5 px-2.5 ml-1" disabled={!defaultStage} title="Criar Lead a partir desta conversa">
                   <GitBranch size={12} /> <span className="hidden xl:inline">Criar Lead</span>
                 </button>
@@ -2011,9 +2021,16 @@ export default function InboxPage() {
                         </button>
                       </>
                     )}
-                    {/* 'Abrir no WhatsApp' e 'Telefonar' eliminados:
-                        Klaru consolida tudo no CRM, nao envia o utilizador
-                        para fora. */}
+                    {isLegacy && selected.contact?.whatsapp && (
+                      <a href={`https://wa.me/${cleanPhone(selected.contact.whatsapp)}`} target="_blank" rel="noreferrer" className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100" onClick={() => setShowHeaderMenu(false)}>
+                        <MessageCircle size={14} style={{ color: '#25D366' }} /> Abrir no WhatsApp
+                      </a>
+                    )}
+                    {isLegacy && selected.contact?.phone && (
+                      <a href={`tel:${cleanPhone(selected.contact.phone)}`} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100" onClick={() => setShowHeaderMenu(false)}>
+                        <Phone size={14} /> Telefonar
+                      </a>
+                    )}
                     <button onClick={() => { handleCsatRequest(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       <ThumbsUp size={14} style={{ color: '#F59E0B' }} /> Pedir avaliação pós-consulta
                     </button>
@@ -2530,9 +2547,16 @@ export default function InboxPage() {
                 >
                   <Zap size={14} />
                 </button>
-                {/* 'Enviar com tarefa' eliminado. As tarefas criam-se
-                    directamente na pagina Agenda ou automaticamente pela
-                    Leizy quando o paciente pede algo. */}
+                {isLegacy && selected.contact?.id && (
+                  <button
+                    onClick={() => setShowAutoTask(true)}
+                    className="text-xs px-2 py-1 rounded font-medium"
+                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                    title="Enviar mensagem e criar/actualizar tarefa"
+                  >
+                    <CalendarClock size={11} className="inline mr-1" /> Enviar com tarefa
+                  </button>
+                )}
                 <button onClick={handleAISuggest} disabled={aiLoading} className="text-xs px-2 py-1 rounded font-medium ml-auto"
                   style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
                   {aiLoading ? <Loader2 size={11} className="animate-spin inline" /> : <Sparkles size={11} className="inline mr-1" />}
@@ -2772,7 +2796,15 @@ export default function InboxPage() {
               {selected.contact.phone && <div><p style={{ color: 'var(--text-muted)' }}>Telefone</p><p className="font-medium">{selected.contact.phone}</p></div>}
               {selected.contact.whatsapp && <div><p style={{ color: 'var(--text-muted)' }}>WhatsApp</p><p className="font-medium">{selected.contact.whatsapp}</p></div>}
               {selected.contact.email && <div><p style={{ color: 'var(--text-muted)' }}>Email</p><p className="font-medium truncate">{selected.contact.email}</p></div>}
-              {/* Botao 'Chamar via WhatsApp' eliminado (Klaru posiciona-se para clinicas) */}
+              {isLegacy && (selected.contact.whatsapp || selected.contact.phone) && (
+                <button
+                  onClick={() => openWhatsAppForCall(selected.contact?.whatsapp || selected.contact?.phone)}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium mt-2"
+                  style={{ background: '#25D36615', color: '#128C7E', border: '1px solid #25D36630' }}
+                >
+                  <Phone size={14} /> Chamar via WhatsApp
+                </button>
+              )}
             </div>
 
             <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>

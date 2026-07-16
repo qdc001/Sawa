@@ -33,11 +33,8 @@ export default function SectorTemplatesPage() {
   useEffect(() => {
     api.get('/sector-templates')
       .then(({ data }) => {
-        // Klaru posiciona-se como plataforma para clinicas. Filtramos os
-        // outros sectores para nao poluir a UI. Se um dia voltarmos a
-        // multi-vertical, remove-se este filtro.
-        const clinicOnly = (data as SectorTemplate[]).filter((t) => t.key === 'clinica');
-        setItems(clinicOnly);
+        // Backend ja filtra por uiMode (legacy=todos, clinical=so clinica).
+        setItems(data as SectorTemplate[]);
       })
       .catch(() => toast.error('Erro ao carregar modelos'))
       .finally(() => setLoading(false));

@@ -6,6 +6,7 @@ import AiCoachingPanel from '../components/AiCoachingPanel';
 import AiUsageBars from '../components/AiUsageBars';
 import { useAuthStore } from '../store';
 import LeizyKnowledgePanel from '../components/LeizyKnowledgePanel';
+import { useIsLegacy } from '../lib/useUiMode';
 
 type SectorKey = 'imobiliaria' | 'clinica' | 'escola' | 'consultoria' | 'outro';
 
@@ -54,6 +55,7 @@ export default function SalesAgentPage() {
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
   const workspace = useAuthStore((s) => s.workspace) as any;
   const isClinic = workspace?.sector === 'clinica';
+  const isLegacy = useIsLegacy();
 
   const load = async () => {
     setLoading(true);
@@ -127,15 +129,15 @@ export default function SalesAgentPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b overflow-x-auto" style={{ borderColor: 'var(--border)' }}>
-        {([
+        {(([
           { id: 'persona', label: 'Persona', icon: Sparkles },
-          // Tab "Sector" removida do produto: o preset da instalacao ja fixa
-          // o sector clinico. Configurar mais aqui nao acrescenta valor.
+          // Tab "Sector" so em modo legacy: em clinicas o preset ja fixou.
+          isLegacy && { id: 'sector' as Tab, label: 'Sector', icon: Building2 },
           { id: 'instructions', label: 'Instruções', icon: MessageSquare },
           { id: 'knowledge', label: 'Conhecimento', icon: BookOpen },
           { id: 'coach', label: 'Treinar Leizy', icon: GraduationCap },
           { id: 'memory', label: 'Memória aprendida', icon: Brain },
-        ] as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
+        ].filter(Boolean)) as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}

@@ -3,6 +3,7 @@ import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { runDigestForWorkspace, previewDigestForUser, DEFAULT_DIGEST_TEMPLATE, notifyWhatsAppAssignment, testAssignmentNotifyForUser } from '../lib/dailyTaskDigest';
 import { PRESETS } from '../lib/workspacePresets';
+import { isLegacyWorkspace } from '../lib/legacyWorkspaces';
 
 import prisma from '../lib/prisma';
 const router = Router();
@@ -15,7 +16,10 @@ router.get('/me', async (req: AuthRequest, res: Response, next) => {
       include: { _count: { select: { users: true, leads: true, contacts: true } } },
     });
     if (!workspace) throw new AppError('Workspace não encontrada', 404);
-    res.json(workspace);
+    // uiMode: computado, nao guardado. 'legacy' = UI antiga preservada para
+    // workspaces cujo owner esta em KLARU_LEGACY_WORKSPACES env var.
+    const isLegacy = await isLegacyWorkspace(workspace.id);
+    res.json({ ...workspace, uiMode: isLegacy ? 'legacy' : 'clinical' });
   } catch (e) { next(e); }
 });
 

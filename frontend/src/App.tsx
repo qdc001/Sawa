@@ -5,6 +5,7 @@ import { useAuthStore } from './store';
 import AppLayout from './components/layout/AppLayout';
 import GroupedRouteLayout from './components/layout/GroupedRouteLayout';
 import { useTerminology } from './lib/terminology';
+import { useIsLegacy } from './lib/useUiMode';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
@@ -54,40 +55,49 @@ function AgendaGroupLayout() {
   );
 }
 
-// Helper que devolve true se o workspace actual e uma clinica.
-function useIsClinic(): boolean {
-  const workspace = useAuthStore((s) => s.workspace) as any;
-  return workspace?.sector === 'clinica';
-}
-
-// Wrapper Comunicacao. Chamadas foi eliminada do produto (Klaru posiciona-se
-// para clinicas onde chamadas via WhatsApp Web ainda nao sao API-driveable).
-// A rota /calls continua a existir por URL para nao quebrar links guardados.
+// Wrapper Comunicacao. Chamadas so aparece em modo legacy.
 function CommunicationGroupLayout() {
-  return (
-    <GroupedRouteLayout items={[
-      { path: '/inbox', label: 'Conversas', icon: MessageSquare },
-      { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
-    ]} />
-  );
+  const isLegacy = useIsLegacy();
+  const items = isLegacy
+    ? [
+        { path: '/inbox', label: 'Conversas', icon: MessageSquare },
+        { path: '/calls', label: 'Chamadas', icon: Phone },
+        { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
+      ]
+    : [
+        { path: '/inbox', label: 'Conversas', icon: MessageSquare },
+        { path: '/broadcasts', label: 'Broadcasts', icon: Radio },
+      ];
+  return <GroupedRouteLayout items={items} />;
 }
 
-// Wrapper Automacoes. Chatbots absorvido conceptualmente pela Leizy.
+// Wrapper Automacoes. Chatbots so aparece em legacy.
 function AutomationsGroupLayout() {
-  return (
-    <GroupedRouteLayout items={[
-      { path: '/automations', label: 'Rotinas', icon: Zap },
-    ]} />
-  );
+  const isLegacy = useIsLegacy();
+  const items = isLegacy
+    ? [
+        { path: '/automations', label: 'Regras', icon: Zap },
+        { path: '/chatbots', label: 'Chatbots', icon: Bot },
+      ]
+    : [
+        { path: '/automations', label: 'Rotinas', icon: Zap },
+      ];
+  return <GroupedRouteLayout items={items} />;
 }
 
-// Wrapper Pipeline. Leads e Propostas eliminados do produto para clinicas.
+// Wrapper Pipeline. Leads e Propostas so aparecem em legacy.
 function PipelineGroupLayout() {
-  return (
-    <GroupedRouteLayout items={[
-      { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
-    ]} />
-  );
+  const isLegacy = useIsLegacy();
+  const items = isLegacy
+    ? [
+        { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
+        { path: '/leads', label: 'Leads', icon: Users },
+        { path: '/quotes', label: 'Propostas', icon: ScrollText },
+      ]
+    : [
+        { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
+      ];
+  return <GroupedRouteLayout items={items} />;
 }
 
 export default function App() {

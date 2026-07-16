@@ -481,18 +481,21 @@ export default function SettingsPage() {
     } finally { setResetDataLoading(false); }
   };
 
-  // Menu Definicoes do Klaru (posicionamento clinico).
-  // Produtos foi reintroduzido como 'Servicos' (catalogo de procedimentos
-  // clinicos com precos). Propostas reintroduzida como 'Orcamentos' (para
-  // gerar orcamento de tratamento a partir dos servicos).
+  // Menu Definicoes. Em legacy mostra tudo (Notificacoes, Modelos, Templates
+  // de email, Auto-tarefa); em clinical mostra apenas o essencial.
+  const isLegacy = (ws as any)?.uiMode === 'legacy';
   const tabs = [
     { v: 'profile' as const, label: t('settings.profile'), icon: UserIcon },
     { v: 'preferences' as const, label: t('settings.preferences'), icon: Palette },
     { v: 'security' as const, label: t('settings.security'), icon: Shield },
+    ...(isLegacy ? [{ v: 'notifications' as const, label: t('settings.notifications'), icon: Bell }] : []),
     { v: 'products' as const, label: t('nav.products'), icon: Package },
+    ...(isLegacy ? [{ v: 'sectors' as const, label: t('nav.sectorTemplates'), icon: LayoutTemplate }] : []),
     { v: 'billing' as const, label: t('nav.billing'), icon: CreditCard },
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: t('settings.workspace'), icon: Building2 }] : []),
+    ...(isAdminOrOwner && isLegacy ? [{ v: 'emailTemplates' as const, label: t('settings.emailTemplates'), icon: FileTextIcon }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: t('settings.audit'), icon: History }] : []),
+    ...(isAdminOrOwner && isLegacy ? [{ v: 'autoTask' as const, label: 'Auto-tarefa', icon: CheckSquare }] : []),
     ...(isPlatformAdmin ? [{ v: 'aiLimits' as const, label: 'Limites IA', icon: Bell }] : []),
   ];
 

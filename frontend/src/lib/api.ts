@@ -190,6 +190,10 @@ export interface Workspace {
   appointmentReminderHours?: number;
   appointmentReminderTemplate?: string | null;
   sector?: string;
+  // uiMode: computado no backend baseado em KLARU_LEGACY_WORKSPACES env var.
+  // 'legacy' = UI antiga completa (Pipeline, Chamadas, Chatbots, etc)
+  // 'clinical' = UI enxuta para clinicas (default para workspaces novos)
+  uiMode?: 'legacy' | 'clinical';
 }
 
 export interface DigestTemplate {

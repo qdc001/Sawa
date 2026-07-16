@@ -18,12 +18,17 @@
 
 import prisma from './prisma';
 import { sendWhatsAppOut } from './whatsappSend';
+import { getAllLegacyWorkspaceIds } from './legacyWorkspaces';
 
 // ============ Reactivacao ============
 export async function runReactivationJob(): Promise<void> {
-  // Corre no maximo 1x por dia por workspace
+  const legacyIds = await getAllLegacyWorkspaceIds();
+  // Corre no maximo 1x por dia por workspace. Legacy workspaces sao skipados.
   const workspaces = await prisma.workspace.findMany({
-    where: { reactivationEnabled: true },
+    where: {
+      reactivationEnabled: true,
+      ...(legacyIds.length > 0 ? { id: { notIn: legacyIds } } : {}),
+    },
     select: {
       id: true, name: true, timezone: true,
       reactivationDaysThreshold: true, reactivationLastRunAt: true,
@@ -117,8 +122,12 @@ export async function runReactivationJob(): Promise<void> {
 
 // ============ Aniversarios ============
 export async function runBirthdayJob(): Promise<void> {
+  const legacyIds = await getAllLegacyWorkspaceIds();
   const workspaces = await prisma.workspace.findMany({
-    where: { birthdayGreetingEnabled: true },
+    where: {
+      birthdayGreetingEnabled: true,
+      ...(legacyIds.length > 0 ? { id: { notIn: legacyIds } } : {}),
+    },
     select: {
       id: true, name: true, timezone: true,
       birthdayGreetingHour: true, birthdayGreetingLastRunAt: true,
@@ -209,8 +218,12 @@ export async function runBirthdayJob(): Promise<void> {
 
 // ============ Follow-up pos-consulta ============
 export async function runPostConsultFollowupJob(): Promise<void> {
+  const legacyIds = await getAllLegacyWorkspaceIds();
   const workspaces = await prisma.workspace.findMany({
-    where: { postConsultFollowupEnabled: true },
+    where: {
+      postConsultFollowupEnabled: true,
+      ...(legacyIds.length > 0 ? { id: { notIn: legacyIds } } : {}),
+    },
     select: {
       id: true, name: true, timezone: true,
       postConsultFollowupDays: true, postConsultFollowupTemplate: true,

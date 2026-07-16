@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
 import { useTerminology } from '../../lib/terminology';
+import { useIsLegacy } from '../../lib/useUiMode';
 import { KlaruMark } from '../KlaruLogo';
 import CopilotPanel from '../ai/CopilotPanel';
 import DesktopNotifications from '../DesktopNotifications';
@@ -21,15 +22,14 @@ import { useIsMobile } from '../../lib/useIsMobile';
 // continua acessivel por URL directa, mas nao aparece no drawer, porque a
 // UX naquele tamanho de ecra e demasiado apertada (drag-and-drop com dedo,
 // builders com muitos nos, etc.).
-// Sidebar operacional definitiva do Klaru (posicionamento clinico).
-// Pipeline (funil comercial) eliminado do menu principal. /calls e /chatbots
-// continuam acessiveis por URL para nao quebrar dados existentes.
-// Servicos (catalogo) fica em Definicoes. Orcamentos ficam no menu principal
-// porque a recepcao precisa ver os orcamentos abertos do dia.
-const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean }[] = [
+// Sidebar operacional. `legacyOnly: true` faz o item so aparecer em
+// workspaces em modo legacy (UI antiga). Novos workspaces (clinical)
+// veem menu enxuto sem Pipeline.
+const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean; legacyOnly?: boolean }[] = [
   { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
+  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline', desktopOnly: true, legacyOnly: true },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
   { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
@@ -81,13 +81,20 @@ export default function AppLayout() {
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const [t] = useT();
   const terms = useTerminology();
+  const isLegacy = useIsLegacy();
   const navItems = navConfig
     .filter((n) => !(isMobile && n.desktopOnly))
-    .map((n) => ({
-      ...n,
-      // Item Contactos usa a label customizada do workspace (Fase 3).
-      label: n.key === 'nav.contacts' ? terms.contacts : t(n.key),
-    }));
+    .filter((n) => !(n.legacyOnly && !isLegacy))
+    .map((n) => {
+      // Labels dinamicas por UI mode.
+      let label = t(n.key);
+      if (n.key === 'nav.contacts') label = terms.contacts;
+      else if (n.key === 'nav.dashboard') label = isLegacy ? 'Dashboard' : 'Início';
+      else if (n.key === 'nav.inbox') label = isLegacy ? 'Caixa de Entrada' : 'Mensagens';
+      else if (n.key === 'nav.tasks') label = isLegacy ? 'Tarefas' : 'Agenda';
+      else if (n.key === 'nav.automations') label = isLegacy ? 'Automatizações' : 'Rotinas Automáticas';
+      return { ...n, label };
+    });
 
   const changeStatus = async (status: string) => {
     try {
@@ -362,9 +369,27 @@ export default function AppLayout() {
                   <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>{user?.email}</p>
                 </div>
 
-                {/* Seccao 'Estado' removida: era ruido para recepcionistas
-                    de clinica que estao sempre disponiveis ao balcao. Se
-                    algum caso pedir de volta, reactivar com feature flag. */}
+                {/* Seccao 'Estado': aparece so em modo legacy (equipas
+                    comerciais). Em clinicas nao faz sentido: a recepcionista
+                    esta sempre disponivel ao balcao. */}
+                {isLegacy && (
+                  <>
+                    <div className="px-3 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                      <p className="text-[10px] uppercase tracking-wide font-semibold" style={{ color: 'var(--sidebar-text)' }}>Estado</p>
+                    </div>
+                    {Object.keys(STATUS_LABELS).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => changeStatus(s)}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-white/5 text-left text-white"
+                      >
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLORS[s], display: 'inline-block' }} />
+                        {STATUS_LABELS[s]}
+                        {user?.status === s && <Check size={12} className="ml-auto" />}
+                      </button>
+                    ))}
+                  </>
+                )}
 
                 {/* Itens administrativos */}
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />

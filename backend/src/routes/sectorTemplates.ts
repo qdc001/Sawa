@@ -137,14 +137,15 @@ function slugify(name: string): string {
     .slice(0, 40);
 }
 
-// GET /api/sector-templates — catálogo. Klaru posiciona-se para clinicas;
-// filtramos os outros sectores para nao poluir a UI. Se um dia voltarmos a
-// multi-vertical, remove-se este filtro.
+// GET /api/sector-templates — catálogo. Em modo clinical mostra so clinica;
+// em modo legacy mostra todos os sectores (imobiliaria, escola, etc).
 const ALLOWED_SECTORS = new Set(['clinica']);
 
-router.get('/', (_req: AuthRequest, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
+  const { isLegacyWorkspace } = await import('../lib/legacyWorkspaces');
+  const isLegacy = await isLegacyWorkspace(req.user!.workspaceId);
   const list = Object.entries(SECTORS)
-    .filter(([key]) => ALLOWED_SECTORS.has(key))
+    .filter(([key]) => isLegacy || ALLOWED_SECTORS.has(key))
     .map(([key, s]) => ({
       key,
       label: s.label,
@@ -163,7 +164,9 @@ router.post('/:key/apply', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN', 'MANAGER'].includes(req.user!.role)) {
       throw new AppError('Sem permissão para aplicar modelos', 403);
     }
-    if (!ALLOWED_SECTORS.has(req.params.key)) throw new AppError('Modelo de sector nao disponivel', 404);
+    const { isLegacyWorkspace } = await import('../lib/legacyWorkspaces');
+    const isLegacy = await isLegacyWorkspace(req.user!.workspaceId);
+    if (!isLegacy && !ALLOWED_SECTORS.has(req.params.key)) throw new AppError('Modelo de sector nao disponivel', 404);
     const sector = SECTORS[req.params.key];
     if (!sector) throw new AppError('Modelo de sector desconhecido', 404);
     const wsId = req.user!.workspaceId;
