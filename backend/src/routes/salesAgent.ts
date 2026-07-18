@@ -49,6 +49,8 @@ router.get('/runtime-config', async (req: AuthRequest, res: Response, next) => {
       aiSalesEnabledConversationIds: ws.aiSalesEnabledConversationIds,
       aiSalesMaxParts: ws.aiSalesMaxParts,
       aiSalesHandoffTriggers: ws.aiSalesHandoffTriggers,
+      aiHandoffContactName: ws.aiHandoffContactName,
+      aiHandoffContactPhone: ws.aiHandoffContactPhone,
     });
   } catch (e) { next(e); }
 });
@@ -64,6 +66,7 @@ router.patch('/config', async (req: AuthRequest, res: Response, next) => {
       sector, aiAgentName, aiAgentRole, aiBrandVoice, aiAgentInstructions,
       aiSalesEnabled, aiSalesMode, aiSalesEnabledConversationIds,
       aiSalesMaxParts, aiSalesHandoffTriggers,
+      aiHandoffContactName, aiHandoffContactPhone,
     } = req.body || {};
 
     const validSectors = listSectorKeys();
@@ -80,9 +83,31 @@ router.patch('/config', async (req: AuthRequest, res: Response, next) => {
     if (aiAgentInstructions !== undefined) data.aiAgentInstructions = typeof aiAgentInstructions === 'string' ? aiAgentInstructions.trim().slice(0, 8000) || null : null;
     // Campos da Fase 3
     if (aiSalesEnabled !== undefined) data.aiSalesEnabled = !!aiSalesEnabled;
+    if (aiHandoffContactName !== undefined) {
+      data.aiHandoffContactName = typeof aiHandoffContactName === 'string'
+        ? aiHandoffContactName.trim().slice(0, 100) || null : null;
+    }
+    if (aiHandoffContactPhone !== undefined) {
+      data.aiHandoffContactPhone = typeof aiHandoffContactPhone === 'string'
+        ? aiHandoffContactPhone.trim().slice(0, 30) || null : null;
+    }
     if (aiSalesMode !== undefined) {
       if (!['supervised', 'auto'].includes(aiSalesMode)) {
         throw new AppError('aiSalesMode deve ser "supervised" ou "auto"', 400);
+      }
+      // Guardrail: passagem a auto exige contacto humano de handoff configurado.
+      // Aceita valores no proprio body (para nao precisar de 2 requests) ou
+      // valida contra o estado actual do workspace se nao vieram no body.
+      if (aiSalesMode === 'auto') {
+        const finalName = data.aiHandoffContactName !== undefined
+          ? data.aiHandoffContactName
+          : (await prisma.workspace.findUnique({ where: { id: req.user!.workspaceId }, select: { aiHandoffContactName: true } }))?.aiHandoffContactName;
+        const finalPhone = data.aiHandoffContactPhone !== undefined
+          ? data.aiHandoffContactPhone
+          : (await prisma.workspace.findUnique({ where: { id: req.user!.workspaceId }, select: { aiHandoffContactPhone: true } }))?.aiHandoffContactPhone;
+        if (!finalName || !finalPhone) {
+          throw new AppError('Para activar modo Autónomo, define primeiro o contacto humano de handoff (aiHandoffContactName + aiHandoffContactPhone)', 400);
+        }
       }
       data.aiSalesMode = aiSalesMode;
     }
@@ -127,6 +152,8 @@ router.patch('/config', async (req: AuthRequest, res: Response, next) => {
       aiSalesEnabledConversationIds: updated.aiSalesEnabledConversationIds,
       aiSalesMaxParts: updated.aiSalesMaxParts,
       aiSalesHandoffTriggers: updated.aiSalesHandoffTriggers,
+      aiHandoffContactName: updated.aiHandoffContactName,
+      aiHandoffContactPhone: updated.aiHandoffContactPhone,
     });
   } catch (e) { next(e); }
 });

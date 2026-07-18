@@ -177,6 +177,18 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
     `Se a KB tem a resposta, respondes directamente. Se não tem, delegas via create_task ou handoff.`
   );
 
+  // Contacto humano para handoff (opcional, mas recomendado). Se preenchido,
+  // a Leizy pode mencionar naturalmente no handoff.
+  const handoffName = (workspace as any).aiHandoffContactName?.trim();
+  const handoffPhone = (workspace as any).aiHandoffContactPhone?.trim();
+  if (handoffName && handoffPhone) {
+    parts.push(
+      `Contacto humano para escalonamento (handoff): ${handoffName} (${handoffPhone}). ` +
+      `Quando fizeres action="handoff", podes referir naturalmente que vais notificar ${handoffName} ` +
+      `(sem dares o número ao paciente a não ser que ele peça explicitamente).`
+    );
+  }
+
   if (brandVoice) {
     parts.push(`Voz e tom da marca a respeitar:\n${brandVoice}`);
   }

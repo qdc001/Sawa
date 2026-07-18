@@ -181,6 +181,10 @@ model Workspace {
   // Array de strings, lowercase, comparadas em substring contra a mensagem
   // recebida.
   aiSalesHandoffTriggers        Json      @default("[]")
+  // Contacto humano de emergencia para handoff quando a Leizy escala uma
+  // conversa (obrigatorio quando aiSalesMode='auto'). Nome + telefone.
+  aiHandoffContactName          String?
+  aiHandoffContactPhone         String?
   createdAt                     DateTime  @default(now())
   updatedAt                     DateTime  @updatedAt
 

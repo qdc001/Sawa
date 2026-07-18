@@ -57,6 +57,12 @@ export default function SalesAgentPage() {
   const [aiSalesEnabled, setAiSalesEnabled] = useState<boolean>(false);
   const [aiSalesMode, setAiSalesMode] = useState<'supervised' | 'auto'>('supervised');
   const [savingRuntime, setSavingRuntime] = useState<null | 'toggle' | 'mode'>(null);
+  // Contacto humano para handoff (obrigatorio para activar modo auto).
+  const [handoffName, setHandoffName] = useState('');
+  const [handoffPhone, setHandoffPhone] = useState('');
+  // Modal que aparece ao clicar em Autonomo pela 1a vez sem contacto configurado.
+  const [showHandoffModal, setShowHandoffModal] = useState(false);
+  const [savingHandoff, setSavingHandoff] = useState(false);
   const workspace = useAuthStore((s) => s.workspace) as any;
   const isClinic = workspace?.sector === 'clinica';
   const isLegacy = useIsLegacy();
@@ -75,6 +81,8 @@ export default function SalesAgentPage() {
       setKnowledge(kn);
       setAiSalesEnabled(!!rc.aiSalesEnabled);
       setAiSalesMode(rc.aiSalesMode === 'auto' ? 'auto' : 'supervised');
+      setHandoffName(rc.aiHandoffContactName || '');
+      setHandoffPhone(rc.aiHandoffContactPhone || '');
     } catch {
       toast.error('Erro ao carregar configuração da Leizy');
     } finally { setLoading(false); }
@@ -95,12 +103,20 @@ export default function SalesAgentPage() {
     } finally { setSavingRuntime(null); }
   };
 
-  // Save inline do modo. Confirmacao humana antes de passar para autonomo,
-  // porque em auto a Leizy envia sem aprovacao humana.
+  // Save inline do modo. Confirmacao humana antes de passar para autonomo.
+  // Se nao ha contacto humano de handoff configurado, abre modal para o pedir
+  // (backend rejeita mudar para auto sem esses campos preenchidos).
   const changeMode = async (next: 'supervised' | 'auto') => {
     if (next === aiSalesMode) return;
-    if (next === 'auto' && !window.confirm('Passar a modo Autónomo? A Leizy vai enviar mensagens e criar marcações/tarefas SEM aprovação humana. Só usa quando já tiveres confiança nas respostas dela.')) {
-      return;
+    if (next === 'auto') {
+      const hasContact = handoffName.trim() && handoffPhone.trim();
+      if (!hasContact) {
+        setShowHandoffModal(true);
+        return;
+      }
+      if (!window.confirm('Passar a modo Autónomo? A Leizy vai enviar mensagens e criar marcações/tarefas SEM aprovação humana. Só usa quando já tiveres confiança nas respostas dela.')) {
+        return;
+      }
     }
     setSavingRuntime('mode');
     const prev = aiSalesMode;
@@ -112,6 +128,26 @@ export default function SalesAgentPage() {
       setAiSalesMode(prev);
       toast.error(e.response?.data?.message || 'Erro ao actualizar');
     } finally { setSavingRuntime(null); }
+  };
+
+  // Guardar contacto de handoff + activar modo auto no mesmo pedido.
+  const saveHandoffAndGoAuto = async () => {
+    const n = handoffName.trim();
+    const p = handoffPhone.trim();
+    if (!n || !p) { toast.error('Preenche nome e número'); return; }
+    setSavingHandoff(true);
+    try {
+      await api.patch('/sales-agent/config', {
+        aiHandoffContactName: n,
+        aiHandoffContactPhone: p,
+        aiSalesMode: 'auto',
+      });
+      setAiSalesMode('auto');
+      setShowHandoffModal(false);
+      toast.success('Modo Autónomo activo. Handoffs serão notificados a ' + n);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao guardar');
+    } finally { setSavingHandoff(false); }
   };
 
   const update = (patch: Partial<AgentConfig>) => {
@@ -387,6 +423,39 @@ export default function SalesAgentPage() {
             nao pertencem a UI de uma assistente de clinica. A Leizy continua
             a receber esses principios internamente no prompt do sistema. */}
       </div>
+      )}
+
+      {showHandoffModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={() => !savingHandoff && setShowHandoffModal(false)}>
+          <div className="card p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle size={20} style={{ color: '#B45309' }} />
+              <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Antes de activar o modo Autónomo</h3>
+            </div>
+            <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Em Autónomo a Leizy responde sozinha e cria marcações sem aprovação. Precisamos de saber a quem passar o assunto quando ela decidir escalar (emergência clínica, reclamação, pergunta fora do domínio dela).
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>Nome do responsável *</label>
+                <input value={handoffName} onChange={(e) => setHandoffName(e.target.value)} placeholder="Ex: Dra. Ana, Recepção Central" maxLength={100} className="input-base w-full text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>Número (WhatsApp/telefone) *</label>
+                <input value={handoffPhone} onChange={(e) => setHandoffPhone(e.target.value)} placeholder="Ex: +258 84 000 0000" maxLength={30} className="input-base w-full text-sm" />
+                <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Este número não é mostrado ao paciente. Serve para a Leizy mencionar naturalmente ("vou passar à Dra. Ana") e para futuras notificações automáticas.</p>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setShowHandoffModal(false)} disabled={savingHandoff} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>
+                Cancelar
+              </button>
+              <button onClick={saveHandoffAndGoAuto} disabled={savingHandoff} className="btn btn-primary flex-1 py-2">
+                {savingHandoff ? <Loader2 size={14} className="animate-spin" /> : 'Guardar e activar Autónomo'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
