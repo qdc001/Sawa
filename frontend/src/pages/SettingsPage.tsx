@@ -1568,6 +1568,7 @@ export default function SettingsPage() {
       {tab === 'billing' && <BillingPage />}
       {tab === 'aiLimits' && isPlatformAdmin && <PlanLimitsAdmin />}
       {tab === 'autoTask' && isAdminOrOwner && <AutoTaskConfigEditor />}
+      {tab === 'pipelines' && isAdminOrOwner && <PipelinesSection />}
         </div>
       </div>
     </div>
@@ -1894,10 +1895,6 @@ function SalesAiAuditPanel() {
             );
           })}
         </div>
-      )}
-
-      {tab === 'pipelines' && isAdminOrOwner && (
-        <PipelinesSection />
       )}
     </div>
   );
