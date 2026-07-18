@@ -4,11 +4,12 @@ import {
   Sun, Moon, Upload, Palette, FileDown, History, Download, Activity,
   Shield, Bell, Globe, Mail, Smartphone, KeyRound, Trash2, X, Check, Plus, RotateCcw,
   FileText as FileTextIcon, Package, LayoutTemplate, CreditCard, Settings, CheckSquare,
+  GitBranch, Sparkles,
 } from 'lucide-react';
 import api, {
   WorkspaceFull, AuditLog, TaskOption,
   DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES, DEFAULT_TASK_TITLES, DEFAULT_TASK_FIELD_LABELS, TaskFieldLabels,
-  AiSalesSuggestion,
+  AiSalesSuggestion, Pipeline,
 } from '../lib/api';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
@@ -38,7 +39,7 @@ const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', '
 
 export default function SettingsPage() {
   const { user, updateUser, updateWorkspace } = useAuthStore();
-  const [tab, setTab] = useState<'profile' | 'preferences' | 'security' | 'notifications' | 'products' | 'sectors' | 'billing' | 'workspace' | 'emailTemplates' | 'audit' | 'aiLimits' | 'autoTask'>('profile');
+  const [tab, setTab] = useState<'profile' | 'preferences' | 'security' | 'notifications' | 'products' | 'sectors' | 'billing' | 'workspace' | 'emailTemplates' | 'audit' | 'aiLimits' | 'autoTask' | 'pipelines'>('profile');
   const [theme, setTheme] = useTheme();
   const useTResult = useT();
   const currentLang = useTResult[1];
@@ -493,6 +494,7 @@ export default function SettingsPage() {
     ...(isLegacy ? [{ v: 'sectors' as const, label: t('nav.sectorTemplates'), icon: LayoutTemplate }] : []),
     { v: 'billing' as const, label: t('nav.billing'), icon: CreditCard },
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: t('settings.workspace'), icon: Building2 }] : []),
+    ...(isAdminOrOwner ? [{ v: 'pipelines' as const, label: 'Pipelines e Leizy', icon: GitBranch }] : []),
     ...(isAdminOrOwner && isLegacy ? [{ v: 'emailTemplates' as const, label: t('settings.emailTemplates'), icon: FileTextIcon }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: t('settings.audit'), icon: History }] : []),
     ...(isAdminOrOwner && isLegacy ? [{ v: 'autoTask' as const, label: 'Auto-tarefa', icon: CheckSquare }] : []),
@@ -1893,6 +1895,195 @@ function SalesAiAuditPanel() {
           })}
         </div>
       )}
+
+      {tab === 'pipelines' && isAdminOrOwner && (
+        <PipelinesSection />
+      )}
+    </div>
+  );
+}
+
+// =====================================================================
+// Gestão de Pipelines (movida da página /pipeline para Definições em
+// modo clínico, onde a sidebar não expõe /pipeline).
+// =====================================================================
+function PipelinesSection() {
+  const [list, setList] = useState<Pipeline[]>([]);
+  const [original, setOriginal] = useState<Pipeline[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [expandedFor, setExpandedFor] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+  const [newColor, setNewColor] = useState('#C8553D');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/pipelines');
+      setList(data);
+      setOriginal(data);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao carregar pipelines');
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const updateField = (id: string, key: keyof Pipeline, value: any) =>
+    setList((prev) => prev.map((p) => (p.id === id ? { ...p, [key]: value } : p)));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await Promise.all(list.map((p) => {
+        const orig = original.find((o) => o.id === p.id);
+        if (!orig) return null;
+        const nameChanged = orig.name !== p.name;
+        const colorChanged = orig.color !== p.color;
+        const aiInstrChanged = (orig.aiInstructions || '') !== (p.aiInstructions || '');
+        const aiEnabledChanged = (orig.aiEnabled !== false) !== (p.aiEnabled !== false);
+        if (!nameChanged && !colorChanged && !aiInstrChanged && !aiEnabledChanged) return null;
+        const patch: any = {};
+        if (p.isDefault) {
+          if (colorChanged) patch.color = p.color;
+        } else {
+          if (nameChanged) patch.name = p.name;
+          if (colorChanged) patch.color = p.color;
+        }
+        if (aiInstrChanged) patch.aiInstructions = p.aiInstructions || null;
+        if (aiEnabledChanged) patch.aiEnabled = p.aiEnabled !== false;
+        if (Object.keys(patch).length === 0) return null;
+        return api.patch(`/pipelines/${p.id}`, patch);
+      }));
+      toast.success('Pipelines actualizados');
+      await load();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao guardar');
+    } finally { setSaving(false); }
+  };
+
+  const handleAdd = async () => {
+    if (!newName.trim()) { toast.error('Indica o nome do pipeline'); return; }
+    try {
+      const { data } = await api.post('/pipelines', { name: newName.trim(), color: newColor });
+      setList((prev) => [...prev, data]);
+      setOriginal((prev) => [...prev, data]);
+      setNewName(''); setNewColor('#C8553D');
+      toast.success('Pipeline criado');
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao criar pipeline');
+    }
+  };
+
+  const handleDelete = async (p: Pipeline) => {
+    if (p.isDefault) { toast.error('O Pipeline Principal não pode ser eliminado'); return; }
+    if (list.length <= 1) { toast.error('Tem de existir pelo menos um pipeline'); return; }
+    if (!confirm(`Eliminar o pipeline "${p.name}"? As etapas e leads associados serão removidos.`)) return;
+    try {
+      await api.delete(`/pipelines/${p.id}`);
+      setList((prev) => prev.filter((x) => x.id !== p.id));
+      setOriginal((prev) => prev.filter((x) => x.id !== p.id));
+      toast.success('Pipeline eliminado');
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Não foi possível eliminar');
+    }
+  };
+
+  if (loading) {
+    return <div className="p-10 flex justify-center"><Loader2 className="animate-spin" style={{ color: 'var(--text-muted)' }} /></div>;
+  }
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Pipelines e Leizy</h2>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+            Organiza os teus leads por pipelines e define como a Leizy actua em cada um. O ícone da faísca abre a configuração da Leizy: podes desactivá-la para leads deste pipeline ou dar-lhe uma instrução específica (ex: tom mais formal, políticas de preço).
+          </p>
+        </div>
+        <button onClick={handleSave} disabled={saving} className="btn btn-primary py-1.5 px-3 text-xs">
+          {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Guardar alterações
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {list.map((p) => {
+          const isProtected = p.isDefault;
+          const open = expandedFor === p.id;
+          const hasAi = p.aiInstructions && p.aiInstructions.trim().length > 0;
+          const aiOff = p.aiEnabled === false;
+          return (
+            <div key={p.id} className="rounded card" style={{ background: 'var(--surface-2)' }}>
+              <div className="flex items-center gap-2 p-2">
+                <input type="color" value={p.color} onChange={(e) => updateField(p.id, 'color', e.target.value)}
+                  className="w-8 h-8 rounded cursor-pointer border-0" title="Cor" />
+                <input value={p.name} onChange={(e) => updateField(p.id, 'name', e.target.value)}
+                  className="input-base flex-1" disabled={isProtected} readOnly={isProtected}
+                  title={isProtected ? 'O nome do Pipeline Principal não pode ser alterado' : undefined}
+                  style={isProtected ? { background: 'var(--surface-3)', cursor: 'not-allowed', color: 'var(--text-muted)' } : undefined} />
+                {isProtected && (
+                  <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>Padrão</span>
+                )}
+                <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}>
+                  {p.stages?.length || 0} etapas
+                </span>
+                <button onClick={() => setExpandedFor(open ? null : p.id)} className="p-2 rounded"
+                  title={aiOff ? 'Leizy desactivada neste pipeline' : (hasAi ? 'Leizy com instrução personalizada' : 'Configurar Leizy neste pipeline')}
+                  style={{
+                    background: aiOff ? '#FEE2E2' : (hasAi ? 'var(--primary-light)' : 'transparent'),
+                    color: aiOff ? '#B91C1C' : (hasAi ? 'var(--primary)' : 'var(--text-muted)'),
+                  }}>
+                  <Sparkles size={16} />
+                </button>
+                <button onClick={() => handleDelete(p)} className="p-2 rounded hover:bg-red-50"
+                  title={isProtected ? 'O Pipeline Principal não pode ser eliminado' : 'Eliminar'}
+                  disabled={isProtected || list.length <= 1}
+                  style={{ opacity: isProtected || list.length <= 1 ? 0.4 : 1, cursor: isProtected ? 'not-allowed' : 'pointer' }}>
+                  <Trash2 size={16} style={{ color: '#EF4444' }} />
+                </button>
+              </div>
+              {open && (
+                <div className="px-2 pb-2 space-y-3">
+                  <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+                    <input type="checkbox" checked={p.aiEnabled !== false} onChange={(e) => updateField(p.id, 'aiEnabled', e.target.checked)} />
+                    <span>Leizy responde a leads deste pipeline</span>
+                  </label>
+                  <p className="text-[11px] pl-6 -mt-2" style={{ color: 'var(--text-muted)' }}>
+                    Se desligado, a Leizy ignora completamente conversas de leads que estão neste pipeline.
+                  </p>
+                  <div style={{ opacity: p.aiEnabled === false ? 0.4 : 1 }}>
+                    <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      Instrução específica para este pipeline
+                    </label>
+                    <textarea
+                      value={p.aiInstructions || ''}
+                      onChange={(e) => updateField(p.id, 'aiInstructions', e.target.value)}
+                      placeholder={`Ex: Trata sempre por 'senhor(a)'. Só propõe consulta particular. Nunca ofereças desconto sem falar com a equipa.`}
+                      rows={4} maxLength={4000} disabled={p.aiEnabled === false}
+                      className="input-base w-full text-sm" />
+                    <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                      Deixa vazio para usar apenas as instruções gerais.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="card p-3">
+        <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Novo pipeline</p>
+        <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Criado com 4 etapas padrão: Novo, Em Progresso, Ganho, Perdido</p>
+        <div className="flex items-center gap-2">
+          <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)}
+            className="w-8 h-8 rounded cursor-pointer border-0" />
+          <input value={newName} onChange={(e) => setNewName(e.target.value)}
+            placeholder="Nome do pipeline (ex: Consultas Particulares)"
+            className="input-base flex-1" />
+          <button onClick={handleAdd} className="btn btn-primary py-2 px-3"><Plus size={16} /></button>
+        </div>
+      </div>
     </div>
   );
 }
