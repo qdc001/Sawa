@@ -279,8 +279,8 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
 
   // Sprint 1 do cumprimento do manual: contexto do paciente (alergias,
   // idade, historico de consultas, volume de comunicacao).
-  const patientCtx = await buildPatientContextBlock(opts.workspaceId, opts.contactId)
-    .catch((e) => { console.error('[aiSalesAgent] patient context erro:', e.message); return { block: '', hasCriticalInfo: false }; });
+  const patientCtx = await buildPatientContextBlock(opts.workspaceId, opts.contactId, opts.leadId)
+    .catch((e) => { console.error('[aiSalesAgent] patient context erro:', e.message); return { block: '', hasCriticalInfo: false, pipelineInstructions: undefined as string | undefined }; });
 
   // Sprint 4: chunks da base de conhecimento relevantes para a ultima mensagem.
   const kbChunks = await retrieveRelevantKnowledge(opts.workspaceId, lastInboundText, 3)
@@ -306,6 +306,7 @@ export async function generateSalesSuggestion(opts: GenerateOptions) {
     })),
     patientContext: patientCtx.block,
     hasCriticalPatientInfo: patientCtx.hasCriticalInfo,
+    pipelineInstructions: patientCtx.pipelineInstructions,
     knowledgeChunks: kbChunks,
   });
 

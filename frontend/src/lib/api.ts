@@ -210,6 +210,7 @@ export interface Pipeline {
   name: string;
   color: string;
   isDefault: boolean;
+  aiInstructions?: string | null;
   stages: Stage[];
   _count?: { leads: number };
 }

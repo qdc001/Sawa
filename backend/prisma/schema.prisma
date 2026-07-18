@@ -250,6 +250,10 @@ model Pipeline {
   color       String   @default("#3B82F6")
   isDefault   Boolean  @default(false)
   position    Int      @default(0)
+  // Instrucao especifica para a Leizy quando fala com leads deste pipeline.
+  // Injectada no prompt como bloco separado com prioridade alta. Ex:
+  // "Trata sempre por 'senhor(a)' e evita gírias. So propoe consulta particular."
+  aiInstructions String? @db.Text
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

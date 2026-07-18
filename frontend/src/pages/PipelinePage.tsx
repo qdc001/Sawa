@@ -19,7 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, MoreVertical, Phone, Mail, Calendar, DollarSign,
-  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse, Layers, SlidersHorizontal,
+  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse, Layers, SlidersHorizontal, Sparkles,
 } from 'lucide-react';
 import api, { Lead, Pipeline, Stage, CustomField, CustomFieldType, User } from '../lib/api';
 import { LeadScoreBadge } from '../lib/leadScore';
@@ -1356,6 +1356,7 @@ function ManagePipelinesModal({
   const [loading, setLoading] = useState(false);
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#C8553D');
+  const [expandedAiFor, setExpandedAiFor] = useState<string | null>(null);
 
   useEffect(() => {
     setList(pipelines);
@@ -1371,15 +1372,21 @@ function ManagePipelinesModal({
         list.map((p) => {
           const original = pipelines.find((o) => o.id === p.id);
           if (!original) return null;
-          // Pipeline Principal: só a cor pode mudar
+          const aiChanged = (original.aiInstructions || '') !== (p.aiInstructions || '');
+          // Pipeline Principal: só cor e aiInstructions podem mudar
           if (p.isDefault) {
-            if (original.color !== p.color) {
-              return api.patch(`/pipelines/${p.id}`, { color: p.color });
-            }
-            return null;
+            const patch: any = {};
+            if (original.color !== p.color) patch.color = p.color;
+            if (aiChanged) patch.aiInstructions = p.aiInstructions || null;
+            if (Object.keys(patch).length === 0) return null;
+            return api.patch(`/pipelines/${p.id}`, patch);
           }
-          if (original.name !== p.name || original.color !== p.color) {
-            return api.patch(`/pipelines/${p.id}`, { name: p.name, color: p.color });
+          if (original.name !== p.name || original.color !== p.color || aiChanged) {
+            return api.patch(`/pipelines/${p.id}`, {
+              name: p.name,
+              color: p.color,
+              aiInstructions: p.aiInstructions || null,
+            });
           }
           return null;
         })
@@ -1460,53 +1467,85 @@ function ManagePipelinesModal({
         <div className="space-y-2 mb-4">
           {list.map((pipeline) => {
             const isProtected = pipeline.isDefault;
+            const aiOpen = expandedAiFor === pipeline.id;
             return (
               <div
                 key={pipeline.id}
-                className="flex items-center gap-2 p-2 rounded"
+                className="rounded"
                 style={{ background: 'var(--surface-2)' }}
               >
-                <input
-                  type="color"
-                  value={pipeline.color}
-                  onChange={(e) => updateField(pipeline.id, 'color', e.target.value)}
-                  className="w-8 h-8 rounded cursor-pointer border-0"
-                  title="Cor"
-                />
-                <input
-                  value={pipeline.name}
-                  onChange={(e) => updateField(pipeline.id, 'name', e.target.value)}
-                  className="input-base flex-1"
-                  disabled={isProtected}
-                  readOnly={isProtected}
-                  title={isProtected ? 'O nome do Pipeline Principal não pode ser alterado' : undefined}
-                  style={isProtected ? { background: 'var(--surface-3)', cursor: 'not-allowed', color: 'var(--text-muted)' } : undefined}
-                />
-                {isProtected && (
+                <div className="flex items-center gap-2 p-2">
+                  <input
+                    type="color"
+                    value={pipeline.color}
+                    onChange={(e) => updateField(pipeline.id, 'color', e.target.value)}
+                    className="w-8 h-8 rounded cursor-pointer border-0"
+                    title="Cor"
+                  />
+                  <input
+                    value={pipeline.name}
+                    onChange={(e) => updateField(pipeline.id, 'name', e.target.value)}
+                    className="input-base flex-1"
+                    disabled={isProtected}
+                    readOnly={isProtected}
+                    title={isProtected ? 'O nome do Pipeline Principal não pode ser alterado' : undefined}
+                    style={isProtected ? { background: 'var(--surface-3)', cursor: 'not-allowed', color: 'var(--text-muted)' } : undefined}
+                  />
+                  {isProtected && (
+                    <span
+                      className="text-xs px-2 py-1 rounded"
+                      style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                      title="Vista agregada de todos os pipelines"
+                    >
+                      Padrao
+                    </span>
+                  )}
                   <span
                     className="text-xs px-2 py-1 rounded"
-                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
-                    title="Vista agregada de todos os pipelines"
+                    style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}
+                    title="Número de etapas"
                   >
-                    Padrao
+                    {pipeline.stages?.length || 0} etapas
                   </span>
+                  <button
+                    onClick={() => setExpandedAiFor(aiOpen ? null : pipeline.id)}
+                    className="p-2 rounded"
+                    title="Instrução da Leizy para leads deste pipeline"
+                    style={{
+                      background: pipeline.aiInstructions ? 'var(--primary-light)' : 'transparent',
+                      color: pipeline.aiInstructions ? 'var(--primary)' : 'var(--text-muted)',
+                    }}
+                  >
+                    <Sparkles size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(pipeline)}
+                    className="p-2 rounded hover:bg-red-50"
+                    title={isProtected ? 'O Pipeline Principal não pode ser eliminado' : 'Eliminar'}
+                    disabled={isProtected || list.length <= 1}
+                    style={{ opacity: isProtected || list.length <= 1 ? 0.4 : 1, cursor: isProtected ? 'not-allowed' : 'pointer' }}
+                  >
+                    <Trash2 size={16} style={{ color: '#EF4444' }} />
+                  </button>
+                </div>
+                {aiOpen && (
+                  <div className="px-2 pb-2">
+                    <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      Instrução da Leizy para leads deste pipeline
+                    </label>
+                    <textarea
+                      value={pipeline.aiInstructions || ''}
+                      onChange={(e) => updateField(pipeline.id, 'aiInstructions', e.target.value)}
+                      placeholder={`Ex: Trata sempre por 'senhor(a)'. Só propõe consulta particular. Nunca ofereças desconto sem falar com a equipa.`}
+                      rows={4}
+                      maxLength={4000}
+                      className="input-base w-full text-sm"
+                    />
+                    <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                      Aplica-se automaticamente quando a Leizy responder a um lead que está neste pipeline. Deixa vazio para usar apenas as instruções gerais.
+                    </p>
+                  </div>
                 )}
-                <span
-                  className="text-xs px-2 py-1 rounded"
-                  style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}
-                  title="Número de etapas"
-                >
-                  {pipeline.stages?.length || 0} etapas
-                </span>
-                <button
-                  onClick={() => handleDelete(pipeline)}
-                  className="p-2 rounded hover:bg-red-50"
-                  title={isProtected ? 'O Pipeline Principal não pode ser eliminado' : 'Eliminar'}
-                  disabled={isProtected || list.length <= 1}
-                  style={{ opacity: isProtected || list.length <= 1 ? 0.4 : 1, cursor: isProtected ? 'not-allowed' : 'pointer' }}
-                >
-                  <Trash2 size={16} style={{ color: '#EF4444' }} />
-                </button>
               </div>
             );
           })}

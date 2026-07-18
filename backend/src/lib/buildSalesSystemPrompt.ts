@@ -46,6 +46,8 @@ export type BuildPromptOptions = {
   // Contexto do paciente (Sprint 1): alergias, idade, historico de consultas.
   patientContext?: string;
   hasCriticalPatientInfo?: boolean;
+  // Instrucao especifica do pipeline do lead activo (se houver).
+  pipelineInstructions?: string;
   // Base de conhecimento (Sprint 4): chunks relevantes para a mensagem actual.
   knowledgeChunks?: Array<{
     documentTitle: string;
@@ -181,6 +183,15 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
 
   if (instructions) {
     parts.push(`Instrucoes especificas dadas pelo dono da conta (cumprir sempre):\n${instructions}`);
+  }
+
+  // Instrucao especifica do pipeline em que este lead esta a ser tratado.
+  // Tem prioridade sobre instrucoes globais quando as duas se sobrepoem
+  // (ex: workspace diz "sempre tu", pipeline "Corporativo" diz "sempre você").
+  if (opts.pipelineInstructions && opts.pipelineInstructions.trim()) {
+    parts.push(
+      `Instrucoes do pipeline actual deste lead (PRIORIDADE ALTA, cumprir sempre neste contexto):\n${opts.pipelineInstructions.trim()}`
+    );
   }
 
   if (memory) {

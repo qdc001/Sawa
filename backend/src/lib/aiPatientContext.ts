@@ -21,12 +21,47 @@ const INFO_FIELDS = new Set(['birth_date', 'gender', 'health_plan', 'nuit']);
 interface PatientContext {
   block: string;         // texto pronto para injectar no prompt
   hasCriticalInfo: boolean; // true se ha alergias ou medicacao registada
+  pipelineInstructions?: string; // instrucao especifica do pipeline (se houver)
 }
 
 export async function buildPatientContextBlock(
   workspaceId: string,
   contactId: string,
+  leadId?: string | null,
 ): Promise<PatientContext> {
+  // Se leadId nao dado, tenta encontrar o lead OPEN mais recente deste contacto.
+  // Assim a Leizy sempre "sabe" em que pipeline o contacto esta a ser tratado.
+  let activeLead: {
+    id: string;
+    title: string;
+    status: string;
+    pipeline: { id: string; name: string; aiInstructions: string | null };
+    stage: { id: string; name: string; type: string };
+  } | null = null;
+
+  if (leadId) {
+    activeLead = await prisma.lead.findFirst({
+      where: { id: leadId, workspaceId },
+      select: {
+        id: true, title: true, status: true,
+        pipeline: { select: { id: true, name: true, aiInstructions: true } },
+        stage: { select: { id: true, name: true, type: true } },
+      },
+    });
+  }
+  if (!activeLead) {
+    // fallback: lead OPEN mais recente deste contacto neste workspace
+    activeLead = await prisma.lead.findFirst({
+      where: { workspaceId, contactId, status: 'OPEN' },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true, title: true, status: true,
+        pipeline: { select: { id: true, name: true, aiInstructions: true } },
+        stage: { select: { id: true, name: true, type: true } },
+      },
+    });
+  }
+
   const [contact, cfValues, appts, msgCount] = await Promise.all([
     prisma.contact.findFirst({
       where: { id: contactId, workspaceId },
@@ -52,6 +87,16 @@ export async function buildPatientContextBlock(
   const parts: string[] = [];
   const contactName = `${contact.firstName}${contact.lastName ? ' ' + contact.lastName : ''}`;
   parts.push(`Paciente: ${contactName}`);
+
+  // Pipeline e fase actual do lead (util para adaptar tom/prioridade a fase).
+  if (activeLead) {
+    parts.push(
+      `Estado comercial:\n` +
+      `- Lead: "${activeLead.title}" (${activeLead.status})\n` +
+      `- Pipeline: ${activeLead.pipeline.name}\n` +
+      `- Fase actual: ${activeLead.stage.name}${activeLead.stage.type !== 'REGULAR' ? ` (${activeLead.stage.type})` : ''}`
+    );
+  }
 
   // Custom fields criticos (destacados)
   const criticalLines: string[] = [];
@@ -125,6 +170,7 @@ export async function buildPatientContextBlock(
   return {
     block: parts.join('\n\n'),
     hasCriticalInfo: hasCritical,
+    pipelineInstructions: activeLead?.pipeline.aiInstructions?.trim() || undefined,
   };
 }
 
