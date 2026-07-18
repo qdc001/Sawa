@@ -254,6 +254,9 @@ model Pipeline {
   // Injectada no prompt como bloco separado com prioridade alta. Ex:
   // "Trata sempre por 'senhor(a)' e evita gírias. So propoe consulta particular."
   aiInstructions String? @db.Text
+  // Se false, a Leizy nao responde a leads deste pipeline (nem em modo
+  // supervisionado nem em automatico). Default true para manter compat.
+  aiEnabled      Boolean @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

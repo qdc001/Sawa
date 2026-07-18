@@ -211,6 +211,7 @@ export interface Pipeline {
   color: string;
   isDefault: boolean;
   aiInstructions?: string | null;
+  aiEnabled?: boolean;
   stages: Stage[];
   _count?: { leads: number };
 }

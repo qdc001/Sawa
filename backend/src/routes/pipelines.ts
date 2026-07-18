@@ -71,7 +71,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { name, description, color, aiInstructions } = req.body;
+    const { name, description, color, aiInstructions, aiEnabled } = req.body;
     const data: any = {};
     if (name !== undefined) data.name = name;
     if (description !== undefined) data.description = description;
@@ -81,6 +81,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
         ? aiInstructions.trim().slice(0, 4000) || null
         : null;
     }
+    if (aiEnabled !== undefined) data.aiEnabled = !!aiEnabled;
     const pipeline = await prisma.pipeline.update({
       where: { id: req.params.id }, data, include: { stages: true }
     });

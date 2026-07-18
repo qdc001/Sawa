@@ -1372,20 +1372,23 @@ function ManagePipelinesModal({
         list.map((p) => {
           const original = pipelines.find((o) => o.id === p.id);
           if (!original) return null;
-          const aiChanged = (original.aiInstructions || '') !== (p.aiInstructions || '');
-          // Pipeline Principal: só cor e aiInstructions podem mudar
+          const aiInstrChanged = (original.aiInstructions || '') !== (p.aiInstructions || '');
+          const aiEnabledChanged = (original.aiEnabled !== false) !== (p.aiEnabled !== false);
+          // Pipeline Principal: só cor, aiInstructions e aiEnabled podem mudar
           if (p.isDefault) {
             const patch: any = {};
             if (original.color !== p.color) patch.color = p.color;
-            if (aiChanged) patch.aiInstructions = p.aiInstructions || null;
+            if (aiInstrChanged) patch.aiInstructions = p.aiInstructions || null;
+            if (aiEnabledChanged) patch.aiEnabled = p.aiEnabled !== false;
             if (Object.keys(patch).length === 0) return null;
             return api.patch(`/pipelines/${p.id}`, patch);
           }
-          if (original.name !== p.name || original.color !== p.color || aiChanged) {
+          if (original.name !== p.name || original.color !== p.color || aiInstrChanged || aiEnabledChanged) {
             return api.patch(`/pipelines/${p.id}`, {
               name: p.name,
               color: p.color,
               aiInstructions: p.aiInstructions || null,
+              aiEnabled: p.aiEnabled !== false,
             });
           }
           return null;
@@ -1510,10 +1513,16 @@ function ManagePipelinesModal({
                   <button
                     onClick={() => setExpandedAiFor(aiOpen ? null : pipeline.id)}
                     className="p-2 rounded"
-                    title="Instrução da Leizy para leads deste pipeline"
+                    title={pipeline.aiEnabled === false
+                      ? 'Leizy desactivada neste pipeline'
+                      : (pipeline.aiInstructions ? 'Leizy com instrução personalizada' : 'Configurar Leizy neste pipeline')}
                     style={{
-                      background: pipeline.aiInstructions ? 'var(--primary-light)' : 'transparent',
-                      color: pipeline.aiInstructions ? 'var(--primary)' : 'var(--text-muted)',
+                      background: pipeline.aiEnabled === false
+                        ? '#FEE2E2'
+                        : (pipeline.aiInstructions ? 'var(--primary-light)' : 'transparent'),
+                      color: pipeline.aiEnabled === false
+                        ? '#B91C1C'
+                        : (pipeline.aiInstructions ? 'var(--primary)' : 'var(--text-muted)'),
                     }}
                   >
                     <Sparkles size={16} />
@@ -1529,21 +1538,36 @@ function ManagePipelinesModal({
                   </button>
                 </div>
                 {aiOpen && (
-                  <div className="px-2 pb-2">
-                    <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      Instrução da Leizy para leads deste pipeline
+                  <div className="px-2 pb-2 space-y-3">
+                    <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={pipeline.aiEnabled !== false}
+                        onChange={(e) => updateField(pipeline.id, 'aiEnabled', e.target.checked)}
+                      />
+                      <span>Leizy responde a leads deste pipeline</span>
                     </label>
-                    <textarea
-                      value={pipeline.aiInstructions || ''}
-                      onChange={(e) => updateField(pipeline.id, 'aiInstructions', e.target.value)}
-                      placeholder={`Ex: Trata sempre por 'senhor(a)'. Só propõe consulta particular. Nunca ofereças desconto sem falar com a equipa.`}
-                      rows={4}
-                      maxLength={4000}
-                      className="input-base w-full text-sm"
-                    />
-                    <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-                      Aplica-se automaticamente quando a Leizy responder a um lead que está neste pipeline. Deixa vazio para usar apenas as instruções gerais.
+                    <p className="text-[11px] pl-6 -mt-2" style={{ color: 'var(--text-muted)' }}>
+                      Se desligado, a Leizy ignora completamente conversas de leads que estão neste pipeline (nem sugestão nem resposta automática).
                     </p>
+
+                    <div style={{ opacity: pipeline.aiEnabled === false ? 0.4 : 1 }}>
+                      <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>
+                        Instrução específica para este pipeline
+                      </label>
+                      <textarea
+                        value={pipeline.aiInstructions || ''}
+                        onChange={(e) => updateField(pipeline.id, 'aiInstructions', e.target.value)}
+                        placeholder={`Ex: Trata sempre por 'senhor(a)'. Só propõe consulta particular. Nunca ofereças desconto sem falar com a equipa.`}
+                        rows={4}
+                        maxLength={4000}
+                        disabled={pipeline.aiEnabled === false}
+                        className="input-base w-full text-sm"
+                      />
+                      <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                        Aplica-se automaticamente quando a Leizy responder a um lead deste pipeline. Deixa vazio para usar apenas as instruções gerais.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>

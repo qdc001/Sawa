@@ -502,6 +502,26 @@ export async function maybeTriggerSalesSuggestion(opts: {
     const active = ws.aiSalesEnabled || enabledIds.includes(opts.contactId);
     if (!active) return;
 
+    // Filtro por pipeline: se ha lead associado, verificar se o pipeline
+    // desse lead tem Leizy activa. Se nao, sair silenciosamente.
+    // Se nao ha lead, usa o lead OPEN mais recente do contacto (mesma
+    // logica do aiPatientContext) para nao deixar contactos sem lead
+    // ficarem sem cobertura.
+    const leadForCheck = opts.leadId
+      ? await prisma.lead.findFirst({
+          where: { id: opts.leadId, workspaceId: opts.workspaceId },
+          select: { pipeline: { select: { aiEnabled: true, name: true } } },
+        })
+      : await prisma.lead.findFirst({
+          where: { workspaceId: opts.workspaceId, contactId: opts.contactId, status: 'OPEN' },
+          orderBy: { updatedAt: 'desc' },
+          select: { pipeline: { select: { aiEnabled: true, name: true } } },
+        });
+    if (leadForCheck && leadForCheck.pipeline.aiEnabled === false) {
+      console.log(`[aiSales] skip contact=${opts.contactId}: pipeline "${leadForCheck.pipeline.name}" tem Leizy desactivada`);
+      return;
+    }
+
     // Guarda contra corrida: se a ultima mensagem nao-interna da conversa ja
     // for OUTBOUND (humano respondeu, ou IA acabou de enviar em modo auto),
     // nao geramos nova sugestao. So sugerimos quando a bola esta do nosso lado.
