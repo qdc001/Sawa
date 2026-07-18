@@ -129,17 +129,50 @@ export function buildSalesSystemPrompt(workspace: Workspace, opts: BuildPromptOp
     `- Agora, hora local (${tz}): ${weekdayLocal}, ${dateLocal}, ${timeLocal}.\n` +
     `- Agora em UTC (ISO 8601): ${now.toISOString()}.\n` +
     `Quando o paciente disser "amanhã", "próxima quinta", "hoje à tarde", "daqui a uma semana", ` +
-    `resolves a data e hora concretas a partir deste instante. Ao devolveres startsAtISO em ` +
-    `book_appointment, tem de ser um instante posterior a agora, convertido para UTC.\n\n` +
-    `Como referes datas ao paciente nas partes da resposta (parts, não no startsAtISO):\n` +
-    `- Se for hoje: diz "hoje" (nunca a data completa).\n` +
-    `- Se for amanhã: diz "amanhã" (nunca a data completa).\n` +
-    `- Se for dentro desta semana: diz o dia da semana ("na sexta", "na próxima segunda").\n` +
-    `- Só usa a data completa (ex: "17 de julho") se estiver a mais de 7 dias ou se o dia da semana for ambíguo.\n` +
-    `- Nunca digas o ano em conversa ("2026" é sempre desnecessário).\n` +
-    `- Hora: formato "15h00" ou "15h30" (não "15:00:00" nem "às 3 da tarde").\n` +
-    `Exemplo bom: "A sua marcação para amanhã, às 15h00, está confirmada."\n` +
-    `Exemplo mau: "A sua marcação para amanhã, 17 de julho de 2026, às 15h00, está confirmada."`
+    `resolves a data e hora concretas a partir deste instante.\n\n` +
+    `FORMATO OBRIGATÓRIO de startsAtISO em book_appointment:\n` +
+    `- SEMPRE em UTC com sufixo "Z" ou com offset explícito. Timezone local ${tz} é UTC+02:00.\n` +
+    `- BOM: "2026-07-18T08:00:00Z" (representa 10h00 hora local Maputo)\n` +
+    `- BOM: "2026-07-18T10:00:00+02:00" (mesmo instante, offset explícito)\n` +
+    `- MAU: "2026-07-18T10:00:00" (sem timezone, ambíguo, PROIBIDO)\n` +
+    `- Tem de ser um instante posterior a agora.\n\n` +
+    `REGRA ESTRITA de como refere datas ao paciente nas partes (parts, NÃO no startsAtISO):\n` +
+    `- Se for hoje: dizes APENAS "hoje". PROIBIDO acrescentar a data. Exemplo: "hoje às 15h00".\n` +
+    `- Se for amanhã: dizes APENAS "amanhã". PROIBIDO acrescentar a data. Exemplo: "amanhã às 10h00".\n` +
+    `- Se for dentro desta semana (2-6 dias): dizes o dia da semana ("na sexta", "na próxima segunda").\n` +
+    `- Se estiver a mais de 7 dias: podes usar "dia X de mês" SEM ano.\n` +
+    `- PROIBIDO dizer o ano ("2026") em qualquer circunstância.\n` +
+    `- Hora: formato "15h00" ou "15h30". PROIBIDO "15:00:00" ou "às 3 da tarde".\n\n` +
+    `Exemplos comparativos (comparar lado a lado antes de responder):\n` +
+    `  MAU: "A marcação para amanhã, dia 18 de julho, às 10h00, está confirmada."\n` +
+    `  BOM: "A marcação para amanhã, às 10h00, está confirmada."\n` +
+    `  MAU: "Consulta para hoje, 17 de julho de 2026, às 15h30."\n` +
+    `  BOM: "Consulta para hoje, às 15h30."\n` +
+    `  MAU: "Reservei para segunda-feira, 20 de julho, às 09h00."\n` +
+    `  BOM: "Reservei para segunda, às 09h00."\n` +
+    `Se acrescentares a data quando devias dizer só "hoje"/"amanhã"/dia da semana, a resposta é considerada errada.`
+  );
+
+  // Anti-alucinacao factual: bloquear invencao de precos, seguros, servicos,
+  // horarios de funcionamento. Se nao ha info na base de conhecimento, criar
+  // tarefa em vez de inventar. Regra critica: em clinica pequena, informacao
+  // errada sobre preco ou seguro derrota confianca do paciente.
+  parts.push(
+    `REGRA ANTI-INVENÇÃO (crítica): NUNCA inventes factos concretos sobre a organização. ` +
+    `Isto inclui: preços, valores, seguros aceites, horários de funcionamento, endereço, ` +
+    `estacionamento, formas de pagamento, políticas de cancelamento, nomes de profissionais, ` +
+    `especialidades disponíveis, tempos de espera, protocolos, procedimentos oferecidos.\n\n` +
+    `Se o paciente pergunta algo destes e a informação NÃO está claramente na base de conhecimento ` +
+    `ou nas instruções acima, NÃO inventes. Em vez disso, escolhes uma de duas opções:\n` +
+    `1. action="create_task" com título tipo "Confirmar a [PACIENTE] o valor da consulta X" e ` +
+    `   em parts dizes "Vou confirmar com a equipa e volto a contactá-lo dentro de [dias]."\n` +
+    `2. action="handoff" se for algo urgente ou complexo que requer humano imediato.\n\n` +
+    `Exemplos do que é PROIBIDO inventar:\n` +
+    `  Paciente: "Quanto custa a consulta?" → PROIBIDO responder "2500 meticais" se não está na KB.\n` +
+    `  Paciente: "Aceitam seguro X?" → PROIBIDO responder "sim" se não está listado.\n` +
+    `  Paciente: "Têm estacionamento?" → PROIBIDO responder "sim, temos privativo" se não está na KB.\n` +
+    `  Paciente: "A que horas abrem sábado?" → PROIBIDO inventar horário.\n\n` +
+    `Se a KB tem a resposta, respondes directamente. Se não tem, delegas via create_task ou handoff.`
   );
 
   if (brandVoice) {

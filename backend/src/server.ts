@@ -60,7 +60,9 @@ import { runDailyDigests } from './lib/dailyTaskDigest';
 import { runDailyLearningConsolidation } from './lib/salesLearningConsolidator';
 import { runDailyAutoLearn } from './lib/aiCoach';
 import { runAppointmentReminders } from './lib/appointmentReminders';
-import { runReactivationJob, runBirthdayJob, runPostConsultFollowupJob } from './lib/aiProactiveJobs';
+// runBirthdayJob desactivado a pedido (aniversarios). Reactivacao e
+// follow-up pos-consulta mantidos activos.
+import { runReactivationJob, runPostConsultFollowupJob } from './lib/aiProactiveJobs';
 import knowledgeRoutes from './routes/knowledge';
 import patientProfileRoutes from './routes/patientProfile';
 
@@ -253,11 +255,11 @@ setInterval(() => {
   runReactivationJob().catch((e) => console.error('runReactivationJob error:', e));
 }, 60 * 60_000);
 
-// Aniversarios: corre a cada 15min, so executa quando a hora local do
-// workspace bate certo com birthdayGreetingHour
-setInterval(() => {
-  runBirthdayJob().catch((e) => console.error('runBirthdayJob error:', e));
-}, 15 * 60_000);
+// Aniversarios: DESACTIVADO a pedido. Mensagens automaticas de aniversario
+// podem ser vistas como intrusivas em contexto clinico.
+// setInterval(() => {
+//   runBirthdayJob().catch((e) => console.error('runBirthdayJob error:', e));
+// }, 15 * 60_000);
 
 // Follow-up pos-consulta: corre de hora em hora
 setInterval(() => {

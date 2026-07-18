@@ -79,6 +79,41 @@ export class AgentError extends Error {
   }
 }
 
+// Limpa datas verbosas nas mensagens que a Leizy envia ao paciente.
+// LLMs (incluindo Gemini flash-lite) tendem a acrescentar a data completa
+// mesmo instruidos a dizer so "hoje"/"amanha"/dia da semana. Este sanitizer
+// e a segunda linha de defesa: apanha padroes tipicos e limpa.
+export function sanitizeDateMentions(text: string): string {
+  if (!text) return text;
+  let out = text;
+  // Padrao 1: "hoje/amanha/dia-semana, [dia] X de mes[ de ano]" -> "hoje/amanha/dia-semana"
+  //   Ex: "amanha, dia 18 de julho" -> "amanha"
+  //   Ex: "hoje, 17 de julho de 2026" -> "hoje"
+  //   Ex: "segunda-feira, 20 de julho" -> "segunda-feira"
+  const dayWords = '(hoje|amanhã|amanha|ontem|segunda(?:-feira)?|terça(?:-feira)?|terca(?:-feira)?|quarta(?:-feira)?|quinta(?:-feira)?|sexta(?:-feira)?|sábado|sabado|domingo)';
+  const months = '(janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)';
+  const re1 = new RegExp(`\\b${dayWords},\\s*(?:dia\\s+)?\\d{1,2}\\s+de\\s+${months}(?:\\s+de\\s+\\d{4})?`, 'gi');
+  out = out.replace(re1, (_m, day) => day);
+  // Padrao 2: ano solto ", de 2026" ou " de 2026" -> remover
+  out = out.replace(/,?\s+de\s+20\d{2}\b/g, '');
+  // Padrao 3: hora "15:00:00" ou "15:00" -> "15h00" (formato pedido)
+  out = out.replace(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/g, '$1h$2');
+  // Normalizar espacos duplicados e pontuacao pendurada
+  out = out.replace(/\s{2,}/g, ' ').replace(/\s+([.,;!?])/g, '$1').trim();
+  return out;
+}
+
+// Garante que um startsAtISO tem timezone. LLMs frequentemente devolvem
+// "2026-07-18T10:00:00" sem sufixo, o que new Date() interpreta como UTC
+// e resulta em consulta 2h no futuro para Africa/Maputo. Adicionamos o
+// offset padrao +02:00 (Maputo nao tem DST) se estiver em falta.
+export function ensureTimezone(iso: string): string {
+  if (!iso) return iso;
+  // Ja tem Z ou +hh:mm/-hh:mm no fim?
+  if (/(Z|[+\-]\d{2}:?\d{2})$/.test(iso)) return iso;
+  return iso + '+02:00';
+}
+
 // Sanitiza o JSON devolvido pela LLM para a forma estavel que esperamos.
 function normalizeSuggestion(raw: any, maxParts: number): AgentSuggestion {
   const allowedActions = new Set(['send_text', 'send_product', 'book_appointment', 'create_task', 'handoff', 'wait']);
@@ -87,7 +122,7 @@ function normalizeSuggestion(raw: any, maxParts: number): AgentSuggestion {
   const partsRaw = Array.isArray(raw?.parts) ? raw.parts : (Array.isArray(raw?.messages) ? raw.messages : []);
   const parts = partsRaw
     .filter((p: any) => typeof p === 'string' && p.trim().length > 0)
-    .map((p: string) => p.trim())
+    .map((p: string) => sanitizeDateMentions(p.trim()))
     .slice(0, Math.max(1, maxParts));
 
   const productId = typeof raw?.productId === 'string' && raw.productId.trim() ? raw.productId.trim() : null;
@@ -96,7 +131,7 @@ function normalizeSuggestion(raw: any, maxParts: number): AgentSuggestion {
   let appointment: AgentAppointmentPayload | null = null;
   if (raw?.appointment && typeof raw.appointment === 'object') {
     const a = raw.appointment;
-    const startsAtISO = typeof a.startsAtISO === 'string' && !isNaN(new Date(a.startsAtISO).getTime()) ? a.startsAtISO : null;
+    const startsAtISO = typeof a.startsAtISO === 'string' && !isNaN(new Date(a.startsAtISO).getTime()) ? ensureTimezone(a.startsAtISO) : null;
     const title = typeof a.title === 'string' && a.title.trim() ? a.title.trim().slice(0, 200) : null;
     const durationMin = Number.isFinite(a.durationMin) ? Math.max(5, Math.min(240, Math.trunc(a.durationMin))) : 30;
     if (startsAtISO && title) {
