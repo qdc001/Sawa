@@ -5,7 +5,7 @@ import {
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck, AlertCircle,
   Inbox, Building2, User as UserIcon, Users as UsersIcon, Star, Archive, Edit3, Trash2,
   Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, Calendar,
-  ChevronLeft, ChevronRight, Smile, Bot, Power, BookOpen, CalendarClock,
+  ChevronLeft, ChevronRight, ChevronDown, Smile, Bot, Power, BookOpen, CalendarClock,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -1192,6 +1192,8 @@ export default function InboxPage() {
   const lastMsgIdRef = useRef<string | null>(null);
   const prevSelectedKeyRef = useRef<string | null>(null);
   const stickToBottomRef = useRef<boolean>(true);
+  // Estado do botao "descer" (aparece so quando o utilizador scrolou para cima).
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const scrollToBottomNow = () => {
@@ -1265,6 +1267,9 @@ export default function InboxPage() {
     const onScroll = () => {
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       stickToBottomRef.current = distanceFromBottom < 220;
+      // Botao "descer" aparece quando o utilizador esta claramente acima
+      // do fundo (>400px). Historese leve para nao piscar.
+      setShowScrollBottomBtn(distanceFromBottom > 400);
     };
     container.addEventListener('scroll', onScroll, { passive: true });
     return () => container.removeEventListener('scroll', onScroll);
@@ -2120,7 +2125,25 @@ export default function InboxPage() {
             )}
 
             {/* Mensagens */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-3" style={{ background: 'var(--surface-2)' }}>
+            <div className="flex-1 relative min-h-0" style={{ background: 'var(--surface-2)' }}>
+            {showScrollBottomBtn && (
+              <button
+                onClick={() => {
+                  const container = messagesEndRef.current?.parentElement;
+                  if (container) {
+                    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                    stickToBottomRef.current = true;
+                    setShowScrollBottomBtn(false);
+                  }
+                }}
+                title="Ir para a mensagem mais recente"
+                className="absolute bottom-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105"
+                style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              >
+                <ChevronDown size={20} />
+              </button>
+            )}
+            <div className="w-full h-full overflow-y-auto p-6 space-y-3">
               {loadingMsgs ? (
                 <div className="flex items-center justify-center py-8"><Loader2 size={18} className="animate-spin" style={{ color: 'var(--primary)' }} /></div>
               ) : filteredMessages.length === 0 ? (
@@ -2339,6 +2362,7 @@ export default function InboxPage() {
                 })
               )}
               <div ref={messagesEndRef} />
+            </div>
             </div>
 
             {/* Painel Leizy (Fase 3): indicador "a pensar" + sugestao pendente */}
