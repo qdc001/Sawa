@@ -28,14 +28,35 @@ const storage = multer.diskStorage({
 // no servico backend, ou remover o buffering).
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
 
+// Whitelist de extensoes permitidas. Mais seguro que blacklist (que so
+// bloqueia o que conhecemos como mau).
+const ALLOWED_EXT = new Set([
+  // Documentos
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp', '.txt', '.csv', '.rtf',
+  // Imagens
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.heic',
+  // Video (WhatsApp media)
+  '.mp4', '.mov', '.webm', '.avi', '.mkv', '.3gp',
+  // Audio
+  '.mp3', '.wav', '.ogg', '.m4a', '.aac', '.opus', '.webm',
+  // Arquivos comuns
+  '.zip', '.rar', '.7z',
+]);
+
 const upload = multer({
   storage,
   limits: { fileSize: MAX_UPLOAD_BYTES },
   fileFilter: (_req, file, cb) => {
-    // permitir tudo excepto executaveis
-    const banned = ['.exe', '.bat', '.sh', '.cmd', '.msi'];
-    if (banned.includes(path.extname(file.originalname).toLowerCase())) {
-      return cb(new Error('Tipo de ficheiro não permitido'));
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ext) return cb(new Error('Ficheiro sem extensao nao permitido'));
+    if (!ALLOWED_EXT.has(ext)) {
+      return cb(new Error(`Tipo de ficheiro nao permitido: ${ext}`));
+    }
+    // Bloquear tambem por MIME quando disponivel (defense in depth)
+    const mime = (file.mimetype || '').toLowerCase();
+    const dangerousMimes = ['application/x-msdownload', 'application/x-msdos-program', 'application/x-executable', 'application/x-sh', 'text/html', 'application/xhtml+xml'];
+    if (dangerousMimes.includes(mime)) {
+      return cb(new Error(`MIME type nao permitido: ${mime}`));
     }
     cb(null, true);
   },

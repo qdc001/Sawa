@@ -1,24 +1,49 @@
-import { Request, Response, NextFunction } from 'express';
+// Rate limiters baseados em express-rate-limit. Tres niveis:
+//   - apiLimiter: geral, generoso (200/min por IP)
+//   - authLimiter: estrito no login/register (10/15min por IP)
+//   - expensiveLimiter: endpoints caros como LLM e uploads (30/min por IP)
+//
+// Ao contrario do rateLimiter caseiro que substituimos, este:
+//   - Guarda estado com validacao de headers
+//   - Suporta trust proxy (necessario atras do nginx)
+//   - Devolve headers X-RateLimit-* padrao
+//   - Tem melhor cleanup de memoria
 
-const requests = new Map<string, { count: number; resetAt: number }>();
+import rateLimit from 'express-rate-limit';
 
-export const rateLimiter = (req: Request, res: Response, next: NextFunction) => {
-  const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  const now = Date.now();
-  const windowMs = 60 * 1000; // 1 minuto
-  const maxRequests = 200;
+// Global: 200 pedidos por minuto por IP. Alto o suficiente para uso normal
+// (mesmo com socket.io polling activo), baixo o suficiente para bloquear
+// bots de scraping ou brute force.
+export const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  message: { message: 'Muitas requisicoes. Tente novamente em breve.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
-  const record = requests.get(ip);
+// Login/register: 10 tentativas por 15 minutos por IP. Impede brute force
+// mas nao bloqueia um utilizador que se engane 2-3 vezes na password.
+// Usa skipSuccessfulRequests para nao contar logins bem sucedidos (a pool
+// nao esgota so por o utilizador se enganar e depois acertar).
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { message: 'Demasiadas tentativas de acesso. Tente novamente em 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+});
 
-  if (!record || now > record.resetAt) {
-    requests.set(ip, { count: 1, resetAt: now + windowMs });
-    return next();
-  }
+// Endpoints caros (LLM, upload grande): 30 pedidos por minuto por IP.
+// Impede um cliente comprometido esgotar quota LLM ou saturar disco.
+export const expensiveLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { message: 'Demasiados pedidos consecutivos. Aguarda um momento.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
-  if (record.count >= maxRequests) {
-    return res.status(429).json({ message: 'Muitas requisições. Tente novamente em breve.' });
-  }
-
-  record.count++;
-  next();
-};
+// Alias para compatibilidade com codigo antigo que importava rateLimiter.
+export const rateLimiter = apiLimiter;

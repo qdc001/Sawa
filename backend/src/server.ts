@@ -50,7 +50,7 @@ import appointmentRoutes from './routes/appointments';
 // Middleware
 import { errorHandler } from './middleware/errorHandler';
 import { authMiddleware } from './middleware/auth';
-import { rateLimiter } from './middleware/rateLimiter';
+import { rateLimiter, authLimiter } from './middleware/rateLimiter';
 
 // Lib
 import { processExpiredDelays } from './lib/chatbotEngine';
@@ -75,10 +75,29 @@ const io = new SocketServer(httpServer, {
   },
 });
 
+// Trust proxy do nginx / Easypanel para req.ip ser real (senao vem sempre
+// como IP interno do container e rate limiting deixa de funcionar).
+app.set('trust proxy', 1);
+
 // Global middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false,  // frontend serve estatico separado; CSP fica no nginx
+  crossOriginEmbedderPolicy: false,
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: false },
+}));
+// CORS: aceita FRONTEND_URL e a versao staging. Nao usa '*' (com credentials
+// seria rejeitado pelo browser de qualquer forma).
+const allowedOrigins = [
+  process.env.FRONTEND_URL || 'http://localhost:5173',
+  process.env.FRONTEND_URL_STAGING,
+].filter(Boolean) as string[];
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, cb) => {
+    // Requests sem origin (mobile, curl, same-origin) passam.
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error(`Origin nao permitida: ${origin}`));
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '100mb' }));
@@ -127,7 +146,8 @@ app.get('/health', (req, res) => {
 });
 
 // Public routes
-app.use('/api/auth', authRoutes);
+// authLimiter estrito: bloqueia brute-force em /api/auth/login e /register.
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/csat-public', csatPublicRoutes);
 

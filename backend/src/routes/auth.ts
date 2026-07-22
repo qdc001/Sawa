@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import { validatePassword, WeakPasswordError } from '../lib/passwordPolicy';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { AppError } from '../middleware/errorHandler';
@@ -51,6 +52,9 @@ router.post('/register', async (req: Request, res: Response, next) => {
     if (!name || !email || !password || !workspaceName) {
       throw new AppError('Todos os campos são obrigatórios', 400);
     }
+
+    try { validatePassword(password, { email, name }); }
+    catch (e: any) { if (e instanceof WeakPasswordError) throw new AppError(e.message, 400); throw e; }
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) throw new AppError('Email já registado', 409);
@@ -206,12 +210,13 @@ router.post('/reset-password', async (req: Request, res: Response, next) => {
   try {
     const { token, newPassword } = req.body;
     if (!token || !newPassword) throw new AppError('Token e password obrigatórios', 400);
-    if (newPassword.length < 6) throw new AppError('Password tem de ter pelo menos 6 caracteres', 400);
 
-    const reset = await prisma.passwordResetToken.findUnique({ where: { token } });
+    const reset = await prisma.passwordResetToken.findUnique({ where: { token }, include: { user: { select: { email: true, name: true } } } });
     if (!reset || reset.usedAt || reset.expiresAt < new Date()) {
       throw new AppError('Token invalido ou expirado', 400);
     }
+    try { validatePassword(newPassword, { email: reset.user.email, name: reset.user.name }); }
+    catch (e: any) { if (e instanceof WeakPasswordError) throw new AppError(e.message, 400); throw e; }
     const hash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id: reset.userId }, data: { password: hash } });
     await prisma.passwordResetToken.update({ where: { id: reset.id }, data: { usedAt: new Date() } });
@@ -236,10 +241,12 @@ router.get('/invite/:token', async (req: Request, res: Response, next) => {
 router.post('/invite/:token/accept', async (req: Request, res: Response, next) => {
   try {
     const { password } = req.body;
-    if (!password || password.length < 6) throw new AppError('Password com pelo menos 6 caracteres', 400);
-    const invite = await prisma.inviteToken.findUnique({ where: { token: req.params.token } });
+    if (!password) throw new AppError('Password obrigatoria', 400);
+    const invite = await prisma.inviteToken.findUnique({ where: { token: req.params.token }, include: { user: { select: { email: true, name: true } } } });
     if (!invite || invite.usedAt) return res.status(404).json({ message: 'Convite invalido' });
     if (invite.expiresAt < new Date()) return res.status(400).json({ message: 'Convite expirado' });
+    try { validatePassword(password, { email: invite.user.email, name: invite.user.name }); }
+    catch (e: any) { if (e instanceof WeakPasswordError) throw new AppError(e.message, 400); throw e; }
     const hash = await bcrypt.hash(password, 12);
     await prisma.user.update({ where: { id: invite.userId }, data: { password: hash, isActive: true } });
     await prisma.inviteToken.update({ where: { id: invite.id }, data: { usedAt: new Date() } });
@@ -284,6 +291,8 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
     if (!user || !await bcrypt.compare(currentPassword, user.password)) {
       throw new AppError('Palavra-passe actual incorrecta', 400);
     }
+    try { validatePassword(newPassword, { email: user.email, name: user.name }); }
+    catch (e: any) { if (e instanceof WeakPasswordError) throw new AppError(e.message, 400); throw e; }
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id: user.id }, data: { password: hashed } });
