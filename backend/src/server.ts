@@ -50,7 +50,7 @@ import appointmentRoutes from './routes/appointments';
 // Middleware
 import { errorHandler } from './middleware/errorHandler';
 import { authMiddleware } from './middleware/auth';
-import { rateLimiter, authLimiter } from './middleware/rateLimiter';
+import { rateLimiter, authLimiter, expensiveLimiter } from './middleware/rateLimiter';
 
 // Lib
 import { processExpiredDelays } from './lib/chatbotEngine';
@@ -169,10 +169,12 @@ app.use('/api/integrations', authMiddleware, integrationRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/notifications', authMiddleware, notificationRoutes);
 app.use('/api/custom-fields', authMiddleware, customFieldRoutes);
-app.use('/api/files', authMiddleware, fileRoutes);
+// expensiveLimiter em uploads e endpoints LLM: 30/min por IP evita
+// abuso (esgotar disco ou queimar quota LLM em minutos).
+app.use('/api/files', authMiddleware, expensiveLimiter, fileRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/broadcasts', authMiddleware, broadcastRoutes);
-app.use('/api/ai', authMiddleware, aiRoutes);
+app.use('/api/ai', authMiddleware, expensiveLimiter, aiRoutes);
 app.use('/api/goals', authMiddleware, goalsRoutes);
 app.use('/api/csat', authMiddleware, csatRoutes);
 app.use('/api/teams', authMiddleware, teamsRoutes);
@@ -180,8 +182,8 @@ app.use('/api/system-email-templates', authMiddleware, systemEmailTemplatesRoute
 app.use('/api/products', authMiddleware, productRoutes);
 app.use('/api/quotes', authMiddleware, quoteRoutes);
 app.use('/api/sector-templates', authMiddleware, sectorTemplateRoutes);
-app.use('/api/sales-agent', authMiddleware, salesAgentRoutes);
-app.use('/api/ai-coaching', authMiddleware, aiCoachingRoutes);
+app.use('/api/sales-agent', authMiddleware, expensiveLimiter, salesAgentRoutes);
+app.use('/api/ai-coaching', authMiddleware, expensiveLimiter, aiCoachingRoutes);
 app.use('/api/ai-usage', authMiddleware, aiUsageRoutes);
 app.use('/api/auto-task', authMiddleware, autoTaskRoutes);
 app.use('/api/billing', authMiddleware, billingRoutes);
