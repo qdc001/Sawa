@@ -277,6 +277,13 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
   const [baseUrl, setBaseUrl] = useState((existing?.credentials as any)?.baseUrl || '');
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
+  // Utilizadores comuns nao precisam de saber que existe servidor Evolution:
+  // baseUrl e apiKey vem do env do backend. So platformAdmin ve os campos
+  // avancados (util para debug ou setups multi-servidor).
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  useEffect(() => {
+    api.get('/billing/me').then(({ data }) => setIsPlatformAdmin(!!data?.isPlatformAdmin)).catch(() => {});
+  }, []);
   const [qr, setQr] = useState<string | null>(null);
   const [state, setState] = useState<string>('loading');
   const [instanceName, setInstanceName] = useState<string>((existing?.credentials as any)?.instanceName || '');
@@ -291,15 +298,15 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
   const lastSyncAt: string | null = (existing?.credentials as any)?.lastSyncAt || null;
 
   const saveConfig = async () => {
-    if (!baseUrl || !apiKey) { toast.error('URL base e API key obrigatórios'); return; }
+    // Utilizador comum: nao envia baseUrl/apiKey; backend usa defaults do env.
+    // platformAdmin: pode enviar override (util para debug).
+    if (isPlatformAdmin && (!baseUrl || !apiKey)) { toast.error('URL base e API key obrigatórios'); return; }
     setSaving(true);
     try {
-      await api.post('/integrations/evolution/configure', {
-        baseUrl,
-        apiKey,
-        instanceName: instanceName.trim() || undefined,
-      });
-      toast.success('Servidor Evolution configurado');
+      const body: any = { instanceName: instanceName.trim() || undefined };
+      if (isPlatformAdmin) { body.baseUrl = baseUrl; body.apiKey = apiKey; }
+      await api.post('/integrations/evolution/configure', body);
+      toast.success('WhatsApp configurado');
       setStep('qr');
       await connect();
     } catch (e: any) {
@@ -508,16 +515,22 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
         {step === 'config' && (
           <div className="space-y-3">
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Indica o servidor Evolution API onde a tua instância vai correr. Se ainda não tens, vê as instruções no fim da página de Integrações.
+              {isPlatformAdmin
+                ? 'Servidor WhatsApp usa os defaults do Klaru. Podes fazer override abaixo para testes ou setups multi-servidor.'
+                : 'O Klaru vai ligar-se ao WhatsApp da tua organização. Só precisas de dar um nome à ligação e depois ler o QR code com o telemóvel.'}
             </p>
-            <div>
-              <label className="block text-sm font-medium mb-1">URL do servidor *</label>
-              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="input-base" placeholder="https://evolution-meta.yq6lij.easypanel.host" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">API Key *</label>
-              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="input-base" placeholder="API key do Evolution" autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
-            </div>
+            {isPlatformAdmin && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1">URL do servidor (admin only)</label>
+                  <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="input-base" placeholder="https://evolution-meta.yq6lij.easypanel.host" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">API Key (admin only)</label>
+                  <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="input-base" placeholder="API key do Evolution" autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
+                </div>
+              </>
+            )}
             <div>
               <label className="block text-sm font-medium mb-1">Nome da Instância (opcional)</label>
               <input

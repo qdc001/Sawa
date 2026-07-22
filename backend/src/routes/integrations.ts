@@ -195,12 +195,22 @@ async function getOrCreateEvolutionIntegration(workspaceId: string, fields?: { b
   });
 }
 
-// POST /api/integrations/evolution/configure - guarda baseUrl, apiKey e
-// opcionalmente instanceName (para reaproveitar uma instancia existente).
+// POST /api/integrations/evolution/configure - guarda instanceName (opcional).
+// Os campos baseUrl e apiKey sao SEMPRE preenchidos automaticamente com as
+// env vars EVOLUTION_API_URL e EVOLUTION_API_KEY do servidor. A clinica nao
+// tem que saber que existe um servidor Evolution nem tem que gerir a chave.
+// Se por alguma razao a clinica quiser usar servidor proprio (fase avancada),
+// aceita override do body mas apenas se for platformAdmin.
 router.post('/evolution/configure', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { baseUrl, apiKey, instanceName } = req.body;
-    if (!baseUrl || !apiKey) throw new AppError('baseUrl e apiKey obrigatórios', 400);
+    const { baseUrl: bodyBaseUrl, apiKey: bodyApiKey, instanceName } = req.body;
+    const isPlatformAdmin = req.user!.email === process.env.PLATFORM_ADMIN_EMAIL;
+    // Defaults do servidor. Override pelo body so para platformAdmin.
+    const baseUrl = (isPlatformAdmin && bodyBaseUrl) ? String(bodyBaseUrl) : process.env.EVOLUTION_API_URL;
+    const apiKey = (isPlatformAdmin && bodyApiKey) ? String(bodyApiKey) : process.env.EVOLUTION_API_KEY;
+    if (!baseUrl || !apiKey) {
+      throw new AppError('Servidor WhatsApp nao configurado. Contacta o suporte.', 500);
+    }
     const integration = await getOrCreateEvolutionIntegration(req.user!.workspaceId, {
       baseUrl,
       apiKey,
