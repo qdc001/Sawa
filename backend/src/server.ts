@@ -118,7 +118,13 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
     if (ext && mimes[ext]) res.setHeader('Content-Type', mimes[ext]);
   },
 }));
-app.use(rateLimiter);
+// Rate limit global. Webhooks (Evolution, Meta Cloud) ISENTOS porque
+// podem enviar rajadas legitimas (import de historico, spikes de mensagens
+// em horario de ponta). Rate limit em webhook = mensagens perdidas.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/webhooks')) return next();
+  return rateLimiter(req, res, next);
+});
 
 // Socket.io - real-time events
 io.on('connection', (socket) => {

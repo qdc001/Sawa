@@ -418,19 +418,20 @@ router.post('/tiktok', async (req: Request, res: Response) => {
 // O servidor Evolution chama este endpoint com eventos: MESSAGES_UPSERT, CONNECTION_UPDATE, etc.
 router.post('/evolution', async (req: Request, res: Response) => {
   try {
-    // Validacao de origem: Evolution API envia header 'apikey' igual ao apikey
-    // configurado. Se nao bater com a env EVOLUTION_API_KEY, rejeitar.
-    // (Se EVOLUTION_API_KEY nao esta configurada, tolerar por retro-compat
-    // mas logar warning.)
+    // Validacao de origem OPT-IN (via EVOLUTION_WEBHOOK_STRICT=true). Se
+    // activo, exige header 'apikey' igual a EVOLUTION_API_KEY. Fica opt-in
+    // porque instancias Evolution criadas com apikey diferente da actual do
+    // env passariam a falhar todas as mensagens. Actual comportamento: log
+    // do IP para auditoria mas nao rejeita, garantindo fiabilidade de
+    // receber mensagens.
     const expected = process.env.EVOLUTION_API_KEY;
-    if (expected) {
+    const strict = process.env.EVOLUTION_WEBHOOK_STRICT === 'true';
+    if (expected && strict) {
       const provided = (req.headers['apikey'] || req.headers['x-evolution-token'] || '') as string;
       if (provided !== expected) {
-        console.warn('[webhook/evolution] pedido rejeitado: apikey em falta ou invalida (ip=' + (req.ip || 'unknown') + ')');
+        console.warn('[webhook/evolution] REJEITADO em modo strict: apikey invalida (ip=' + (req.ip || 'unknown') + ')');
         return res.status(401).json({ ok: false, error: 'unauthorized' });
       }
-    } else {
-      console.warn('[webhook/evolution] EVOLUTION_API_KEY nao configurada, webhook a aceitar tudo (INSEGURO)');
     }
 
     const event = req.body?.event || req.body?.type;

@@ -11,12 +11,13 @@
 
 import rateLimit from 'express-rate-limit';
 
-// Global: 200 pedidos por minuto por IP. Alto o suficiente para uso normal
-// (mesmo com socket.io polling activo), baixo o suficiente para bloquear
-// bots de scraping ou brute force.
+// Global: 600 pedidos por minuto por IP. Uma clinica activa com varios
+// utilizadores em simultaneo, polling socket.io, upload de PDFs, chat em
+// tempo real, chega facilmente a 300+/min sem abusar. 200 era muito baixo.
+// Bots de scraping continuam bloqueados (fariam 1000+/s).
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 200,
+  max: 600,
   message: { message: 'Muitas requisicoes. Tente novamente em breve.' },
   standardHeaders: true,
   legacyHeaders: false,
