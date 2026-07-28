@@ -27,13 +27,17 @@ export function analysePhone(rawJidOrPhone: string): PhoneInfo {
     (digits.length >= 14 && !COUNTRY_CODES_KNOWN.some((cc) => digits.startsWith(cc)));
 
   if (isLid) {
+    // Diferenciar visualmente cada LID pelos ultimos 4 digitos (senao ficam
+    // todos com "Contacto WhatsApp" e sao indistinguiveis na Inbox).
+    const tail = digits.slice(-4);
+    const label = tail ? `Contacto WhatsApp ${tail}` : 'Contacto WhatsApp';
     return {
       rawDigits: digits,
       isLid: true,
       countryCode: null,
       national: digits,
-      display: 'Contacto WhatsApp',
-      fallbackName: 'Contacto WhatsApp',
+      display: label,
+      fallbackName: label,
     };
   }
 

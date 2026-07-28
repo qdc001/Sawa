@@ -11,6 +11,7 @@ import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 import prisma from '../lib/prisma';
 import { getCreds, encryptForStore } from '../lib/integrationCrypto';
 import { checkLimit } from '../lib/planLimits';
+import { globalDisconnectMap } from './webhooks';
 const router = Router();
 
 // ============= Helpers Evolution =============
@@ -499,7 +500,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
           if (!name) return true;
           const trimmed = name.trim();
           if (!trimmed) return true;
-          if (trimmed === 'Contacto WhatsApp') return true;
+          if (trimmed.startsWith('Contacto WhatsApp')) return true;
           if (/^\+?\d[\d\s]*$/.test(trimmed)) return true; // só dígitos/espaços/+
           if (ownerName && trimmed.toLowerCase() === ownerName.toLowerCase()) return true;
           return false;
@@ -822,7 +823,7 @@ export async function applyEvoContactToCrm(
   const looksLikePlaceholder =
     !current ||
     /^\+?\d[\d\s]*$/.test(current) ||
-    current === 'Contacto WhatsApp' ||
+    current.startsWith('Contacto WhatsApp') ||
     (!!ownerName && current.toLowerCase() === String(ownerName).toLowerCase());
 
   if (!looksLikePlaceholder && !opts.force) return { updated: false, reason: 'já tem nome editado' };
@@ -933,7 +934,7 @@ router.post('/evolution/fix-names', async (req: AuthRequest, res: Response, next
     // 3) Encontrar candidatos: contactos com firstName == ownerName OU placeholder de número OU "Contacto WhatsApp"
     const where: any = { workspaceId };
     const ors: any[] = [
-      { firstName: 'Contacto WhatsApp' },
+      { firstName: { startsWith: 'Contacto WhatsApp' } },
     ];
     if (ownerName) ors.push({ firstName: { equals: ownerName, mode: 'insensitive' } });
     where.OR = ors;
@@ -1018,6 +1019,10 @@ router.post('/evolution/disconnect', async (req: AuthRequest, res: Response, nex
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) return res.json({ message: 'Não havia ligação' });
+    // Sinalizar antes do call remoto para evitar race: se a Evolution mandar
+    // CONNECTION_UPDATE state=open antes de nos processarmos a resposta do
+    // logout, o webhook ja ve o timestamp e nao reactiva.
+    globalDisconnectMap.set(integration.id, Date.now());
     const creds: any = getCreds(integration);
     if (creds.instanceName) {
       // Evolution v2: logout via DELETE; algumas builds aceitam apenas POST, por isso tentamos os dois.

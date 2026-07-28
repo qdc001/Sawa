@@ -81,17 +81,92 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
     }
 
     // Limite defensivo: workspaces com 100k+ mensagens ficavam congelados ao carregar a Inbox.
-    // 5000 mensagens recentes cobrem facilmente milhares de conversas distintas.
-    const messages = await prisma.message.findMany({
-      where: messageWhere,
-      include: {
-        contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, email: true, avatar: true, type: true } },
-        lead: { select: { id: true, title: true } },
-        sentBy: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 5000,
-    });
+    // 5000 mensagens recentes cobrem facilmente milhares de conversas distintas para o modo normal.
+    //
+    // MODO PESQUISA: quando ha `search`, o limite recente perde contactos antigos
+    // (ultima mensagem fora da janela nao aparece). Nesse caso fazemos primeiro
+    // uma query DB-level para encontrar contactos que batem o texto (nome, telefone,
+    // whatsapp, email) e depois puxamos a ultima mensagem de cada. Assim a pesquisa
+    // encontra qualquer contacto do workspace, independentemente de ha quanto
+    // tempo trocou a ultima mensagem.
+    let messages: any[];
+    if (search && typeof search === 'string' && search.trim()) {
+      const q = search.trim();
+      const qDigits = q.replace(/\D/g, '');
+      const contactWhere: any = {
+        workspaceId: req.user!.workspaceId,
+        OR: [
+          { firstName: { contains: q, mode: 'insensitive' } },
+          { lastName: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+        ],
+      };
+      // Pesquisar por telefone/whatsapp se query tem digitos (>=3 evita ruido)
+      if (qDigits.length >= 3) {
+        contactWhere.OR.push(
+          { phone: { contains: qDigits } },
+          { whatsapp: { contains: qDigits } },
+        );
+      }
+      // Nome completo tambem: "Joao Silva" bate firstName="Joao" OR lastName="Silva"
+      const parts = q.split(/\s+/).filter(Boolean);
+      if (parts.length > 1) {
+        for (const p of parts) {
+          contactWhere.OR.push(
+            { firstName: { contains: p, mode: 'insensitive' } },
+            { lastName: { contains: p, mode: 'insensitive' } },
+          );
+        }
+      }
+      const matchedContacts = await prisma.contact.findMany({
+        where: contactWhere,
+        select: { id: true },
+        take: 500,
+      });
+      const contactIds = matchedContacts.map((c) => c.id);
+
+      // Tambem pesquisar em conteudo de mensagens recentes (ultimos 20k) para
+      // apanhar "sim confirmo" mesmo se o contacto nao bate texto.
+      const contentMatches = await prisma.message.findMany({
+        where: {
+          ...messageWhere,
+          content: { contains: q, mode: 'insensitive' },
+        },
+        select: { contactId: true },
+        take: 1000,
+      });
+      for (const m of contentMatches) if (m.contactId) contactIds.push(m.contactId);
+
+      const uniqueContactIds = Array.from(new Set(contactIds));
+      if (uniqueContactIds.length === 0) {
+        messages = [];
+      } else {
+        messages = await prisma.message.findMany({
+          where: {
+            ...messageWhere,
+            contactId: { in: uniqueContactIds },
+          },
+          include: {
+            contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, email: true, avatar: true, type: true } },
+            lead: { select: { id: true, title: true } },
+            sentBy: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 10000,
+        });
+      }
+    } else {
+      messages = await prisma.message.findMany({
+        where: messageWhere,
+        include: {
+          contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, email: true, avatar: true, type: true } },
+          lead: { select: { id: true, title: true } },
+          sentBy: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+      });
+    }
 
     const byKey: Record<string, any> = {};
     for (const m of messages) {

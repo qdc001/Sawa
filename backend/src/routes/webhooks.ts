@@ -15,6 +15,12 @@ const router = Router();
 const uploadsDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
+// Mapa em memoria de integrationId → timestamp do ultimo disconnect manual.
+// Serve para o webhook CONNECTION_UPDATE nao reactivar a integracao logo apos
+// o utilizador clicar Desligar (a Evolution pode ter eventos 'open' em queue).
+// Partilhado com routes/integrations.ts via export.
+export const globalDisconnectMap = new Map<string, number>();
+
 // Helper: round-robin auto-assignment
 async function autoAssignConversation(workspaceId: string, contactId: string, channel: string): Promise<string | null> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { autoAssignEnabled: true } });
@@ -480,9 +486,22 @@ router.post('/evolution', async (req: Request, res: Response) => {
       const state = data?.state || data?.connection;
       if (state) {
         const creds: any = getCreds(matched);
+        // Race condition guard: se o utilizador acabou de clicar Desligar, a
+        // Evolution pode ainda mandar CONNECTION_UPDATE state=open (envio
+        // atrasado do queue). Se disconnect manual foi feito nos ultimos 30s,
+        // ignoramos qualquer estado 'open' para nao reactivar automaticamente.
+        const disconnectedAt = (globalDisconnectMap.get(matched.id) || 0);
+        const withinDisconnectWindow = Date.now() - disconnectedAt < 30_000;
+        const nextActive =
+          withinDisconnectWindow && state === 'open'
+            ? false
+            : state === 'open';
         await prisma.integration.update({
           where: { id: matched.id },
-          data: { credentials: encryptForStore({ ...creds, lastState: state }) as any, isActive: state === 'open' },
+          data: {
+            credentials: encryptForStore({ ...creds, lastState: state }) as any,
+            isActive: nextActive,
+          },
         });
         if (io) io.to(`workspace:${workspaceId}`).emit('evolution:state', { state });
       }
@@ -516,7 +535,9 @@ router.post('/evolution', async (req: Request, res: Response) => {
         }
       }
 
-      for (const m of messages) {
+      for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
+        const m = messages[msgIdx];
+        try {
         const remoteJid: string = m.key?.remoteJid || '';
         if (!remoteJid) continue;
         if (remoteJid.endsWith('@broadcast')) continue; // ignorar broadcast lists
@@ -664,7 +685,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
             const looksLikePlaceholder =
               !trimmed ||
               /^\+?\d[\d\s]*$/.test(trimmed) ||
-              trimmed === 'Contacto WhatsApp' ||
+              trimmed.startsWith('Contacto WhatsApp') ||
               (!!ownerName && trimmed.toLowerCase() === ownerName.toLowerCase());
             if (looksLikePlaceholder && contactName !== trimmed) {
               contact = await prisma.contact.update({ where: { id: contact.id }, data: { firstName: contactName } });
@@ -755,6 +776,14 @@ router.post('/evolution', async (req: Request, res: Response) => {
 
         // Notificar por email opt-in
         notifyNewMessage(saved.id).catch(() => {});
+        } catch (perMsgErr: any) {
+          // Fortificacao: uma mensagem malformada nao pode partir o loop inteiro.
+          // Antes, uma excepcao a meio deixava as mensagens seguintes por processar.
+          // Agora logamos com jid/index e continuamos.
+          const jid = m?.key?.remoteJid || '?';
+          const externalId = m?.key?.id || '?';
+          console.error(`[evo webhook] falha msg[${msgIdx}] jid=${jid.slice(0, 20)} externalId=${externalId.slice(0, 12)}:`, perMsgErr?.message || perMsgErr);
+        }
       }
       return res.json({ ok: true });
     }

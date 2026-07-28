@@ -298,13 +298,16 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
   const lastSyncAt: string | null = (existing?.credentials as any)?.lastSyncAt || null;
 
   const saveConfig = async () => {
-    // Utilizador comum: nao envia baseUrl/apiKey; backend usa defaults do env.
-    // platformAdmin: pode enviar override (util para debug).
-    if (isPlatformAdmin && (!baseUrl || !apiKey)) { toast.error('URL base e API key obrigatórios'); return; }
+    // Backend usa defaults do env (EVOLUTION_API_URL/KEY) sempre que os campos
+    // vem vazios. Admin so precisa preencher se quiser fazer override para
+    // testes ou setups multi-servidor. Se ambos vazios, saltam-se do body.
     setSaving(true);
     try {
       const body: any = { instanceName: instanceName.trim() || undefined };
-      if (isPlatformAdmin) { body.baseUrl = baseUrl; body.apiKey = apiKey; }
+      if (isPlatformAdmin) {
+        if (baseUrl.trim()) body.baseUrl = baseUrl.trim();
+        if (apiKey.trim()) body.apiKey = apiKey.trim();
+      }
       await api.post('/integrations/evolution/configure', body);
       toast.success('WhatsApp configurado');
       setStep('qr');
@@ -516,18 +519,18 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
           <div className="space-y-3">
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               {isPlatformAdmin
-                ? 'Servidor WhatsApp usa os defaults do Klaru. Podes fazer override abaixo para testes ou setups multi-servidor.'
+                ? 'Servidor WhatsApp usa os defaults do Klaru (variáveis de ambiente). Podes deixar em branco — só preenche abaixo se quiseres override para testes.'
                 : 'O Klaru vai ligar-se ao WhatsApp da tua organização. Só precisas de dar um nome à ligação e depois ler o QR code com o telemóvel.'}
             </p>
             {isPlatformAdmin && (
               <>
                 <div>
-                  <label className="block text-sm font-medium mb-1">URL do servidor (admin only)</label>
-                  <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="input-base" placeholder="https://evolution-meta.yq6lij.easypanel.host" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
+                  <label className="block text-sm font-medium mb-1">URL do servidor (opcional, admin only)</label>
+                  <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="input-base" placeholder="deixa vazio para usar EVOLUTION_API_URL do env" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">API Key (admin only)</label>
-                  <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="input-base" placeholder="API key do Evolution" autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
+                  <label className="block text-sm font-medium mb-1">API Key (opcional, admin only)</label>
+                  <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="input-base" placeholder="deixa vazio para usar EVOLUTION_API_KEY do env" autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
                 </div>
               </>
             )}
