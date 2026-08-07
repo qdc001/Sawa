@@ -19,6 +19,7 @@ import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 import { useAuthStore } from '../store';
 import { useTaskOptions } from '../lib/taskOptions';
+import { toDateTimeLocal, toDateKey, fromDateTimeLocal } from '../lib/dateInput';
 import { useDragScroll, useScrollButton } from '../lib/useDragScroll';
 import MouseSettingsButton from '../components/MouseSettingsButton';
 import ChatPreviewModal from '../components/ChatPreviewModal';
@@ -264,7 +265,7 @@ function TaskFormModalV2({
   const [priority, setPriority] = useState(task?.priority || 'MEDIUM');
   const [recurrence, setRecurrence] = useState(task?.recurrence || '');
   const [dueAt, setDueAt] = useState(
-    task?.dueAt ? new Date(task.dueAt).toISOString().slice(0, 16)
+    task?.dueAt ? toDateTimeLocal(task.dueAt)
       : initialDate ? `${initialDate}T09:00` : ''
   );
   const [assignedToId, setAssignedToId] = useState(task?.assignedTo?.id || '');
@@ -322,7 +323,7 @@ function TaskFormModalV2({
     // removidos do form principal. Edição de estado faz-se via "Marcar concluída" no ViewTaskModal.
     const payload: any = {
       title, description, type, priority,
-      dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+      dueAt: fromDateTimeLocal(dueAt),
       assignedToId: assignedToId || undefined,
       contactId: contactId || null,
     };
@@ -369,7 +370,7 @@ function TaskFormModalV2({
           // Aplicar os campos do form actual a tarefa existente.
           const patch: any = {
             title, description, type, priority,
-            dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+            dueAt: fromDateTimeLocal(dueAt),
             assignedToId: assignedToId || undefined,
           };
           try {
@@ -536,11 +537,50 @@ function DraggableTaskBadge({ task, onClick }: { task: Task; onClick: () => void
   );
 }
 
-function DroppableDay({ dayKey, children }: { dayKey: string; children: React.ReactNode }) {
+// Célula de um dia do calendário. Tem de ser um componente próprio: o
+// `useDroppable` não pode ser chamado dentro de um `.map()` no corpo do
+// CalendarView, porque a grelha alterna entre 35 e 42 dias conforme o mês e o
+// número de hooks mudaria entre renders ("Rendered more hooks than during the
+// previous render") ao navegar de mês.
+function CalendarDayCell({
+  dayKey, date, isCurrentMonth, isToday, tasks, onCreateAt, onEdit,
+}: {
+  dayKey: string;
+  date: Date;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  tasks: Task[];
+  onCreateAt: (date: string) => void;
+  onEdit: (t: Task) => void;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: dayKey });
   return (
-    <div ref={setNodeRef} className="contents" style={{ outline: isOver ? '2px solid var(--primary)' : 'none' }}>
-      {children}
+    <div
+      ref={setNodeRef}
+      className="rounded p-1 flex flex-col gap-1 overflow-hidden group"
+      style={{
+        background: isOver ? 'var(--primary-light)' : isCurrentMonth ? 'var(--surface)' : 'var(--surface-2)',
+        border: isToday ? '2px solid var(--primary)' : isOver ? '2px dashed var(--primary)' : '1px solid var(--border)',
+        opacity: isCurrentMonth ? 1 : 0.5,
+        minHeight: 90,
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium" style={{ color: isToday ? 'var(--primary)' : 'var(--text-secondary)' }}>{date.getDate()}</span>
+        {isCurrentMonth && (
+          <button onClick={() => onCreateAt(dayKey)} className="opacity-0 group-hover:opacity-100 transition-opacity">
+            <Plus size={11} style={{ color: 'var(--text-muted)' }} />
+          </button>
+        )}
+      </div>
+      <div className="flex flex-col gap-0.5 overflow-y-auto" style={{ maxHeight: 80 }}>
+        {tasks.slice(0, 4).map((t) => (
+          <DraggableTaskBadge key={t.id} task={t} onClick={() => onEdit(t)} />
+        ))}
+        {tasks.length > 4 && (
+          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>+{tasks.length - 4} mais</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -575,11 +615,11 @@ function CalendarView({
   const tasksByDay: Record<string, Task[]> = {};
   tasks.forEach((t) => {
     if (!t.dueAt) return;
-    const k = new Date(t.dueAt).toISOString().slice(0, 10);
+    const k = toDateKey(t.dueAt);
     (tasksByDay[k] = tasksByDay[k] || []).push(t);
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toDateKey(new Date());
   const monthName = monthDate.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
   const weekDays = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
 
@@ -608,40 +648,19 @@ function CalendarView({
 
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-7 gap-1 flex-1" style={{ minHeight: 500 }}>
-          {days.map((d, i) => {
-            const k = d.date.toISOString().slice(0, 10);
-            const isToday = k === today;
-            const dayTasks = tasksByDay[k] || [];
-            const { setNodeRef, isOver } = useDroppable({ id: k });
+          {days.map((d) => {
+            const k = toDateKey(d.date);
             return (
-              <div
-                ref={setNodeRef}
-                key={i}
-                className="rounded p-1 flex flex-col gap-1 overflow-hidden group"
-                style={{
-                  background: isOver ? 'var(--primary-light)' : d.current ? 'var(--surface)' : 'var(--surface-2)',
-                  border: isToday ? '2px solid var(--primary)' : isOver ? '2px dashed var(--primary)' : '1px solid var(--border)',
-                  opacity: d.current ? 1 : 0.5,
-                  minHeight: 90,
-                }}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium" style={{ color: isToday ? 'var(--primary)' : 'var(--text-secondary)' }}>{d.date.getDate()}</span>
-                  {d.current && (
-                    <button onClick={() => onCreateAt(k)} className="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Plus size={11} style={{ color: 'var(--text-muted)' }} />
-                    </button>
-                  )}
-                </div>
-                <div className="flex flex-col gap-0.5 overflow-y-auto" style={{ maxHeight: 80 }}>
-                  {dayTasks.slice(0, 4).map((t) => (
-                    <DraggableTaskBadge key={t.id} task={t} onClick={() => onEdit(t)} />
-                  ))}
-                  {dayTasks.length > 4 && (
-                    <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>+{dayTasks.length - 4} mais</span>
-                  )}
-                </div>
-              </div>
+              <CalendarDayCell
+                key={k}
+                dayKey={k}
+                date={d.date}
+                isCurrentMonth={d.current}
+                isToday={k === today}
+                tasks={tasksByDay[k] || []}
+                onCreateAt={onCreateAt}
+                onEdit={onEdit}
+              />
             );
           })}
         </div>
@@ -671,8 +690,9 @@ const AGENDA_COLUMNS = [
 type AgendaCol = typeof AGENDA_COLUMNS[number]['key'];
 
 function classifyTask(t: Task): AgendaCol | null {
-  if (!t.dueAt) return 'future';
+  // Estado primeiro: uma tarefa concluída sem prazo não pertence a "Futuro".
   if (t.status === 'COMPLETED' || t.status === 'CANCELLED') return null;
+  if (!t.dueAt) return 'future';
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const due = new Date(t.dueAt);
@@ -1611,6 +1631,14 @@ export default function TasksPage() {
 
   const hasFilters = !!(search || statusFilter || typeFilter || priorityFilter || assigneeFilter || dateFilter || tagFilter || onlyMine);
 
+  // Insere ou substitui — o modal de criação pode devolver uma tarefa que já
+  // está na lista quando o utilizador escolhe "Actualizar existente" no
+  // diálogo de conflito. Sem isto a tarefa aparecia duplicada.
+  const upsertTask = (t: Task) =>
+    setTasks((prev) => (prev.some((x) => x.id === t.id)
+      ? prev.map((x) => (x.id === t.id ? t : x))
+      : [...prev, t]));
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -1887,7 +1915,7 @@ export default function TasksPage() {
           users={users} leads={leads} tags={tags}
           initialDate={initialDate}
           onClose={() => { setAdding(false); setInitialDate(undefined); }}
-          onSaved={(t) => setTasks((prev) => [...prev, t])}
+          onSaved={upsertTask}
           onTagsChanged={loadTags}
           onOpenExisting={(t) => setEditing(t)}
         />
@@ -1896,7 +1924,7 @@ export default function TasksPage() {
         <TaskFormModalV2
           task={editing} users={users} leads={leads} tags={tags}
           onClose={() => setEditing(null)}
-          onSaved={(t) => setTasks((prev) => prev.map((x) => (x.id === t.id ? t : x)))}
+          onSaved={upsertTask}
           onTagsChanged={loadTags}
           onOpenExisting={(t) => setEditing(t)}
         />

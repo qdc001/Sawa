@@ -7,6 +7,7 @@ import { Plus, Loader2, Trash2, X, CalendarClock, MapPin, User as UserIcon, Sear
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { useTerminology } from '../lib/terminology';
+import { toDateTimeLocal } from '../lib/dateInput';
 import { useAuthStore } from '../store';
 
 interface Contact {
@@ -272,10 +273,10 @@ function AppointmentModal({
   const [description, setDescription] = useState(appointment?.description || '');
   const [location, setLocation] = useState(appointment?.location || '');
   const [startsAt, setStartsAt] = useState(() => {
-    if (appointment?.startsAt) return new Date(appointment.startsAt).toISOString().slice(0, 16);
+    if (appointment?.startsAt) return toDateTimeLocal(appointment.startsAt);
     const d = new Date();
     d.setHours(d.getHours() + 1, 0, 0, 0);
-    return d.toISOString().slice(0, 16);
+    return toDateTimeLocal(d);
   });
   const [durationMin, setDurationMin] = useState(appointment?.durationMin || 30);
   const [status, setStatus] = useState(appointment?.status || 'SCHEDULED');

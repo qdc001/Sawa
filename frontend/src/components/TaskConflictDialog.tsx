@@ -3,7 +3,8 @@
 // O utilizador pode escolher entre editar a tarefa existente ou abortar
 // a criacao da nova.
 
-import { AlertTriangle, Edit3, RefreshCw, X } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, Edit3, Loader2, RefreshCw, X } from 'lucide-react';
 
 export interface ExistingTask {
   id: string;
@@ -27,6 +28,15 @@ interface Props {
 }
 
 export default function TaskConflictDialog({ existingTask, onEditExisting, onCancel, onUpdateExisting, updateLabel }: Props) {
+  // `onUpdateExisting` faz um PATCH; sem este bloqueio um duplo clique
+  // disparava dois pedidos concorrentes sobre a mesma tarefa.
+  const [busy, setBusy] = useState(false);
+  const handleUpdate = async () => {
+    if (!onUpdateExisting || busy) return;
+    setBusy(true);
+    try { await onUpdateExisting(existingTask); } finally { setBusy(false); }
+  };
+
   const dueStr = existingTask.dueAt
     ? new Date(existingTask.dueAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })
     : 'sem prazo';
@@ -86,26 +96,30 @@ export default function TaskConflictDialog({ existingTask, onEditExisting, onCan
         <div className="flex flex-col-reverse sm:flex-row flex-wrap gap-2">
           <button
             onClick={onCancel}
+            disabled={busy}
             className="btn flex-1 py-2 flex items-center justify-center gap-2 min-w-[140px]"
-            style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+            style={{ background: 'var(--surface-3)', color: 'var(--text-primary)', opacity: busy ? 0.5 : 1 }}
           >
             Abortar criacao
           </button>
           <button
             onClick={() => onEditExisting(existingTask)}
+            disabled={busy}
             className="btn flex-1 py-2 flex items-center justify-center gap-2 min-w-[140px]"
-            style={{ background: 'var(--surface-2)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+            style={{ background: 'var(--surface-2)', color: 'var(--text-primary)', border: '1px solid var(--border)', opacity: busy ? 0.5 : 1 }}
           >
             <Edit3 size={14} />
             Editar existente
           </button>
           {onUpdateExisting && (
             <button
-              onClick={() => onUpdateExisting(existingTask)}
+              onClick={handleUpdate}
+              disabled={busy}
               className="btn btn-primary flex-1 py-2 flex items-center justify-center gap-2 min-w-[140px]"
               title="Aplica os campos deste formulario a tarefa existente"
+              style={{ opacity: busy ? 0.7 : 1 }}
             >
-              <RefreshCw size={14} />
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
               {updateLabel || 'Actualizar existente'}
             </button>
           )}

@@ -152,10 +152,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     //  a) mudar contactId para um contacto que ja tem tarefa aberta;
     //  b) reabrir uma tarefa (COMPLETED/CANCELLED -> PENDING/IN_PROGRESS)
     //     se o contacto ja tem outra tarefa aberta.
-    const existingSelf = await prisma.task.findUnique({
-      where: { id: req.params.id },
+    // O findFirst valida tambem que a tarefa pertence ao workspace do
+    // utilizador — sem isto qualquer id conhecido era editavel entre clinicas.
+    const existingSelf = await prisma.task.findFirst({
+      where: { id: req.params.id, assignedTo: { workspaceId: req.user!.workspaceId } },
       select: { contactId: true, status: true, parentTaskId: true },
     });
+    if (!existingSelf) throw new AppError('Tarefa não encontrada', 404);
     if (existingSelf && !existingSelf.parentTaskId) {
       const targetContactId = data.contactId !== undefined ? data.contactId : existingSelf.contactId;
       const targetStatus = data.status || existingSelf.status;
@@ -222,7 +225,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
 
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
-    await prisma.task.delete({ where: { id: req.params.id } });
+    // deleteMany permite filtrar por workspace na mesma query — garante que
+    // nao se apaga uma tarefa de outra clinica so por saber o id.
+    const { count } = await prisma.task.deleteMany({
+      where: { id: req.params.id, assignedTo: { workspaceId: req.user!.workspaceId } },
+    });
+    if (count === 0) throw new AppError('Tarefa não encontrada', 404);
     res.json({ message: 'Tarefa eliminada' });
   } catch (e) { next(e); }
 });

@@ -23,6 +23,7 @@ import { downloadFile } from '../lib/downloadFile';
 import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
 import { useTaskOptions } from '../lib/taskOptions';
+import { toDateTimeLocal, fromDateTimeLocal } from '../lib/dateInput';
 import { AddLeadModal } from './PipelinePage';
 
 // Seletor de emojis ao estilo WhatsApp, agrupado por categoria (com scroll).
@@ -3384,7 +3385,7 @@ function ViewTaskModal({ task, onClose, onUpdated, onCompleted, onDeleted }: {
   const [title, setTitle] = useState<string>(task.title || '');
   const [type, setType] = useState<string>(task.type || (taskTypes[0]?.value || 'OTHER'));
   const [priority, setPriority] = useState<string>(task.priority || (taskPriorities[0]?.value || 'MEDIUM'));
-  const [dueAt, setDueAt] = useState<string>(task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 16) : '');
+  const [dueAt, setDueAt] = useState<string>(toDateTimeLocal(task.dueAt));
   const [description, setDescription] = useState<string>(task.description || '');
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
@@ -3400,7 +3401,7 @@ function ViewTaskModal({ task, onClose, onUpdated, onCompleted, onDeleted }: {
     try {
       const { data } = await api.patch(`/tasks/${task.id}`, {
         title, type, priority, description,
-        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+        dueAt: fromDateTimeLocal(dueAt),
       });
       onUpdated(data);
       setEditMode(false);
@@ -3544,7 +3545,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
   const [priority, setPriority] = useState(defaultPriority);
   const [dueAt, setDueAt] = useState<string>(() => {
     const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
-    return d.toISOString().slice(0, 16);
+    return toDateTimeLocal(d);
   });
   const [saving, setSaving] = useState(false);
   const [existing, setExisting] = useState<any | null>(null);
@@ -3557,7 +3558,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
         title, description, type, priority,
         leadId: leadId || undefined,
         contactId: contactId || undefined,
-        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+        dueAt: fromDateTimeLocal(dueAt),
       });
       onCreated(data);
     } catch (e: any) {
@@ -3586,7 +3587,10 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
               try {
                 const { data } = await api.patch(`/tasks/${t.id}`, {
                   title, description, type, priority,
-                  dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+                  // Religar à conversa actual: a tarefa aberta do contacto pode
+                  // estar presa a outro lead, e o utilizador quer esta conversa.
+                  ...(leadId ? { leadId } : {}),
+                  dueAt: fromDateTimeLocal(dueAt),
                 });
                 toast.success('Tarefa existente actualizada');
                 onCreated(data);

@@ -12,6 +12,7 @@ import api, { Contact, Lead, Tag as TagType, CustomField, CustomFieldType, User 
 import toast from 'react-hot-toast';
 import { useUIStore, useAuthStore } from '../store';
 import { useTaskOptions } from '../lib/taskOptions';
+import { toDateTimeLocal, fromDateTimeLocal } from '../lib/dateInput';
 import { CustomFieldInput, AddLeadModal } from './PipelinePage';
 import TaskConflictDialog from '../components/TaskConflictDialog';
 import { useTerminology } from '../lib/terminology';
@@ -1261,7 +1262,11 @@ export default function ContactsPage() {
         <QuickContactTaskModal
           contact={newTaskFor}
           onClose={() => setNewTaskFor(null)}
-          onCreated={() => { setNewTaskFor(null); toast.success('Tarefa criada'); }}
+          onCreated={(outcome) => {
+            setNewTaskFor(null);
+            toast.success(outcome === 'updated' ? 'Tarefa existente actualizada' : 'Tarefa criada');
+            loadContacts();
+          }}
         />
       )}
     </div>
@@ -1272,7 +1277,7 @@ export default function ContactsPage() {
 function QuickContactTaskModal({ contact, onClose, onCreated }: {
   contact: ContactWithMeta;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (outcome: 'created' | 'updated') => void;
 }) {
   const navigate = useNavigate();
   const { types: taskTypes, priorities: taskPriorities, titles: taskTitles, labels: L, lookupType, lookupPriority, lookupTitle } = useTaskOptions();
@@ -1286,7 +1291,7 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
   const [priority, setPriority] = useState(defaultPriority);
   const [dueAt, setDueAt] = useState<string>(() => {
     const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
-    return d.toISOString().slice(0, 16);
+    return toDateTimeLocal(d);
   });
   const [saving, setSaving] = useState(false);
   const [existing, setExisting] = useState<any | null>(null);
@@ -1297,9 +1302,9 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
       await api.post('/tasks', {
         title, description, type, priority,
         contactId: contact.id,
-        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+        dueAt: fromDateTimeLocal(dueAt),
       });
-      onCreated();
+      onCreated('created');
     } catch (e: any) {
       if (e.response?.status === 409) {
         setExisting(e.response.data.existingTask);
@@ -1326,10 +1331,9 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
               try {
                 await api.patch(`/tasks/${t.id}`, {
                   title, description, type, priority,
-                  dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+                  dueAt: fromDateTimeLocal(dueAt),
                 });
-                toast.success('Tarefa existente actualizada');
-                onCreated();
+                onCreated('updated');
               } catch (err: any) {
                 toast.error(err.response?.data?.message || 'Erro a actualizar');
               }
