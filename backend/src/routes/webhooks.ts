@@ -515,28 +515,37 @@ router.post('/evolution', async (req: Request, res: Response) => {
       return res.json({ ok: true });
     }
 
+    // messages.set é o resync completo do historico que o Baileys reenvia a
+    // CADA reconexao (vimos ~4700 mensagens de uma vez em producao — isto
+    // dispara sempre que a instancia reconecta, nao só na primeira ligação).
+    // Processar isto como mensagens novas duplicaria o histórico e, pior,
+    // voltaria a disparar chatbots/automações/IA de vendas/notificações para
+    // conversas antigas a cada reconexão. Já existe um fluxo manual dedicado
+    // para importar histórico ("Sincronizar conversas", routes/sync-chats),
+    // com o seu próprio dedup e throttling — este evento fica só como sinal
+    // informativo no log, sem tocar na base de dados.
+    if (event === 'messages.set' || event === 'MESSAGES_SET') {
+      const count = Array.isArray(data) ? data.length : Array.isArray(data?.messages) ? data.messages.length : 0;
+      console.log(`Evolution webhook: messages.set ignorado (resync de histórico, ${count} mensagens). Usa "Sincronizar conversas" para importar histórico.`);
+      return res.json({ ok: true, ignored: 'messages.set (usa sync-chats para historico)' });
+    }
+
     // Mensagens novas (inbound + fromMe do telefone)
-    // Inclui: messages.upsert (chega/sincroniza), send.message (envio confirmado), messages.set (sync histórico)
+    // Inclui: messages.upsert (chega/sincroniza), send.message (envio confirmado)
     if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' ||
-        event === 'message' || event === 'send.message' || event === 'SEND_MESSAGE' ||
-        event === 'messages.set' || event === 'MESSAGES_SET') {
+        event === 'message' || event === 'send.message' || event === 'SEND_MESSAGE') {
       // Evolution v2: data é o próprio objecto da mensagem (data.key + data.message)
-      // Evolution v1: data.messages é array. Alguns eventos messages.set desta
-      // instalação chegam com `data` vazio ({}) mas as mensagens no array
-      // top-level de req.body — cai aqui como último recurso.
+      // Evolution v1: data.messages é array.
       const messages = Array.isArray(data?.messages)
         ? data.messages
         : (data?.key && (data?.message || data?.messageType))
           ? [data]
-          : Array.isArray(req.body?.messages)
-            ? req.body.messages
-            : [];
+          : [];
 
       if (messages.length === 0) {
         console.log(
           'Evolution webhook: nenhuma mensagem extraída. Event:', event,
           'Keys data:', data ? Object.keys(data).join(',') : '(vazio)',
-          '| Keys body:', req.body ? Object.keys(req.body).join(',') : '(vazio)',
         );
       } else if (process.env.EVO_TRACE === '1') {
         // Diagnostico de mensagens perdidas: log de cada mensagem que entra
@@ -584,8 +593,11 @@ router.post('/evolution', async (req: Request, res: Response) => {
             (innerKeys.includes('reactionMessage') || innerKeys.includes('secretEncryptedMessage')));
         if (isUnsupported) continue;
 
-        // Se for fromMe e já guardámos esta mensagem (envio via CRM), saltar
-        if (fromMe && externalId) {
+        // Dedup por externalId em qualquer direcção: o Baileys pode reentregar
+        // mensagens recentes numa reconexao mesmo fora de um resync completo
+        // (messages.set, esse já nem chega aqui — ver acima). Sem isto, uma
+        // reconexao no momento errado duplicava a mensagem no CRM.
+        if (externalId) {
           const exists = await prisma.message.findFirst({ where: { externalId }, select: { id: true } });
           if (exists) continue;
         }
