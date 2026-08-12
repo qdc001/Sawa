@@ -327,6 +327,9 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
       if (b64) {
         setQr(b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`);
       }
+      if (res.data.webhookConfigured === false) {
+        toast.error('A sessão vai ligar, mas a configuração do webhook falhou: as mensagens podem não chegar ao CRM. Contacta o suporte.', { duration: 8000 });
+      }
       onChanged();
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Erro a obter QR');
@@ -339,7 +342,10 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
       const res = await api.get('/integrations/evolution/qr');
       const b64 = res.data.base64;
       if (b64) setQr(b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`);
-    } catch {} finally { setRefreshing(false); }
+      else toast.error('Não foi possível obter um novo QR. Tenta novamente em instantes.');
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro a obter QR');
+    } finally { setRefreshing(false); }
   };
 
   const disconnect = async () => {

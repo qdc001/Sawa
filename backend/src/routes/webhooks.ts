@@ -9,11 +9,42 @@ import fs from 'fs';
 import path from 'path';
 
 import prisma from '../lib/prisma';
-import { getCreds, encryptForStore } from '../lib/integrationCrypto';
+import { getCreds } from '../lib/integrationCrypto';
 const router = Router();
 
 const uploadsDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+// Cache em memoria instanceName -> integração, com TTL curto. Sem isto, cada
+// mensagem recebida fazia um findMany de TODAS as integrações Evolution do
+// sistema e desencriptava-as uma a uma so para descobrir a quem pertence —
+// funciona com poucos workspaces mas degrada linearmente à medida que o
+// numero de clinicas cresce. TTL de 5 min: novo instanceName so aparece
+// depois de /evolution/connect, que já é um fluxo raro e humano.
+const evoInstanceCache = new Map<string, { integration: any; expiresAt: number }>();
+const EVO_INSTANCE_CACHE_TTL_MS = 5 * 60_000;
+
+async function findEvolutionIntegrationByInstance(instanceName: string): Promise<any | null> {
+  const cached = evoInstanceCache.get(instanceName);
+  if (cached && cached.expiresAt > Date.now()) return cached.integration;
+
+  const all = await prisma.integration.findMany({
+    where: { type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
+  });
+  const matched = all.find((i: any) => (getCreds(i) as any)?.instanceName === instanceName) || null;
+  if (matched) {
+    evoInstanceCache.set(instanceName, { integration: matched, expiresAt: Date.now() + EVO_INSTANCE_CACHE_TTL_MS });
+  }
+  return matched;
+}
+
+// Chamado por routes/integrations.ts sempre que uma integração Evolution é
+// criada/actualizada (connect, disconnect, configure). Evita que o webhook
+// continue a usar uma entrada em cache com instanceName ou credenciais
+// desactualizadas durante os 5 minutos de TTL.
+export function invalidateEvoInstanceCache(): void {
+  evoInstanceCache.clear();
+}
 
 // Helper: round-robin auto-assignment
 async function autoAssignConversation(workspaceId: string, contactId: string, channel: string): Promise<string | null> {
@@ -451,23 +482,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
       return res.json({ ok: true, ignored: 'sem instance' });
     }
 
-    // Encontrar integração pelo instanceName
-    const integration = await prisma.integration.findFirst({
-      where: { type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
-    });
-    // Match pelo instanceName guardado nas credenciais
-    let matched = null as any;
-    if (integration) {
-      const creds: any = getCreds(integration);
-      if (creds.instanceName === instanceName) matched = integration;
-    }
-    if (!matched) {
-      // procurar todas e match
-      const all = await prisma.integration.findMany({
-        where: { type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
-      });
-      matched = all.find((i: any) => (getCreds(i) as any)?.instanceName === instanceName);
-    }
+    const matched = await findEvolutionIntegrationByInstance(instanceName);
     if (!matched) {
       return res.json({ ok: true, ignored: 'instance não associada a workspace' });
     }
@@ -506,15 +521,23 @@ router.post('/evolution', async (req: Request, res: Response) => {
         event === 'message' || event === 'send.message' || event === 'SEND_MESSAGE' ||
         event === 'messages.set' || event === 'MESSAGES_SET') {
       // Evolution v2: data é o próprio objecto da mensagem (data.key + data.message)
-      // Evolution v1: data.messages é array
+      // Evolution v1: data.messages é array. Alguns eventos messages.set desta
+      // instalação chegam com `data` vazio ({}) mas as mensagens no array
+      // top-level de req.body — cai aqui como último recurso.
       const messages = Array.isArray(data?.messages)
         ? data.messages
         : (data?.key && (data?.message || data?.messageType))
           ? [data]
-          : [];
+          : Array.isArray(req.body?.messages)
+            ? req.body.messages
+            : [];
 
       if (messages.length === 0) {
-        console.log('Evolution webhook: nenhuma mensagem extraída. Event:', event, 'Keys data:', data ? Object.keys(data).join(',') : '(vazio)');
+        console.log(
+          'Evolution webhook: nenhuma mensagem extraída. Event:', event,
+          'Keys data:', data ? Object.keys(data).join(',') : '(vazio)',
+          '| Keys body:', req.body ? Object.keys(req.body).join(',') : '(vazio)',
+        );
       } else if (process.env.EVO_TRACE === '1') {
         // Diagnostico de mensagens perdidas: log de cada mensagem que entra
         // no webhook antes dos filtros. Activar temporariamente para debug.
@@ -549,6 +572,13 @@ router.post('/evolution', async (req: Request, res: Response) => {
           rawMsg.protocolMessage ||
           rawMsg.pollUpdateMessage ||
           rawMsg.pollCreationMessage ||
+          rawMsg.pinInChatMessage ||
+          // albumMessage e apenas o container de um envio de varias
+          // fotos/videos de uma vez; nao tem conteudo em si. As imagens reais
+          // chegam a seguir como mensagens separadas do tipo
+          // associatedChildMessage (ver unwrap abaixo), por isso nao ha nada
+          // perdido ao ignorar o container.
+          rawMsg.albumMessage ||
           (innerKeys.length === 1 && innerKeys[0] === 'messageContextInfo') ||
           (innerKeys.length === 2 && innerKeys.includes('messageContextInfo') &&
             (innerKeys.includes('reactionMessage') || innerKeys.includes('secretEncryptedMessage')));
@@ -572,12 +602,17 @@ router.post('/evolution', async (req: Request, res: Response) => {
 
         const creds: any = getCreds(matched);
 
-        // Evolution v2 às vezes embrulha em ephemeralMessage / viewOnceMessage / etc
+        // Evolution v2 às vezes embrulha em ephemeralMessage / viewOnceMessage / etc.
+        // associatedChildMessage é a mensagem real (imagem/vídeo) de um item
+        // dentro de um álbum de várias fotos — o container albumMessage em si
+        // é ignorado acima, mas cada foto do álbum chega como um evento
+        // separado embrulhado assim.
         const unwrapped =
           msg.ephemeralMessage?.message ||
           msg.viewOnceMessage?.message ||
           msg.viewOnceMessageV2?.message ||
           msg.documentWithCaptionMessage?.message ||
+          msg.associatedChildMessage?.message ||
           msg;
 
         if (unwrapped.conversation || msg.conversation) {
@@ -609,6 +644,13 @@ router.post('/evolution', async (req: Request, res: Response) => {
         } else if (msg.locationMessage) {
           msgType = 'LOCATION';
           content = `Localização: ${msg.locationMessage.degreesLatitude}, ${msg.locationMessage.degreesLongitude}`;
+        } else if (msg.liveLocationMessage) {
+          // Partilha de localização em directo: guardamos a posição inicial.
+          // Actualizações seguintes da mesma partilha chegam como novos
+          // eventos e ficam registadas como mensagens separadas — não há API
+          // de "live update" no modelo de dados actual.
+          msgType = 'LOCATION';
+          content = `Localização em directo: ${msg.liveLocationMessage.degreesLatitude}, ${msg.liveLocationMessage.degreesLongitude}`;
         } else if (msg.buttonsResponseMessage) {
           msgType = 'INTERACTIVE';
           interactiveId = msg.buttonsResponseMessage.selectedButtonId || null;

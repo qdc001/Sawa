@@ -205,6 +205,32 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV}`);
+
+  // Validação de config do WhatsApp/Evolution no arranque. Sem isto, um
+  // EVOLUTION_API_URL mal formado ou PUBLIC_API_URL em falta só aparecia
+  // como um "Erro 405" críptico minutos ou dias depois, quando alguém
+  // tentasse ligar o WhatsApp de uma clínica.
+  const evoUrl = process.env.EVOLUTION_API_URL;
+  if (evoUrl) {
+    const suspiciousSuffix = /\/(manager|api|dashboard)\/?$/i.test(evoUrl);
+    if (suspiciousSuffix) {
+      console.warn(
+        `[startup] EVOLUTION_API_URL="${evoUrl}" parece incluir um sufixo de path (ex: /manager). ` +
+        `A Evolution API espera a raiz do servidor (ex: https://evolution.exemplo.com). ` +
+        `Isto costuma causar "Erro 405" ao criar instâncias.`
+      );
+    }
+  } else {
+    console.warn('[startup] EVOLUTION_API_URL não está definida — a integração WhatsApp via Evolution não vai funcionar para nenhum workspace.');
+  }
+  if (!process.env.PUBLIC_API_URL) {
+    console.warn(
+      '[startup] PUBLIC_API_URL não está definida. O webhook da Evolution e os URLs de anexos vão ' +
+      'depender dos cabeçalhos do proxy (req.protocol/req.get("host")), o que é frágil atrás do Easypanel. ' +
+      'Define PUBLIC_API_URL com o URL público deste backend.'
+    );
+  }
+
   // Migrar credenciais de integrações legadas (plaintext) para o formato encriptado.
   // Idempotente: corre todos os arranques mas só toca nas que ainda não estão encriptadas.
   try {

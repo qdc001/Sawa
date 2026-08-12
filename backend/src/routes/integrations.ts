@@ -11,6 +11,7 @@ import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 import prisma from '../lib/prisma';
 import { getCreds, getCredsForUpdate, encryptForStore } from '../lib/integrationCrypto';
 import { checkLimit } from '../lib/planLimits';
+import { invalidateEvoInstanceCache } from './webhooks';
 const router = Router();
 
 // ============= Helpers Evolution =============
@@ -174,14 +175,16 @@ async function getOrCreateEvolutionIntegration(workspaceId: string, fields?: { b
         ...(fields.apiKey && { apiKey: fields.apiKey }),
         ...(fields.instanceName !== undefined && { instanceName: fields.instanceName }),
       };
-      return prisma.integration.update({
+      const updated = await prisma.integration.update({
         where: { id: existing.id },
         data: { credentials: encryptForStore(merged) as any },
       });
+      invalidateEvoInstanceCache();
+      return updated;
     }
     return existing;
   }
-  return prisma.integration.create({
+  const created = await prisma.integration.create({
     data: {
       type: 'WEBHOOK', name: 'Evolution',
       credentials: encryptForStore({
@@ -193,6 +196,8 @@ async function getOrCreateEvolutionIntegration(workspaceId: string, fields?: { b
       workspaceId,
     },
   });
+  invalidateEvoInstanceCache();
+  return created;
 }
 
 // POST /api/integrations/evolution/configure - guarda instanceName (opcional).
@@ -232,7 +237,11 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
     const creds: any = getCredsForUpdate(integration);
     if (!creds.baseUrl || !creds.apiKey) throw new AppError('baseUrl e apiKey em falta', 400);
 
-    const instanceName = creds.instanceName || `meta_${req.user!.workspaceId.substring(0, 8)}`;
+    // Nome completo do workspaceId (cuid), nao um prefixo de 8 caracteres:
+    // dois workspaces criados perto um do outro partilham prefixo de cuid,
+    // e um nome de instancia colidido faz duas clinicas partilharem a MESMA
+    // sessao de WhatsApp — pior cenario possivel num produto multi-tenant.
+    const instanceName = creds.instanceName || `meta_${req.user!.workspaceId}`;
     const webhookUrl = `${process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`}/api/webhooks/evolution`;
 
     // 1) Verificar se já existe instância com este nome
@@ -276,6 +285,7 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
       'CHATS_UPSERT', 'CHATS_UPDATE',
       'CONTACTS_UPSERT', 'CONTACTS_UPDATE',
     ];
+    let webhookSetFailed = false;
     try {
       await evolutionFetch(creds, `/webhook/set/${instanceName}`, {
         method: 'POST',
@@ -299,7 +309,14 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
             events: webhookEvents,
           }),
         });
-      } catch { /* silent */ }
+      } catch (e2: any) {
+        webhookSetFailed = true;
+        // Se isto falhar, a sessao liga normalmente mas NENHUMA mensagem
+        // chega ao CRM, e antes isto desaparecia em silencio. Fica no log e
+        // no response para o utilizador poder ser avisado em vez de
+        // descobrir dias depois que nada estava a entrar.
+        console.error(`Evolution webhook/set falhou (ambos os formatos) instance=${instanceName}: ${e.message} | ${e2.message}`);
+      }
     }
 
     // 4) Pedir QR
@@ -316,12 +333,13 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
       where: { id: integration.id },
       data: { credentials: encryptForStore({ ...creds, instanceName, webhookUrl }) as any, isActive: true },
     });
+    invalidateEvoInstanceCache();
 
     // 6) Extrair base64 do QR (formato Evolution v2: { pairingCode, code, base64, count })
     const base64 = qr?.base64 || qr?.qrcode?.base64 || qr?.qr?.base64 || null;
     const code = qr?.code || qr?.qrcode?.code || qr?.pairingCode || null;
 
-    res.json({ instanceName, base64, code, raw: qr });
+    res.json({ instanceName, base64, code, webhookConfigured: !webhookSetFailed, raw: qr });
   } catch (e) { next(e); }
 });
 
@@ -1037,6 +1055,7 @@ router.post('/evolution/disconnect', async (req: AuthRequest, res: Response, nex
       }
     }
     await prisma.integration.update({ where: { id: integration.id }, data: { isActive: false } });
+    invalidateEvoInstanceCache();
 
     // Confirmar o estado real. Em Evolution < v2.3.7 ha um bug de reconexao automatica
     // que pode repor a sessao em 'open' logo apos o logout; reportamos isso ao cliente

@@ -10,6 +10,15 @@ import fs from 'fs';
 import path from 'path';
 import prisma from './prisma';
 import { getCreds } from './integrationCrypto';
+import { publicMediaUrl } from './evolutionMedia';
+
+// Acima disto, preferimos mandar URL em vez de base64. O base64 infla o
+// payload em ~33% e vai tudo num unico JSON; ficheiros grandes (viram-se
+// apresentacoes/relatorios na pratica, ja vimos .pptx de 1.2MB nos logs)
+// ficam expostos a limites de payload e timeouts do lado da Evolution.
+// So e possivel se PUBLIC_API_URL estiver configurada (senao nao ha URL
+// publico para o ficheiro local).
+const LARGE_MEDIA_THRESHOLD_BYTES = 5 * 1024 * 1024;
 
 // Se o mediaUrl for local (/uploads/xxx.doc), le o ficheiro do disco e
 // converte para base64. Evolution API aceita base64 no campo "media" e
@@ -32,6 +41,9 @@ function resolveMediaPayload(mediaUrl: string): { base64?: string; url?: string;
       const filePath = path.join(__dirname, '../../uploads', path.basename(rel));
       try {
         const buf = fs.readFileSync(filePath);
+        if (buf.length > LARGE_MEDIA_THRESHOLD_BYTES && process.env.PUBLIC_API_URL) {
+          return { url: publicMediaUrl(`/uploads/${path.basename(rel)}`) };
+        }
         return { base64: buf.toString('base64') };
       } catch { /* fallback URL — o ficheiro pode estar acessivel via HTTP externo */ }
     }
@@ -43,6 +55,9 @@ function resolveMediaPayload(mediaUrl: string): { base64?: string; url?: string;
     const filePath = path.join(__dirname, '../../uploads', path.basename(mediaUrl));
     try {
       const buf = fs.readFileSync(filePath);
+      if (buf.length > LARGE_MEDIA_THRESHOLD_BYTES && process.env.PUBLIC_API_URL) {
+        return { url: publicMediaUrl(mediaUrl) };
+      }
       return { base64: buf.toString('base64') };
     } catch (e: any) {
       console.error('[whatsappSend] falha a ler ficheiro local:', filePath, e.message);
@@ -78,6 +93,14 @@ export async function sendWhatsAppOut(
         let path: string;
         const isGroupJid = typeof phone === 'string' && phone.includes('@g.us');
         const destination = isGroupJid ? phone : phone.replace(/\D/g, '');
+        // Numeros internacionais validos tem entre 8 e 15 digitos (E.164).
+        // Sem esta verificacao, um numero corrompido na BD (prefixo
+        // duplicado, dado migrado mal) so falha depois de uma chamada
+        // completa a Evolution — vimos no log o mesmo numero invalido a
+        // falhar 4 vezes seguidas em tentativas diferentes.
+        if (!isGroupJid && (destination.length < 8 || destination.length > 15)) {
+          return { ok: false, error: `Número de telefone inválido: "${phone}" (${destination.length} dígitos após limpeza). Verifica o contacto.` };
+        }
         let body: any = { number: destination };
 
         if (type === 'AUDIO' && mediaUrl) {
@@ -146,12 +169,35 @@ export async function sendWhatsAppOut(
         const isUrl = /^https?:\/\//i.test(mediaField);
         console.log(`[whatsappSend] via evolution type=${type} to=${destination.slice(-4)} mode=${isUrl ? 'url' : (mediaField ? 'base64' : '-')} mime=${body.mimetype || '-'} file=${body.fileName || '-'}`);
 
-        const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}${path}`, {
+        const url = `${creds.baseUrl.replace(/\/$/, '')}${path}`;
+        const requestInit = {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
           body: JSON.stringify(body),
-        });
-        const respText = await r.text();
+        };
+
+        // Uma tentativa extra em falhas transitorias (rede, 5xx). Erros 4xx
+        // (numero invalido, payload mal formado) nao se resolvem repetindo,
+        // por isso nao entram no retry. Antes, qualquer falha perdia-se de
+        // vez sem segunda oportunidade.
+        let r: Response;
+        let respText: string;
+        try {
+          r = await fetch(url, requestInit);
+          respText = await r.text();
+        } catch (networkErr: any) {
+          console.error(`[whatsappSend] falha de rede, a tentar 1x: ${networkErr.message}`);
+          await new Promise((res) => setTimeout(res, 1500));
+          r = await fetch(url, requestInit);
+          respText = await r.text();
+        }
+        if (!r.ok && r.status >= 500) {
+          console.error(`[whatsappSend] HTTP ${r.status}, a tentar 1x`);
+          await new Promise((res) => setTimeout(res, 1500));
+          r = await fetch(url, requestInit);
+          respText = await r.text();
+        }
+
         let data: any = respText;
         try { data = JSON.parse(respText); } catch {}
         if (r.ok) {
@@ -159,6 +205,15 @@ export async function sendWhatsAppOut(
           return { ok: true, externalId: data?.key?.id, via: 'evolution' };
         }
         console.error(`[whatsappSend] falhou HTTP ${r.status} body=${respText.substring(0, 500)}`);
+        // A Evolution devolve este formato quando o numero nao existe no
+        // WhatsApp: {"response":{"message":[{"jid":"...","exists":false}]}}.
+        // Vale a pena distinguir de um erro generico porque nao adianta
+        // reenviar nem culpar a integracao — o numero em si esta errado.
+        const notOnWhatsapp = Array.isArray(data?.response?.message) &&
+          data.response.message.some((m: any) => m?.exists === false);
+        if (notOnWhatsapp) {
+          return { ok: false, error: `O número ${destination} não tem WhatsApp activo.` };
+        }
         return { ok: false, error: data?.message || data?.error || `HTTP ${r.status}: ${respText.substring(0, 200)}` };
       } catch (e: any) {
         console.error('Evolution send exception:', e);
