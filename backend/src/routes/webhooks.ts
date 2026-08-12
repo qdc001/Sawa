@@ -15,12 +15,6 @@ const router = Router();
 const uploadsDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-// Mapa em memoria de integrationId → timestamp do ultimo disconnect manual.
-// Serve para o webhook CONNECTION_UPDATE nao reactivar a integracao logo apos
-// o utilizador clicar Desligar (a Evolution pode ter eventos 'open' em queue).
-// Partilhado com routes/integrations.ts via export.
-export const globalDisconnectMap = new Map<string, number>();
-
 // Helper: round-robin auto-assignment
 async function autoAssignConversation(workspaceId: string, contactId: string, channel: string): Promise<string | null> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { autoAssignEnabled: true } });
@@ -481,30 +475,28 @@ router.post('/evolution', async (req: Request, res: Response) => {
     const workspaceId = matched.workspaceId;
     const io = (global as any).io;
 
-    // Estado da ligação
+    // Estado da ligação.
+    //
+    // NAO persistir nada aqui. `isActive` significa "o utilizador quer esta
+    // integracao ligada" (so muda em /evolution/connect e /evolution/disconnect),
+    // nao "a sessao esta online agora". O Baileys emite connection.update
+    // constantemente durante o funcionamento normal (connecting/close antes de
+    // cada reconexao automatica), pelo que escrever isActive=state==='open'
+    // fazia a integracao piscar entre activa e inactiva varias vezes por hora.
+    // Efeitos: o evolutionMonitor (que so olha isActive=true) deixava de
+    // reconectar logo quando era preciso, e os envios falhavam por "sem
+    // integracao" durante cada blip.
+    //
+    // A regravacao das credenciais tambem saiu: `lastState` nunca era lido em
+    // lado nenhum, e o padrao read-modify-write concorria com /evolution/connect.
+    // Se o getCreds falhasse a desencriptar (devolve {} em silencio), gravava-se
+    // por cima e perdia-se instanceName/baseUrl/apiKey de forma permanente.
+    //
+    // O estado ao vivo continua disponivel: por socket aqui, e sob pedido em
+    // GET /api/integrations/evolution/status, que consulta a Evolution directamente.
     if (event === 'connection.update' || event === 'CONNECTION_UPDATE') {
       const state = data?.state || data?.connection;
-      if (state) {
-        const creds: any = getCreds(matched);
-        // Race condition guard: se o utilizador acabou de clicar Desligar, a
-        // Evolution pode ainda mandar CONNECTION_UPDATE state=open (envio
-        // atrasado do queue). Se disconnect manual foi feito nos ultimos 30s,
-        // ignoramos qualquer estado 'open' para nao reactivar automaticamente.
-        const disconnectedAt = (globalDisconnectMap.get(matched.id) || 0);
-        const withinDisconnectWindow = Date.now() - disconnectedAt < 30_000;
-        const nextActive =
-          withinDisconnectWindow && state === 'open'
-            ? false
-            : state === 'open';
-        await prisma.integration.update({
-          where: { id: matched.id },
-          data: {
-            credentials: encryptForStore({ ...creds, lastState: state }) as any,
-            isActive: nextActive,
-          },
-        });
-        if (io) io.to(`workspace:${workspaceId}`).emit('evolution:state', { state });
-      }
+      if (state && io) io.to(`workspace:${workspaceId}`).emit('evolution:state', { state });
       return res.json({ ok: true });
     }
 

@@ -9,9 +9,8 @@ import { analysePhone, nameFromPushOrPhone } from '../lib/phoneFormat';
 import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 
 import prisma from '../lib/prisma';
-import { getCreds, encryptForStore } from '../lib/integrationCrypto';
+import { getCreds, getCredsForUpdate, encryptForStore } from '../lib/integrationCrypto';
 import { checkLimit } from '../lib/planLimits';
-import { globalDisconnectMap } from './webhooks';
 const router = Router();
 
 // ============= Helpers Evolution =============
@@ -168,7 +167,7 @@ async function getOrCreateEvolutionIntegration(workspaceId: string, fields?: { b
   });
   if (existing) {
     if (fields?.baseUrl || fields?.apiKey || fields?.instanceName !== undefined) {
-      const creds: any = getCreds(existing);
+      const creds: any = getCredsForUpdate(existing);
       const merged = {
         ...creds,
         ...(fields.baseUrl && { baseUrl: fields.baseUrl }),
@@ -228,7 +227,9 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) throw new AppError('Configura primeiro o servidor Evolution (baseUrl + apiKey)', 400);
-    const creds: any = getCreds(integration);
+    // Esta rota regrava as credenciais no fim (passo 5), por isso a leitura tem
+    // de falhar alto se nao for desencriptavel.
+    const creds: any = getCredsForUpdate(integration);
     if (!creds.baseUrl || !creds.apiKey) throw new AppError('baseUrl e apiKey em falta', 400);
 
     const instanceName = creds.instanceName || `meta_${req.user!.workspaceId.substring(0, 8)}`;
@@ -255,9 +256,14 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
         });
       } catch (e: any) {
         const msg = String(e.message).toLowerCase();
-        // Se já existe, não é problema; outros erros sim
+        // Se já existe, não é problema; outros erros sim.
         if (!msg.includes('already') && !msg.includes('exists')) {
-          console.error('Evolution create error:', e.message);
+          // Incluir o baseUrl no log: um 405 aqui e quase sempre baseUrl
+          // errado (barra final ou sufixo de path) ou versao da Evolution
+          // que mudou o endpoint, e sem isto o diagnostico e as cegas.
+          console.error(
+            `Evolution create error: ${e.message} (baseUrl=${creds.baseUrl} instance=${instanceName})`
+          );
         }
       }
     }
@@ -1019,10 +1025,6 @@ router.post('/evolution/disconnect', async (req: AuthRequest, res: Response, nex
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
     });
     if (!integration) return res.json({ message: 'Não havia ligação' });
-    // Sinalizar antes do call remoto para evitar race: se a Evolution mandar
-    // CONNECTION_UPDATE state=open antes de nos processarmos a resposta do
-    // logout, o webhook ja ve o timestamp e nao reactiva.
-    globalDisconnectMap.set(integration.id, Date.now());
     const creds: any = getCreds(integration);
     if (creds.instanceName) {
       // Evolution v2: logout via DELETE; algumas builds aceitam apenas POST, por isso tentamos os dois.

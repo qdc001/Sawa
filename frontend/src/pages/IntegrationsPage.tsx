@@ -359,14 +359,39 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
     } finally { setDisconnecting(false); }
   };
 
-  // Polling do estado E do QR a cada 3s enquanto não ligar
+  // Polling do estado E do QR a cada 3s enquanto não ligar.
+  //
+  // `qr` NAO pode estar nas dependencias: cada setQr destruia e recriava o
+  // intervalo, e a condicao `!qr` fazia com que, depois do primeiro codigo,
+  // nunca mais fosse pedido outro. Como o QR da Evolution expira em menos de
+  // um minuto, ficava um codigo morto no ecra que nunca autenticava.
+  // Agora renovamos a cada ~30s enquanto a sessao nao abrir.
   useEffect(() => {
     if (step !== 'qr') return;
-    let qrAttempts = 0;
+    let cancelled = false;
+    let ticks = 0;
+    let lastQrAt = 0;
+    const QR_TTL_MS = 30_000;
+    const MAX_MINUTES = 5;
+
+    const fetchQr = async () => {
+      try {
+        const qrRes = await api.get('/integrations/evolution/qr');
+        const b64 = qrRes.data.base64;
+        if (b64 && !cancelled) {
+          setQr(b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`);
+          lastQrAt = Date.now();
+        }
+      } catch {}
+    };
+
     const tick = async () => {
+      if (cancelled) return;
+      ticks++;
       try {
         const res = await api.get('/integrations/evolution/status');
         const s = res.data.state;
+        if (cancelled) return;
         setState(s || 'unknown');
         if (s === 'open') {
           if (pollRef.current) clearInterval(pollRef.current);
@@ -374,21 +399,20 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
           onChanged();
           return;
         }
-        // Se ainda não temos QR, tenta buscar
-        if (!qr && qrAttempts < 30) {
-          qrAttempts++;
-          try {
-            const qrRes = await api.get('/integrations/evolution/qr');
-            const b64 = qrRes.data.base64;
-            if (b64) setQr(b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`);
-          } catch {}
-        }
       } catch {}
+      // Renovar o QR quando expira, ate um limite de tempo razoavel.
+      if (!cancelled && ticks <= (MAX_MINUTES * 60) / 3 && Date.now() - lastQrAt > QR_TTL_MS) {
+        await fetchQr();
+      }
     };
+
     tick();
     pollRef.current = setInterval(tick, 3000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [step, qr]);
+    return () => {
+      cancelled = true;
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [step]);
 
   // Ao abrir em modo QR, se ainda não temos QR e não está ligado, pedir
   useEffect(() => {

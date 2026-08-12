@@ -55,12 +55,16 @@ export function encryptForStore(creds: any): EncryptedCreds {
   };
 }
 
-// Recebe um Integration (ou só o campo credentials) e devolve sempre um objecto
-// desencriptado. Tolera plaintext legado.
-export function getCreds(integrationOrCreds: any): Record<string, any> {
-  if (!integrationOrCreds) return {};
+interface DecryptResult {
+  ok: boolean;
+  value: Record<string, any>;
+  error?: string;
+}
+
+function decryptCreds(integrationOrCreds: any): DecryptResult {
+  if (!integrationOrCreds) return { ok: true, value: {} };
   const raw = integrationOrCreds.credentials !== undefined ? integrationOrCreds.credentials : integrationOrCreds;
-  if (!raw) return {};
+  if (!raw) return { ok: true, value: {} };
   if (isEncrypted(raw)) {
     try {
       const key = getKey();
@@ -70,14 +74,39 @@ export function getCreds(integrationOrCreds: any): Record<string, any> {
       const decipher = crypto.createDecipheriv(ALGO, key, iv);
       decipher.setAuthTag(tag);
       const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-      return JSON.parse(decrypted.toString('utf8'));
+      return { ok: true, value: JSON.parse(decrypted.toString('utf8')) };
     } catch (e: any) {
-      console.error('[integrationCrypto] falha ao desencriptar:', e.message);
-      return {};
+      return { ok: false, value: {}, error: e.message };
     }
   }
   // Plaintext legado — devolve tal como está.
-  return typeof raw === 'object' ? raw : {};
+  return { ok: true, value: typeof raw === 'object' ? raw : {} };
+}
+
+// Recebe um Integration (ou só o campo credentials) e devolve sempre um objecto
+// desencriptado. Tolera plaintext legado. Só para LEITURA: em caso de falha
+// devolve {}, o que é seguro para ler mas nunca deve ser regravado na BD.
+export function getCreds(integrationOrCreds: any): Record<string, any> {
+  const r = decryptCreds(integrationOrCreds);
+  if (!r.ok) {
+    console.error('[integrationCrypto] falha ao desencriptar:', r.error);
+    return {};
+  }
+  return r.value;
+}
+
+// Igual a getCreds mas rebenta se as credenciais existirem e não forem
+// legíveis. Usar SEMPRE antes de um read-modify-write: gravar por cima de um
+// {} silencioso apaga baseUrl/apiKey/instanceName da base de dados de forma
+// permanente, e a integração deixa de poder ser recuperada sem reconfigurar.
+export function getCredsForUpdate(integrationOrCreds: any): Record<string, any> {
+  const r = decryptCreds(integrationOrCreds);
+  if (!r.ok) {
+    throw new Error(
+      `Credenciais ilegíveis (${r.error}). Escrita abortada para não apagar a configuração existente.`
+    );
+  }
+  return r.value;
 }
 
 // Migra todas as integrações em plaintext para o formato encriptado.
