@@ -1334,6 +1334,7 @@ export default function InboxPage() {
     try {
       const { data } = await api.post(`/messages/${msg.id}/react`, { emoji: alreadyMine ? null : emoji });
       setMessages((prev) => prev.map((m) => (m.id === data.id ? data : m)));
+      if (data.reflectError) toast.error(`Não sincronizou com o WhatsApp: ${data.reflectError}`);
     } catch (e: any) { toast.error(e.response?.data?.message || 'Erro a reagir'); }
   };
 

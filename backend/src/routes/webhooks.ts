@@ -708,7 +708,10 @@ router.post('/evolution', async (req: Request, res: Response) => {
           interactiveId = msg.listResponseMessage.singleSelectReply?.selectedRowId || null;
           content = msg.listResponseMessage.title || interactiveId || '[Lista]';
         } else if (unwrapped.stickerMessage || msg.stickerMessage) {
+          const sm = unwrapped.stickerMessage || msg.stickerMessage;
           msgType = 'IMAGE'; content = '[Sticker]';
+          const local = await fetchMediaFromEvolution(creds, m, 'webp');
+          mediaUrl = local ? absoluteUrl(req, local) : sm.url;
         } else {
           // Tipo não reconhecido — não cria mensagem para não poluir BD.
           // Log SEMPRE (sem gate) porque isto pode ser uma mensagem perdida

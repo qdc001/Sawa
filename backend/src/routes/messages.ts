@@ -509,35 +509,53 @@ router.post('/:id/react', async (req: AuthRequest, res: Response, next) => {
     const io = req.app.get('io');
     if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('message:updated', message);
 
-    // Melhor esforço: reflectir a reacção (ou a remoção dela) no WhatsApp real via
-    // Evolution (não bloqueante). Enviar reaction:"" remove a reacção no telefone.
+    // Reflectir a reacção (ou a remoção dela) no WhatsApp real via Evolution.
+    // Enviar reaction:"" remove a reacção no telefone. Aguardamos aqui (em vez
+    // de fire-and-forget) para conseguir devolver o motivo da falha ao frontend
+    // em vez de esta ficar silenciosa nos logs do servidor.
+    let reflectedToWhatsApp = false;
+    let reflectError: string | null = null;
     if (existing.channel === 'WHATSAPP' && existing.externalId) {
       const phone = existing.contact?.whatsapp || existing.contact?.phone;
-      if (phone) {
-        (async () => {
-          try {
-            const evo = await prisma.integration.findFirst({
-              where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
-            });
-            if (!evo) return;
+      if (!phone) {
+        reflectError = 'Contacto sem número de WhatsApp associado';
+      } else {
+        try {
+          const evo = await prisma.integration.findFirst({
+            where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+          });
+          if (!evo) {
+            reflectError = 'Integração Evolution não encontrada ou inactiva';
+          } else {
             const creds: any = getCreds(evo);
-            if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return;
-            const cleanPhone = phone.replace(/\D/g, '');
-            const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/message/sendReaction/${creds.instanceName}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
-              body: JSON.stringify({
-                key: { remoteJid: `${cleanPhone}@s.whatsapp.net`, fromMe: existing.direction === 'OUTBOUND', id: existing.externalId },
-                reaction: applying ? emoji : '',
-              }),
-            });
-            if (!r.ok) console.warn('Evolution sendReaction falhou:', (await r.text()).substring(0, 200));
-          } catch (e) { console.warn('Evolution sendReaction erro:', e); }
-        })();
+            if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
+              reflectError = 'Integração Evolution sem baseUrl/apiKey/instanceName configurados';
+            } else {
+              const cleanPhone = phone.replace(/\D/g, '');
+              const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/message/sendReaction/${creds.instanceName}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+                body: JSON.stringify({
+                  key: { remoteJid: `${cleanPhone}@s.whatsapp.net`, fromMe: existing.direction === 'OUTBOUND', id: existing.externalId },
+                  reaction: applying ? emoji : '',
+                }),
+              });
+              if (r.ok) {
+                reflectedToWhatsApp = true;
+              } else {
+                reflectError = (await r.text()).substring(0, 300);
+                console.warn('Evolution sendReaction falhou:', reflectError);
+              }
+            }
+          }
+        } catch (e: any) {
+          reflectError = e.message || String(e);
+          console.warn('Evolution sendReaction erro:', e);
+        }
       }
     }
 
-    res.json(message);
+    res.json({ ...message, reflectedToWhatsApp, reflectError });
   } catch (e) { next(e); }
 });
 
