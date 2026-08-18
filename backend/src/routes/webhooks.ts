@@ -94,10 +94,20 @@ async function autoAssignConversation(workspaceId: string, contactId: string, ch
   return chosen;
 }
 
-// Helper: devolve URL absoluto baseado no PUBLIC_API_URL ou request
+// Helper: devolve URL absoluto baseado no PUBLIC_API_URL ou request.
+// Sem PUBLIC_API_URL definido, cai para req.protocol/host — mas atrás do
+// proxy do Easypanel isto às vezes resolve para "http" mesmo com o site em
+// https (cabeçalho X-Forwarded-Proto perdido nalgum salto), o que gera um
+// mediaUrl http:// e o Chrome bloqueia o download de documentos a partir daí
+// com "não pode ser descarregado com segurança". Por isso forçamos https
+// sempre que o host não é localhost, como rede de segurança.
 function absoluteUrl(req: Request, p: string): string {
-  const base = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
-  return `${base}${p.startsWith('/') ? p : '/' + p}`;
+  if (process.env.PUBLIC_API_URL) {
+    return `${process.env.PUBLIC_API_URL}${p.startsWith('/') ? p : '/' + p}`;
+  }
+  const host = req.get('host') || '';
+  const protocol = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host) ? req.protocol : 'https';
+  return `${protocol}://${host}${p.startsWith('/') ? p : '/' + p}`;
 }
 
 // Helper: baixa media da Evolution via base64 e guarda como ficheiro local
