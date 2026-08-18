@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
@@ -1331,7 +1332,8 @@ export default function InboxPage() {
     const alreadyMine = Object.keys(myReactions).some((k) => k === emoji && myReactions[k].includes(user?.id || ''));
     setReactingMessageId(null);
     try {
-      await api.post(`/messages/${msg.id}/react`, { emoji: alreadyMine ? null : emoji });
+      const { data } = await api.post(`/messages/${msg.id}/react`, { emoji: alreadyMine ? null : emoji });
+      setMessages((prev) => prev.map((m) => (m.id === data.id ? data : m)));
     } catch (e: any) { toast.error(e.response?.data?.message || 'Erro a reagir'); }
   };
 
@@ -2496,9 +2498,12 @@ export default function InboxPage() {
             </div>
             </div>
 
-            {/* Conteudo fora de ecra usado pelo html2canvas para gerar a captura da conversa */}
-            {screenshotMode && (
-              <div style={{ position: 'fixed', left: -99999, top: 0, width: 420 }}>
+            {/* Conteudo fora de ecra usado pelo html2canvas para gerar a captura da conversa.
+                Renderizado via portal directamente no <body> para que o `position: fixed`
+                não seja partido por nenhum antepassado com `transform`/`filter` do layout
+                do chat (o que fazia o html2canvas capturar tudo desalinhado/sobreposto). */}
+            {screenshotMode && createPortal(
+              <div style={{ position: 'fixed', left: -99999, top: 0, width: 420, zIndex: -1 }}>
                 <div ref={screenshotCaptureRef} className="p-4 space-y-2" style={{ background: '#F1F5F9' }}>
                   <p className="text-xs font-semibold text-center pb-1" style={{ color: 'var(--text-muted)' }}>
                     {selected?.contact?.firstName} {selected?.contact?.lastName || ''} · {new Date().toLocaleDateString('pt-PT')}
@@ -2530,7 +2535,8 @@ export default function InboxPage() {
                     );
                   })}
                 </div>
-              </div>
+              </div>,
+              document.body
             )}
 
             {/* Painel Leizy (Fase 3): indicador "a pensar" + sugestao pendente */}

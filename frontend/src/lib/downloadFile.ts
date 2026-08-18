@@ -1,34 +1,19 @@
 // Faz download de um ficheiro forcando o nome original.
 //
-// Porque nao usar simplesmente <a href download="...">?
-// Porque o atributo `download` do HTML e ignorado quando a URL e cross-origin.
-// Como o backend (sawa-backend.*) e o frontend (sawa-frontend.*) estao em
-// dominios diferentes, o browser usa sempre o nome do URL (que e o nome
-// mangled no disco: `wa_1234_xyz.doc`).
-//
-// Solucao: fetch do ficheiro como blob (a mesma request cross-origin, mas
-// controlada por JS) e criar um objectURL que ja e same-origin, o que
-// permite ao browser respeitar o atributo download.
-
-import toast from 'react-hot-toast';
-
+// O disco guarda os anexos com um nome mangled (`wa_1234_xyz.doc`), e o
+// atributo HTML `download="..."` e ignorado pelo browser quando a URL e
+// cross-origin (frontend e backend estao em dominios diferentes). Por isso
+// o nome certo tem de vir do proprio servidor: passamos `?filename=` na URL
+// e o backend (ver server.ts, rota /uploads) responde com o header
+// Content-Disposition a apontar o nome real - o browser respeita esse
+// header em qualquer download, cross-origin ou nao.
 export async function downloadFile(url: string, filename: string): Promise<void> {
-  try {
-    const res = await fetch(url, { credentials: 'include' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = objectUrl;
-    a.download = filename || 'arquivo';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    // Libertar memoria (com pequeno delay para o browser processar)
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
-  } catch (e: any) {
-    toast.error(`Não foi possível baixar: ${e.message || 'erro desconhecido'}`);
-    // Fallback: abre em nova aba (sem nome correcto mas pelo menos abre)
-    window.open(url, '_blank');
-  }
+  const sep = url.includes('?') ? '&' : '?';
+  const dlUrl = `${url}${sep}filename=${encodeURIComponent(filename || 'arquivo')}`;
+  const a = document.createElement('a');
+  a.href = dlUrl;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }

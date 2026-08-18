@@ -509,8 +509,9 @@ router.post('/:id/react', async (req: AuthRequest, res: Response, next) => {
     const io = req.app.get('io');
     if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('message:updated', message);
 
-    // Melhor esforço: reflectir a reacção no WhatsApp real via Evolution (não bloqueante).
-    if (existing.channel === 'WHATSAPP' && existing.externalId && applying) {
+    // Melhor esforço: reflectir a reacção (ou a remoção dela) no WhatsApp real via
+    // Evolution (não bloqueante). Enviar reaction:"" remove a reacção no telefone.
+    if (existing.channel === 'WHATSAPP' && existing.externalId) {
       const phone = existing.contact?.whatsapp || existing.contact?.phone;
       if (phone) {
         (async () => {
@@ -522,14 +523,15 @@ router.post('/:id/react', async (req: AuthRequest, res: Response, next) => {
             const creds: any = getCreds(evo);
             if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return;
             const cleanPhone = phone.replace(/\D/g, '');
-            await fetch(`${creds.baseUrl.replace(/\/$/, '')}/message/sendReaction/${creds.instanceName}`, {
+            const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/message/sendReaction/${creds.instanceName}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
               body: JSON.stringify({
                 key: { remoteJid: `${cleanPhone}@s.whatsapp.net`, fromMe: existing.direction === 'OUTBOUND', id: existing.externalId },
-                reaction: emoji,
+                reaction: applying ? emoji : '',
               }),
             });
+            if (!r.ok) console.warn('Evolution sendReaction falhou:', (await r.text()).substring(0, 200));
           } catch (e) { console.warn('Evolution sendReaction erro:', e); }
         })();
       }

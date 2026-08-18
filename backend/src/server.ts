@@ -116,6 +116,17 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
       pdf: 'application/pdf',
     };
     if (ext && mimes[ext]) res.setHeader('Content-Type', mimes[ext]);
+    // Download com o nome original do ficheiro: o disco guarda os anexos com
+    // nome mangled (wa_<timestamp>_<random>.ext); o frontend passa o nome real
+    // em ?filename= e aqui forçamos o Content-Disposition, para que o download
+    // funcione correctamente com o nome certo mesmo que o fetch em JS falhe
+    // (fallback window.open) ou seja feito por um <a href> simples.
+    const rawName = String((res.req as any)?.query?.filename || '');
+    if (rawName) {
+      const safeName = rawName.replace(/[\r\n"]/g, '').slice(0, 200);
+      const asciiFallback = safeName.replace(/[^\x20-\x7E]/g, '_') || 'arquivo';
+      res.setHeader('Content-Disposition', `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(safeName)}`);
+    }
   },
 }));
 // Rate limit global. Webhooks (Evolution, Meta Cloud) ISENTOS porque
