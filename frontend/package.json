@@ -2,7 +2,9 @@
   "name": "frontend",
   "private": true,
   "version": "0.0.0",
-  "engines": { "node": "20.x" },
+  "engines": {
+    "node": "20.x"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,6 +19,7 @@
     "@tailwindcss/vite": "^4.3.0",
     "axios": "^1.16.0",
     "date-fns": "^4.1.0",
+    "html2canvas": "^1.4.1",
     "lucide-react": "^1.14.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
@@ -24,10 +27,10 @@
     "react-router-dom": "^7.15.0",
     "reactflow": "^11.11.4",
     "recharts": "^3.8.1",
+    "serve": "^14.2.4",
     "socket.io-client": "^4.8.3",
     "tailwindcss": "^4.3.0",
-    "zustand": "^5.0.13",
-    "serve": "^14.2.4"
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

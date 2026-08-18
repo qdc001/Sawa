@@ -470,6 +470,75 @@ router.patch('/:id/read', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/messages/:id/react
+// body: { emoji: string | null } - null/'' remove a reacção do utilizador actual.
+// Alterna: se o utilizador já reagiu com o mesmo emoji, remove-a; caso contrário substitui
+// a reacção anterior desse utilizador (só uma reacção activa por pessoa, como no WhatsApp).
+router.post('/:id/react', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { emoji } = req.body as { emoji?: string | null };
+    const existing = await prisma.message.findUnique({
+      where: { id: req.params.id },
+      include: { contact: { select: { whatsapp: true, phone: true } } },
+    });
+    if (!existing) throw new AppError('Mensagem não encontrada', 404);
+
+    const userId = req.user!.id;
+    const reactions: Record<string, string[]> = { ...(existing.reactions as any || {}) };
+    // remover qualquer reacção anterior deste utilizador
+    let previousEmoji: string | null = null;
+    for (const key of Object.keys(reactions)) {
+      if (reactions[key].includes(userId)) {
+        previousEmoji = key;
+        reactions[key] = reactions[key].filter((id) => id !== userId);
+        if (reactions[key].length === 0) delete reactions[key];
+      }
+    }
+    const applying = emoji && emoji !== previousEmoji;
+    if (applying) {
+      reactions[emoji] = [...(reactions[emoji] || []), userId];
+    }
+
+    const hasReactions = Object.keys(reactions).length > 0;
+    const message = await prisma.message.update({
+      where: { id: req.params.id },
+      data: { reactions: (hasReactions ? reactions : null) as any },
+      include: messageInclude,
+    });
+
+    const io = req.app.get('io');
+    if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('message:updated', message);
+
+    // Melhor esforço: reflectir a reacção no WhatsApp real via Evolution (não bloqueante).
+    if (existing.channel === 'WHATSAPP' && existing.externalId && applying) {
+      const phone = existing.contact?.whatsapp || existing.contact?.phone;
+      if (phone) {
+        (async () => {
+          try {
+            const evo = await prisma.integration.findFirst({
+              where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+            });
+            if (!evo) return;
+            const creds: any = getCreds(evo);
+            if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return;
+            const cleanPhone = phone.replace(/\D/g, '');
+            await fetch(`${creds.baseUrl.replace(/\/$/, '')}/message/sendReaction/${creds.instanceName}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+              body: JSON.stringify({
+                key: { remoteJid: `${cleanPhone}@s.whatsapp.net`, fromMe: existing.direction === 'OUTBOUND', id: existing.externalId },
+                reaction: emoji,
+              }),
+            });
+          } catch (e) { console.warn('Evolution sendReaction erro:', e); }
+        })();
+      }
+    }
+
+    res.json(message);
+  } catch (e) { next(e); }
+});
+
 // Helper: envia mark-as-read para a Evolution para que o ticker azul apareça no telefone do remetente
 async function evolutionMarkRead(workspaceId: string, messages: Array<{ externalId: string | null; contact?: { whatsapp?: string | null; phone?: string | null } | null }>) {
   if (!messages.length) return;

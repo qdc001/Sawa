@@ -5,7 +5,7 @@ import {
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck, AlertCircle,
   Inbox, Building2, User as UserIcon, Users as UsersIcon, Star, Archive, Edit3, Trash2,
   Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, Calendar,
-  ChevronLeft, ChevronRight, ChevronDown, Smile, Bot, Power, BookOpen, CalendarClock,
+  ChevronLeft, ChevronRight, ChevronDown, Smile, SmilePlus, Bot, Power, BookOpen, CalendarClock, Camera, CheckCircle2, Circle,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -479,6 +479,16 @@ export default function InboxPage() {
   const [attachment, setAttachment] = useState<{ url: string; name: string; mimeType: string; size: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reacções (estilo WhatsApp)
+  const [reactingMessageId, setReactingMessageId] = useState<string | null>(null);
+  const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  // Captura de ecrã da conversa: modo de seleccao de N mensagens a incluir na imagem.
+  const [screenshotMode, setScreenshotMode] = useState(false);
+  const [screenshotSelection, setScreenshotSelection] = useState<Set<string>>(new Set());
+  const [capturingScreenshot, setCapturingScreenshot] = useState(false);
+  const screenshotCaptureRef = useRef<HTMLDivElement>(null);
 
   // Gravador de audio
   const [recording, setRecording] = useState(false);
@@ -1316,6 +1326,46 @@ export default function InboxPage() {
     } catch (e: any) { toast.error(e.message || 'Erro a exportar'); }
   };
 
+  const toggleReaction = async (msg: Message, emoji: string) => {
+    const myReactions = msg.reactions || {};
+    const alreadyMine = Object.keys(myReactions).some((k) => k === emoji && myReactions[k].includes(user?.id || ''));
+    setReactingMessageId(null);
+    try {
+      await api.post(`/messages/${msg.id}/react`, { emoji: alreadyMine ? null : emoji });
+    } catch (e: any) { toast.error(e.response?.data?.message || 'Erro a reagir'); }
+  };
+
+  const toggleScreenshotSelect = (id: string) => {
+    setScreenshotSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleCaptureScreenshot = async () => {
+    if (screenshotSelection.size === 0) { toast.error('Selecciona pelo menos uma mensagem'); return; }
+    setCapturingScreenshot(true);
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const node = screenshotCaptureRef.current;
+      if (!node) throw new Error('Nada para capturar');
+      const canvas = await html2canvas(node, { backgroundColor: '#F1F5F9', scale: 2, useCORS: true });
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `conversa_${selected?.contact?.firstName || 'chat'}_${Date.now()}.png`;
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      toast.success('Captura de ecrã guardada');
+      setScreenshotMode(false);
+      setScreenshotSelection(new Set());
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao capturar');
+    } finally {
+      setCapturingScreenshot(false);
+    }
+  };
+
   const handleDeleteConversation = async () => {
     if (!selected?.contact?.id) return;
     if (!confirm(`Eliminar todas as mensagens da conversa com ${selected.contact.firstName}? Esta acção não pode ser desfeita.`)) return;
@@ -2047,6 +2097,9 @@ export default function InboxPage() {
                     <button onClick={() => { handleExport('json'); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       <FileText size={14} /> Exportar conversa (.json)
                     </button>
+                    <button onClick={() => { setScreenshotMode(true); setScreenshotSelection(new Set()); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
+                      <Camera size={14} /> Captura de ecrã da conversa
+                    </button>
                     <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
                     <p className="px-3 py-1 text-[10px] uppercase font-semibold" style={{ color: 'var(--text-muted)' }}>Prioridade</p>
                     {['LOW', 'NORMAL', 'HIGH', 'URGENT'].map((p) => (
@@ -2120,6 +2173,28 @@ export default function InboxPage() {
                   <p className="text-xs whitespace-pre-wrap flex-1" style={{ color: 'var(--text-primary)' }}>{aiSummary}</p>
                   <button onClick={() => setAiSummary('')} className="flex-shrink-0">
                     <X size={12} style={{ color: 'var(--text-muted)' }} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Modo de captura de ecrã: barra de seleccao de mensagens */}
+            {screenshotMode && (
+              <div className="px-6 py-2 flex-shrink-0 flex items-center justify-between gap-2" style={{ borderBottom: '1px solid var(--border)', background: '#EFF6FF' }}>
+                <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                  <Camera size={12} className="inline mr-1" style={{ verticalAlign: -2 }} />
+                  {screenshotSelection.size === 0 ? 'Selecciona as mensagens a incluir na captura' : `${screenshotSelection.size} mensagem(ns) seleccionada(s)`}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { setScreenshotMode(false); setScreenshotSelection(new Set()); }} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--text-muted)' }}>Cancelar</button>
+                  <button
+                    onClick={handleCaptureScreenshot}
+                    disabled={screenshotSelection.size === 0 || capturingScreenshot}
+                    className="btn btn-primary text-xs px-3 py-1 flex items-center gap-1"
+                    style={{ opacity: (screenshotSelection.size === 0 || capturingScreenshot) ? 0.5 : 1 }}
+                  >
+                    {capturingScreenshot ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
+                    Capturar
                   </button>
                 </div>
               </div>
@@ -2218,7 +2293,16 @@ export default function InboxPage() {
                   return (
                     <Fragment key={msg.id}>
                       {dateSeparator}
-                    <div className={`flex ${out ? 'justify-end' : 'justify-start'} group`}>
+                    <div
+                      className={`flex items-center gap-2 ${out ? 'justify-end' : 'justify-start'} group`}
+                      onClick={() => { if (screenshotMode) toggleScreenshotSelect(msg.id); }}
+                      style={{ cursor: screenshotMode ? 'pointer' : undefined }}
+                    >
+                      {screenshotMode && !out && (
+                        screenshotSelection.has(msg.id)
+                          ? <CheckCircle2 size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                          : <Circle size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                      )}
                       <div className="max-w-md relative">
                         {/* Quote (replyTo) */}
                         {msg.replyTo && (
@@ -2313,7 +2397,9 @@ export default function InboxPage() {
                                   )}
                                 </div>
                               )}
-                              {msg.content && !(msg.type === 'IMAGE' || msg.mediaType?.startsWith('image/')) && msg.content !== '[Audio]' && msg.content !== '[Imagem]' && msg.content !== '[Video]' && (
+                              {msg.content
+                                && msg.type !== 'DOCUMENT' && !msg.mediaType?.startsWith('application/')
+                                && msg.content !== '[Audio]' && msg.content !== '[Imagem]' && msg.content !== '[Video]' && msg.content !== '[Sticker]' && (
                                 <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
                               )}
                             </>
@@ -2335,9 +2421,33 @@ export default function InboxPage() {
                           </div>
                         </div>
 
+                        {/* Reacções colocadas nesta mensagem */}
+                        {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                          <div className={`flex gap-1 mt-0.5 flex-wrap ${out ? 'justify-end' : 'justify-start'}`}>
+                            {Object.entries(msg.reactions).map(([emoji, ids]) => (
+                              <button
+                                key={emoji}
+                                onClick={() => toggleReaction(msg, emoji)}
+                                title={ids.includes(user?.id || '') ? 'Remover a tua reacção' : 'Reagir também'}
+                                className="text-xs px-1.5 py-0.5 rounded-full flex items-center gap-0.5"
+                                style={{
+                                  background: ids.includes(user?.id || '') ? 'var(--primary-light)' : 'var(--surface)',
+                                  border: `1px solid ${ids.includes(user?.id || '') ? 'var(--primary)' : 'var(--border)'}`,
+                                }}
+                              >
+                                <span>{emoji}</span>
+                                {ids.length > 1 && <span style={{ color: 'var(--text-muted)' }}>{ids.length}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
                         {/* Actions on hover */}
-                        {!isEditing && (
+                        {!isEditing && !screenshotMode && (
                           <div className={`absolute top-0 ${out ? 'left-0 -translate-x-full pr-1' : 'right-0 translate-x-full pl-1'} opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity`}>
+                            <button onClick={() => setReactingMessageId(reactingMessageId === msg.id ? null : msg.id)} className="p-1 rounded bg-white shadow-sm" title="Reagir">
+                              <SmilePlus size={11} style={{ color: 'var(--text-secondary)' }} />
+                            </button>
                             <button onClick={() => setReplyTo(msg)} className="p-1 rounded bg-white shadow-sm" title="Responder">
                               <Reply size={11} style={{ color: 'var(--text-secondary)' }} />
                             </button>
@@ -2356,7 +2466,27 @@ export default function InboxPage() {
                             )}
                           </div>
                         )}
+
+                        {/* Selector rápido de reacção */}
+                        {reactingMessageId === msg.id && (
+                          <div
+                            className={`absolute z-20 top-6 ${out ? 'right-0' : 'left-0'} flex items-center gap-1 px-2 py-1.5 rounded-full shadow-lg`}
+                            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+                            onMouseLeave={() => setReactingMessageId(null)}
+                          >
+                            {QUICK_REACTIONS.map((e) => (
+                              <button key={e} onClick={() => toggleReaction(msg, e)} className="text-lg hover:scale-125 transition-transform" title={e}>
+                                {e}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
+                      {screenshotMode && out && (
+                        screenshotSelection.has(msg.id)
+                          ? <CheckCircle2 size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                          : <Circle size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                      )}
                     </div>
                     </Fragment>
                   );
@@ -2365,6 +2495,43 @@ export default function InboxPage() {
               <div ref={messagesEndRef} />
             </div>
             </div>
+
+            {/* Conteudo fora de ecra usado pelo html2canvas para gerar a captura da conversa */}
+            {screenshotMode && (
+              <div style={{ position: 'fixed', left: -99999, top: 0, width: 420 }}>
+                <div ref={screenshotCaptureRef} className="p-4 space-y-2" style={{ background: '#F1F5F9' }}>
+                  <p className="text-xs font-semibold text-center pb-1" style={{ color: 'var(--text-muted)' }}>
+                    {selected?.contact?.firstName} {selected?.contact?.lastName || ''} · {new Date().toLocaleDateString('pt-PT')}
+                  </p>
+                  {filteredMessages.filter((m) => screenshotSelection.has(m.id)).map((msg) => {
+                    const out = msg.direction === 'OUTBOUND';
+                    return (
+                      <div key={`shot-${msg.id}`} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
+                        <div className="max-w-[80%] px-3 py-2 rounded-lg text-xs"
+                          style={{
+                            background: out ? 'var(--primary)' : '#fff',
+                            color: out ? '#fff' : 'var(--text-primary)',
+                            borderRadius: out ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                          }}>
+                          {msg.mediaUrl && (msg.type === 'IMAGE' || msg.mediaType?.startsWith('image/')) && (
+                            <img src={msg.mediaUrl} alt="" className="rounded mb-1 max-w-full" crossOrigin="anonymous" />
+                          )}
+                          {msg.mediaUrl && msg.type === 'DOCUMENT' && (
+                            <p className="mb-1 italic">📎 {msg.content}</p>
+                          )}
+                          {msg.content && msg.type !== 'DOCUMENT' && msg.content !== '[Imagem]' && msg.content !== '[Video]' && msg.content !== '[Audio]' && (
+                            <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
+                          )}
+                          <p className="text-[10px] mt-1 text-right" style={{ opacity: 0.7 }}>
+                            {new Date(msg.createdAt).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Painel Leizy (Fase 3): indicador "a pensar" + sugestao pendente */}
             {selected && selected.contact && isSalesAiActiveForContact(selected.contact.id) && (salesGenerating || salesSuggestion) && (

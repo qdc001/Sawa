@@ -285,6 +285,7 @@ export interface Message {
   editedAt?: string | null;
   isInternal?: boolean;
   transcription?: string | null;
+  reactions?: Record<string, string[]> | null;
   createdAt: string;
   sentBy?: User;
   leadId?: string;

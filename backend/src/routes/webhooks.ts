@@ -570,13 +570,39 @@ router.post('/evolution', async (req: Request, res: Response) => {
         const fromMe = !!m.key?.fromMe;
         const externalId: string | undefined = m.key?.id;
 
-        // Filtrar logo tipos não suportados (reacções, stickers, mensagens encriptadas, protocol)
-        // — antes martelávamos a BD com 1 message.create + dedup + lead lookup + emit por cada
-        // reacção 👍 ou sticker, e isso enche o backend rapidamente. Skip silencioso.
+        // Reacções (👍❤️😂...) que o contacto colocou numa mensagem nossa/dele: não criam
+        // mensagem nova, apenas actualizam o campo `reactions` da mensagem original.
         const rawMsg = m.message || {};
+        if (rawMsg.reactionMessage) {
+          try {
+            const targetId: string | undefined = rawMsg.reactionMessage.key?.id;
+            const emoji: string = rawMsg.reactionMessage.text || '';
+            if (targetId) {
+              const target = await prisma.message.findFirst({ where: { externalId: targetId } });
+              if (target) {
+                const reactions: Record<string, string[]> = { ...(target.reactions as any || {}) };
+                for (const key of Object.keys(reactions)) {
+                  reactions[key] = reactions[key].filter((id) => id !== 'contact');
+                  if (reactions[key].length === 0) delete reactions[key];
+                }
+                if (emoji) reactions[emoji] = [...(reactions[emoji] || []), 'contact'];
+                const hasReactions = Object.keys(reactions).length > 0;
+                const updated = await prisma.message.update({
+                  where: { id: target.id },
+                  data: { reactions: (hasReactions ? reactions : null) as any },
+                });
+                if (io) io.to(`workspace:${workspaceId}`).emit('message:updated', updated);
+              }
+            }
+          } catch (e) { console.warn('[evo] falha a processar reacção:', e); }
+          continue;
+        }
+
+        // Filtrar logo tipos não suportados (stickers, mensagens encriptadas, protocol)
+        // — antes martelávamos a BD com 1 message.create + dedup + lead lookup + emit por cada
+        // sticker, e isso enche o backend rapidamente. Skip silencioso.
         const innerKeys = Object.keys(rawMsg);
         const isUnsupported =
-          rawMsg.reactionMessage ||
           rawMsg.secretEncryptedMessage ||
           rawMsg.protocolMessage ||
           rawMsg.pollUpdateMessage ||

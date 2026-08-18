@@ -420,6 +420,9 @@ model Message {
   editedAt      DateTime?
   isInternal    Boolean       @default(false)
   transcription String? // transcricao de audio via Groq Whisper (preenchida on-demand)
+  // Reacções estilo WhatsApp: { "👍": ["userId1", "contact"], "❤️": ["userId2"] }
+  // A chave "contact" representa uma reacção feita pelo proprio contacto no WhatsApp.
+  reactions     Json?
   createdAt     DateTime      @default(now())
 
   lead      Lead?    @relation(fields: [leadId], references: [id])
