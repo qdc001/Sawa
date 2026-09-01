@@ -93,8 +93,11 @@ export function getApiKeyPoolStatus() {
 
 // Modelo de fallback usado quando o modelo principal esgota TPD em TODAS as
 // chaves do pool. Pode ser configurado via env GROQ_MODEL_FALLBACK. Tipico:
-// principal = llama-3.3-70b-versatile (qualidade alta, 100K TPD)
-// fallback  = meta-llama/llama-4-scout-17b-16e-instruct (qualidade ok, 500K TPD)
+// principal = openai/gpt-oss-120b (qualidade alta)
+// fallback  = openai/gpt-oss-20b (mais rapido/barato)
+// Nota: llama-3.3-70b-versatile e llama-3.1-8b-instant, usados aqui antes,
+// foram descontinuados pela Groq em 2025/26. Confirma o catalogo actual com
+// GET https://api.groq.com/openai/v1/models antes de mudar isto de novo.
 const FALLBACK_MODEL: string | null = (process.env.GROQ_MODEL_FALLBACK || '').trim() || null;
 
 // Marca um modelo como esgotado em todas as chaves ate ao reset diario, para

@@ -8,7 +8,9 @@
 // Variaveis de ambiente:
 //   LLM_PROVIDER       = "groq" (default) | "gemini" | "deepseek"
 //   GROQ_API_KEY       = chave Groq (e GROQ_API_KEY_2..10 para pool)
-//   GROQ_MODEL         = modelo Groq default (ex: llama-3.3-70b-versatile)
+//   GROQ_MODEL         = modelo Groq default (ex: openai/gpt-oss-120b — a
+//                         Groq descontinuou os modelos Llama de chat em 2025/26;
+//                         confirma o catalogo actual em GET /openai/v1/models)
 //   GEMINI_API_KEY     = chave Google AI Studio (formato AIzaSy...)
 //   GEMINI_MODEL       = modelo Gemini default (ex: gemini-2.5-flash)
 //   DEEPSEEK_API_KEY   = chave DeepSeek (formato sk-...)
@@ -47,7 +49,7 @@ function resolveProviderAndModel(
       model = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
       break;
     default:
-      model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+      model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
   }
   return { provider, model };
 }
@@ -64,7 +66,7 @@ export function getActiveLlmModel(override?: string | null): string {
   const p = getActiveLlmProvider();
   if (p === 'gemini') return process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   if (p === 'deepseek') return process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
-  return process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+  return process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 }
 
 // Estimativa grosseira de tokens para o caminho callLlm (texto), onde a Groq

@@ -8,10 +8,13 @@ import prisma from '../lib/prisma';
 const router = Router();
 
 // IA via Groq (API compatível com OpenAI Chat Completions).
-// Modelo default: llama-3.3-70b-versatile — alta qualidade e suporte multilingue (PT-MZ).
-// Outros disponíveis: llama-3.1-8b-instant (rápido/barato), mixtral-8x7b-32768 (contexto grande), gemma2-9b-it.
+// Modelo default: openai/gpt-oss-120b — a Groq descontinuou todos os modelos
+// Llama de chat (llama-3.3-70b-versatile, llama-3.1-8b-instant, etc.) durante
+// 2025/2026. Confirma o catalogo actual em runtime com:
+//   GET https://api.groq.com/openai/v1/models (Authorization: Bearer GROQ_API_KEY)
+// Outro disponivel: openai/gpt-oss-20b (mais rapido/barato).
 // Override por env: GROQ_MODEL.
-const AI_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const AI_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 const AI_API = 'https://api.groq.com/openai/v1/chat/completions';
 
 function getAiKey(): string {

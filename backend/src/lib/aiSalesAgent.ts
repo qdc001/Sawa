@@ -43,7 +43,7 @@ export type GenerateOptions = {
   triggerMessageId?: string | null;
   // Chaves de principios a forcar. Se vazio, usa o default do workspace.
   activePrincipleKeys?: string[];
-  // Forca o modelo Groq. Se omitido, usa GROQ_MODEL ou llama-3.3-70b.
+  // Forca o modelo Groq. Se omitido, usa GROQ_MODEL ou openai/gpt-oss-120b.
   model?: string;
 };
 
