@@ -2746,7 +2746,7 @@ export default function InboxPage() {
                 >
                   <Zap size={14} />
                 </button>
-                {isLegacy && selected.contact?.id && (
+                {selected.contact?.id && (
                   <button
                     onClick={() => setShowAutoTask(true)}
                     className="text-xs px-2 py-1 rounded font-medium"
