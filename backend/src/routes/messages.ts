@@ -925,4 +925,191 @@ router.get('/export', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /messages/export-docx
+// Exporta uma seleccao de mensagens de UMA conversa para um .docx. Aceita
+// um array de messageIds no body (POST porque o numero de ids pode
+// ultrapassar o limite de URL). Formato do documento:
+//   - Titulo com nome do contacto e data de exportacao
+//   - Por cada mensagem:
+//       - Etiqueta "Recebido"/"Enviado" + data/hora (sem nome de utilizador)
+//       - Se for IMAGE/VIDEO/DOCUMENT: imagem embutida (quando possivel);
+//         caption por baixo se existir
+//       - Se for AUDIO: mostra a transcricao se ja tiver sido feita
+//       - Se for TEXT: apenas o texto
+// Se as imagens estiverem no /uploads local, sao embutidas; se estiverem
+// externas (URL), fica so a URL como referencia.
+router.post('/export-docx', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { messageIds } = req.body as { messageIds?: string[] };
+    if (!Array.isArray(messageIds) || messageIds.length === 0) {
+      throw new AppError('Escolhe pelo menos uma mensagem para exportar.', 400);
+    }
+    if (messageIds.length > 500) {
+      throw new AppError('Limite de 500 mensagens por exportacao.', 400);
+    }
+
+    // Buscar as mensagens filtrando pelo workspace do utilizador para nao
+    // permitir exfiltrar mensagens de outra clinica sabendo ids.
+    const messages = await prisma.message.findMany({
+      where: {
+        id: { in: messageIds },
+        contact: { workspaceId: req.user!.workspaceId },
+      },
+      orderBy: { createdAt: 'asc' },
+      include: { contact: { select: { firstName: true, lastName: true, phone: true, whatsapp: true } } },
+    });
+
+    if (messages.length === 0) {
+      throw new AppError('Nenhuma mensagem encontrada (ou nao pertencem ao teu workspace).', 404);
+    }
+
+    // Validar que todas sao da mesma conversa (mesmo contactId) — o Word
+    // agrupa por conversa, misturar contactos era confuso.
+    const contactIds = new Set(messages.map((m) => m.contactId).filter(Boolean));
+    if (contactIds.size > 1) {
+      throw new AppError('Todas as mensagens tem de ser do mesmo contacto.', 400);
+    }
+
+    const contact = messages[0].contact;
+    const fullName = contact ? `${contact.firstName}${contact.lastName ? ' ' + contact.lastName : ''}` : 'Sem contacto';
+
+    // Import dinamico do docx: e uma dependencia pesada (~800KB) e so a
+    // carregamos quando alguem realmente exporta, para nao inflar o startup.
+    const {
+      Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, PageBreak,
+    } = await import('docx');
+
+    // Helper: le uma imagem local (ex: /uploads/wa_xxx.jpg) e devolve o
+    // buffer + tipo detectado. Devolve null se o ficheiro nao existir
+    // ou se for uma URL externa (nesse caso caimos para o fallback de URL).
+    const uploadsDir = path.join(__dirname, '../../uploads');
+    const readLocalMedia = (mediaUrl: string | null | undefined): { buffer: Buffer; type: 'jpg' | 'png' | 'gif' } | null => {
+      if (!mediaUrl) return null;
+      const idx = mediaUrl.indexOf('/uploads/');
+      if (idx < 0) return null;
+      const fname = path.basename(mediaUrl.slice(idx + '/uploads/'.length));
+      const filePath = path.join(uploadsDir, fname);
+      try {
+        const buffer = fs.readFileSync(filePath);
+        const ext = (fname.split('.').pop() || '').toLowerCase();
+        const type: 'jpg' | 'png' | 'gif' = ext === 'png' ? 'png' : ext === 'gif' ? 'gif' : 'jpg';
+        return { buffer, type };
+      } catch {
+        return null;
+      }
+    };
+
+    // Corpo do documento
+    const children: any[] = [
+      new Paragraph({
+        heading: HeadingLevel.HEADING_1,
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: `Conversa com ${fullName}`, bold: true })],
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({
+          text: `Exportado em ${new Date().toLocaleString('pt-PT')} · ${messages.length} mensagens`,
+          italics: true, size: 20,
+        })],
+      }),
+      new Paragraph({ text: '' }),
+    ];
+
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      const ts = new Date(m.createdAt).toLocaleString('pt-PT', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+      // Cabecalho: "Recebido · 29/08/2026 12:14" ou "Enviado · ..."
+      // Nao inclui nome de utilizador de proposito (pedido explicito).
+      const directionLabel = m.direction === 'INBOUND' ? 'Recebido' : 'Enviado';
+      children.push(new Paragraph({
+        spacing: { before: 200 },
+        children: [new TextRun({
+          text: `${directionLabel} · ${ts}`,
+          bold: true, size: 20, color: m.direction === 'INBOUND' ? '2563EB' : '059669',
+        })],
+      }));
+
+      // Corpo por tipo de mensagem
+      if ((m.type === 'IMAGE' || m.type === 'VIDEO' || m.type === 'DOCUMENT') && m.mediaUrl) {
+        const media = m.type === 'IMAGE' ? readLocalMedia(m.mediaUrl) : null;
+        if (media) {
+          // Imagem embutida (limite 500px de largura para caber na pagina).
+          children.push(new Paragraph({
+            children: [new ImageRun({
+              data: media.buffer,
+              transformation: { width: 400, height: 300 },
+              type: media.type,
+            } as any)],
+          }));
+        } else if (m.type === 'IMAGE') {
+          // Nao conseguimos ler o ficheiro (URL externa, ou apagado do
+          // disco); pomos so a referencia para o utilizador saber que
+          // havia imagem.
+          children.push(new Paragraph({
+            children: [new TextRun({ text: `[Imagem: ${m.mediaUrl}]`, italics: true, size: 20 })],
+          }));
+        } else {
+          // VIDEO/DOCUMENT: nao dá para embutir em Word de forma util,
+          // pomos so o nome do ficheiro.
+          const label = m.type === 'VIDEO' ? 'Video' : 'Documento';
+          const fname = path.basename(m.mediaUrl);
+          children.push(new Paragraph({
+            children: [new TextRun({ text: `[${label}: ${fname}]`, italics: true, size: 20 })],
+          }));
+        }
+        // Caption / comentario por baixo da imagem, se existir e nao for o
+        // placeholder generico "[Imagem]" que o webhook gera para media sem
+        // texto.
+        const caption = (m.content || '').trim();
+        const isPlaceholder = /^\[(Imagem|Video|Documento|Audio)\]$/i.test(caption);
+        if (caption && !isPlaceholder) {
+          children.push(new Paragraph({
+            spacing: { before: 60 },
+            children: [new TextRun({ text: caption, size: 22 })],
+          }));
+        }
+      } else if (m.type === 'AUDIO') {
+        // Audio: mostra transcricao se existir. Se nao tiver sido feita,
+        // avisa o utilizador que so a referencia entra no Word.
+        if (m.transcription && m.transcription.trim()) {
+          children.push(new Paragraph({
+            children: [new TextRun({ text: '🎙 ', size: 20 }), new TextRun({ text: m.transcription, size: 22 })],
+          }));
+        } else {
+          children.push(new Paragraph({
+            children: [new TextRun({
+              text: '[Audio nao transcrito — usa "Transcrever audio" no chat antes de exportar]',
+              italics: true, size: 20, color: '9CA3AF',
+            })],
+          }));
+        }
+      } else {
+        // TEXT / outros
+        const text = (m.content || '').trim();
+        if (text) {
+          children.push(new Paragraph({
+            children: [new TextRun({ text, size: 22 })],
+          }));
+        }
+      }
+    }
+
+    const doc = new Document({
+      creator: 'Klaru',
+      title: `Conversa com ${fullName}`,
+      sections: [{ children }],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    const filename = `conversa_${fullName.replace(/[^\w]/g, '_')}_${new Date().toISOString().slice(0, 10)}.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (e) { next(e); }
+});
+
 export default router;

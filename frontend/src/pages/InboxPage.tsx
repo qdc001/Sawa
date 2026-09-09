@@ -722,6 +722,53 @@ export default function InboxPage() {
   const [showAutoTask, setShowAutoTask] = useState(false);
   const [showPatientProfile, setShowPatientProfile] = useState(false);
 
+  // Modo de seleccao de mensagens para exportar para Word.
+  // Quando `selectMode` esta activo, cada mensagem mostra uma checkbox em vez
+  // do menu contextual normal, e uma barra em rodape mostra "N seleccionadas"
+  // + botao para exportar/cancelar.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
+  const [exportingDocx, setExportingDocx] = useState(false);
+  const toggleMsgSelection = (id: string) => {
+    setSelectedMsgIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+  const exitSelectMode = () => { setSelectMode(false); setSelectedMsgIds(new Set()); };
+  const handleExportDocx = async () => {
+    if (selectedMsgIds.size === 0) { toast.error('Selecciona pelo menos uma mensagem.'); return; }
+    setExportingDocx(true);
+    try {
+      const res = await api.post('/messages/export-docx',
+        { messageIds: Array.from(selectedMsgIds) },
+        { responseType: 'blob' },
+      );
+      // Nome do ficheiro devolvido pelo backend no Content-Disposition
+      const dispo = res.headers['content-disposition'] || '';
+      const match = dispo.match(/filename="?([^";]+)"?/i);
+      const fname = match ? match[1] : `conversa_${new Date().toISOString().slice(0, 10)}.docx`;
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url; a.download = fname;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success(`Word exportado com ${selectedMsgIds.size} mensagem(ns)`);
+      exitSelectMode();
+    } catch (e: any) {
+      // response e blob, precisa de ser lida como texto para extrair o erro
+      let msg = 'Erro a exportar Word';
+      if (e.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await e.response.data.text()).message || msg; } catch {}
+      } else {
+        msg = e.response?.data?.message || msg;
+      }
+      toast.error(msg);
+    } finally { setExportingDocx(false); }
+  };
+
   // Dados auxiliares
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -1102,6 +1149,15 @@ export default function InboxPage() {
     } catch { setExistingTask(null); }
   };
   useEffect(() => { refreshExistingTask(); /* eslint-disable-next-line */ }, [selected?.contact?.id, selected?.leadId]);
+
+  // Ao mudar de conversa, sai automaticamente do modo de seleccao. Sem isto
+  // o utilizador podia comecar a seleccionar num contacto, mudar para outro
+  // e a barra continuava aberta com contagem misturada — o backend recusaria
+  // a exportacao (mensagens de contactos diferentes), so evita o erro.
+  useEffect(() => {
+    if (selectMode) exitSelectMode();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.contact?.id]);
 
   // Ao mudar de conversa, limpa qualquer sugestao em curso/mostrada.
   // Tambem busca uma eventual sugestao PENDENTE para a nova conversa (foi
@@ -2100,6 +2156,9 @@ export default function InboxPage() {
                     <button onClick={() => { handleExport('json'); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       <FileText size={14} /> Exportar conversa (.json)
                     </button>
+                    <button onClick={() => { setSelectMode(true); setSelectedMsgIds(new Set()); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left" title="Escolhe as mensagens (imagens, comentarios, audios transcritos) e gera um Word para dar ao professor/IA">
+                      <FileText size={14} style={{ color: '#16A34A' }} /> Exportar mensagens seleccionadas (.docx)
+                    </button>
                     <button onClick={() => { setScreenshotMode(true); setScreenshotSelection(new Set()); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       <Camera size={14} /> Captura de ecrã da conversa
                     </button>
@@ -2176,6 +2235,28 @@ export default function InboxPage() {
                   <p className="text-xs whitespace-pre-wrap flex-1" style={{ color: 'var(--text-primary)' }}>{aiSummary}</p>
                   <button onClick={() => setAiSummary('')} className="flex-shrink-0">
                     <X size={12} style={{ color: 'var(--text-muted)' }} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Modo de seleccao para exportar Word: barra similar a screenshot */}
+            {selectMode && (
+              <div className="px-6 py-2 flex-shrink-0 flex items-center justify-between gap-2" style={{ borderBottom: '1px solid var(--border)', background: '#F0FDF4' }}>
+                <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                  <FileText size={12} className="inline mr-1" style={{ verticalAlign: -2 }} />
+                  {selectedMsgIds.size === 0 ? 'Selecciona as mensagens a incluir no Word (imagens + comentarios + audios transcritos)' : `${selectedMsgIds.size} mensagem(ns) seleccionada(s)`}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button onClick={exitSelectMode} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--text-muted)' }}>Cancelar</button>
+                  <button
+                    onClick={handleExportDocx}
+                    disabled={selectedMsgIds.size === 0 || exportingDocx}
+                    className="btn btn-primary text-xs px-3 py-1 flex items-center gap-1"
+                    style={{ opacity: (selectedMsgIds.size === 0 || exportingDocx) ? 0.5 : 1 }}
+                  >
+                    {exportingDocx ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+                    Exportar Word
                   </button>
                 </div>
               </div>
@@ -2298,12 +2379,20 @@ export default function InboxPage() {
                       {dateSeparator}
                     <div
                       className={`flex items-center gap-2 ${out ? 'justify-end' : 'justify-start'} group`}
-                      onClick={() => { if (screenshotMode) toggleScreenshotSelect(msg.id); }}
-                      style={{ cursor: screenshotMode ? 'pointer' : undefined }}
+                      onClick={() => {
+                        if (screenshotMode) toggleScreenshotSelect(msg.id);
+                        else if (selectMode) toggleMsgSelection(msg.id);
+                      }}
+                      style={{ cursor: (screenshotMode || selectMode) ? 'pointer' : undefined }}
                     >
                       {screenshotMode && !out && (
                         screenshotSelection.has(msg.id)
                           ? <CheckCircle2 size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                          : <Circle size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                      )}
+                      {selectMode && !out && (
+                        selectedMsgIds.has(msg.id)
+                          ? <CheckCircle2 size={16} style={{ color: '#16A34A', flexShrink: 0 }} />
                           : <Circle size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                       )}
                       <div className="max-w-md relative">
@@ -2488,6 +2577,11 @@ export default function InboxPage() {
                       {screenshotMode && out && (
                         screenshotSelection.has(msg.id)
                           ? <CheckCircle2 size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                          : <Circle size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                      )}
+                      {selectMode && out && (
+                        selectedMsgIds.has(msg.id)
+                          ? <CheckCircle2 size={16} style={{ color: '#16A34A', flexShrink: 0 }} />
                           : <Circle size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                       )}
                     </div>
