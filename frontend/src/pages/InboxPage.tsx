@@ -477,7 +477,13 @@ export default function InboxPage() {
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [editingContent, setEditingContent] = useState('');
-  const [attachment, setAttachment] = useState<{ url: string; name: string; mimeType: string; size: number } | null>(null);
+  // Vários ficheiros podem ser seleccionados de uma vez (input multiple).
+  // Cada um vira depois uma mensagem separada ao enviar (o WhatsApp não
+  // suporta várias imagens/documentos numa única mensagem via API) — o
+  // comentário escrito, se houver, fica associado ao último ficheiro da
+  // lista, para ler bem: "ficheiro 1, ficheiro 2, ... aqui está o comentário".
+  type PendingAttachment = { id: string; url: string; name: string; mimeType: string; size: number };
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1498,35 +1504,53 @@ export default function InboxPage() {
   };
 
   const sendMessage = async () => {
-    if ((!draft.trim() && !attachment) || !selected) return;
+    if ((!draft.trim() && attachments.length === 0) || !selected) return;
     setSending(true);
+    const apiBase = (import.meta.env as any).VITE_API_URL || '';
+    const caption = draft.trim();
+
+    // Sem anexos: uma unica mensagem de texto. Com anexos: uma mensagem por
+    // ficheiro (o WhatsApp nao suporta multiplas imagens/documentos numa so
+    // mensagem via API), enviadas em sequencia — nao em paralelo — para
+    // ficarem na ordem certa no chat. O comentario escrito vai so no ultimo
+    // ficheiro, para ler como "aqui estao os ficheiros, [comentario]".
+    const payloads = attachments.length > 0
+      ? attachments.map((att, i) => ({
+          content: i === attachments.length - 1 ? caption : '',
+          type: att.mimeType.startsWith('image/') ? 'IMAGE' : att.mimeType.startsWith('video/') ? 'VIDEO' : att.mimeType.startsWith('audio/') ? 'AUDIO' : 'DOCUMENT',
+          mediaUrl: `${apiBase}${att.url}`,
+          mediaType: att.mimeType,
+          fileName: att.name,
+        }))
+      : [{ content: caption, type: 'TEXT', mediaUrl: undefined, mediaType: undefined, fileName: undefined }];
+
+    let anyFailed = false;
+    let lastFailError: string | undefined;
     try {
-      const apiBase = (import.meta.env as any).VITE_API_URL || '';
-      const { data } = await api.post('/messages', {
-        content: draft.trim() || attachment?.name || 'Anexo',
-        channel: isInternalNote ? 'INTERNAL' : selected.channel,
-        contactId: selected.contact?.id,
-        leadId: selected.leadId,
-        replyToId: replyTo?.id,
-        isInternal: isInternalNote,
-        type: attachment ? (attachment.mimeType.startsWith('image/') ? 'IMAGE' : attachment.mimeType.startsWith('video/') ? 'VIDEO' : attachment.mimeType.startsWith('audio/') ? 'AUDIO' : 'DOCUMENT') : 'TEXT',
-        mediaUrl: attachment ? `${apiBase}${attachment.url}` : undefined,
-        mediaType: attachment?.mimeType,
-        fileName: attachment?.name,
-      });
-      setMessages((p) => p.find((x) => x.id === data.id) ? p : [...p, data]);
-      setDraft(''); setReplyTo(null); setAttachment(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      if (!isInternalNote) {
-        setConversations((prev) => prev.map((c) => c.key === selected.key ? { ...c, lastMessage: data, total: c.total + 1 } : c));
+      for (const payload of payloads) {
+        const { data } = await api.post('/messages', {
+          ...payload,
+          channel: isInternalNote ? 'INTERNAL' : selected.channel,
+          contactId: selected.contact?.id,
+          leadId: selected.leadId,
+          replyToId: replyTo?.id,
+          isInternal: isInternalNote,
+        });
+        setMessages((p) => p.find((x) => x.id === data.id) ? p : [...p, data]);
+        if (!isInternalNote) {
+          setConversations((prev) => prev.map((c) => c.key === selected.key ? { ...c, lastMessage: data, total: c.total + 1 } : c));
+        }
+        if (data?.status === 'FAILED') { anyFailed = true; lastFailError = data?.sendError; }
       }
+      setDraft(''); setReplyTo(null); setAttachments([]);
+      if (fileInputRef.current) fileInputRef.current.value = '';
       // AVISO CRITICO: se o backend nao conseguiu entregar (FAILED), o balao
       // aparece igual mas nao chegou ao destinatario. Toast persistente para
       // o utilizador nao pensar que enviou. Cobre o cenario "aparece no chat
       // mas nao chega ao WhatsApp" (Evolution rejeitou, sessao caida, etc.).
-      if (data?.status === 'FAILED' && !isInternalNote) {
+      if (anyFailed && !isInternalNote) {
         toast.error(
-          `Nao chegou ao destinatario. Verifica a ligacao Evolution/WhatsApp em Definicoes > Integracoes.${data?.sendError ? ` Erro: ${data.sendError}` : ''}`,
+          `Nao chegou ao destinatario. Verifica a ligacao Evolution/WhatsApp em Definicoes > Integracoes.${lastFailError ? ` Erro: ${lastFailError}` : ''}`,
           { duration: 8000 },
         );
       }
@@ -1596,31 +1620,43 @@ export default function InboxPage() {
       const { data } = await api.post('/files/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setAttachment({ url: data.url, name: data.name, mimeType: data.mimeType, size: data.size });
+      setAttachments((prev) => [...prev, { id: `${Date.now()}-${Math.random()}`, url: data.url, name: data.name, mimeType: data.mimeType, size: data.size }]);
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Erro a carregar audio');
     } finally { setUploading(false); }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 25 * 1024 * 1024) {
-      toast.error('Ficheiro maior que 25 MB');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const tooBig = files.filter((f) => f.size > 25 * 1024 * 1024);
+    if (tooBig.length > 0) {
+      toast.error(`${tooBig.length > 1 ? `${tooBig.length} ficheiros maiores` : 'Ficheiro maior'} que 25 MB: ${tooBig.map((f) => f.name).join(', ')}`);
+      if (tooBig.length === files.length) { if (fileInputRef.current) fileInputRef.current.value = ''; return; }
     }
+    const validFiles = files.filter((f) => f.size <= 25 * 1024 * 1024);
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const { data } = await api.post('/files/upload', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setAttachment({ url: data.url, name: data.name, mimeType: data.mimeType, size: data.size });
-      toast.success('Ficheiro carregado');
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Erro a carregar ficheiro');
+      // Sequencial em vez de Promise.all para os anexos ficarem na ordem em
+      // que foram seleccionados (paralelo poderia embaralhar a ordem de
+      // chegada das respostas).
+      const uploaded: PendingAttachment[] = [];
+      for (const file of validFiles) {
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+          const { data } = await api.post('/files/upload', fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          uploaded.push({ id: `${Date.now()}-${Math.random()}`, url: data.url, name: data.name, mimeType: data.mimeType, size: data.size });
+        } catch (err: any) {
+          toast.error(`${file.name}: ${err.response?.data?.message || 'Erro a carregar'}`);
+        }
+      }
+      if (uploaded.length > 0) {
+        setAttachments((prev) => [...prev, ...uploaded]);
+        toast.success(uploaded.length > 1 ? `${uploaded.length} ficheiros carregados` : 'Ficheiro carregado');
+      }
     } finally {
       setUploading(false);
     }
@@ -2475,10 +2511,10 @@ export default function InboxPage() {
                                     <div className="flex items-center gap-2 p-2 rounded" style={{ background: out ? 'rgba(255,255,255,0.15)' : 'var(--surface-2)' }}>
                                       <FileText size={20} style={{ color: out ? 'white' : 'var(--text-secondary)' }} />
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-medium truncate" style={{ color: out ? 'white' : 'var(--text-primary)' }}>{msg.content}</p>
+                                        <p className="text-xs font-medium truncate" style={{ color: out ? 'white' : 'var(--text-primary)' }}>{msg.fileName || msg.content || 'arquivo'}</p>
                                       </div>
                                       <button
-                                        onClick={() => downloadFile(msg.mediaUrl!, msg.content || 'arquivo')}
+                                        onClick={() => downloadFile(msg.mediaUrl!, msg.fileName || msg.content || 'arquivo')}
                                         className="p-1.5 rounded hover:bg-white/20"
                                         title="Baixar"
                                         style={{ background: out ? 'rgba(255,255,255,0.2)' : 'var(--surface-3)' }}
@@ -2489,11 +2525,19 @@ export default function InboxPage() {
                                   )}
                                 </div>
                               )}
-                              {msg.content
-                                && msg.type !== 'DOCUMENT' && !msg.mediaType?.startsWith('application/')
-                                && msg.content !== '[Audio]' && msg.content !== '[Imagem]' && msg.content !== '[Video]' && msg.content !== '[Sticker]' && (
-                                <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
-                              )}
+                              {/* Comentario/legenda por baixo do anexo. Ficheiros do tipo documento
+                                  so mostram o comentario aqui se tiverem `fileName` guardado a parte
+                                  — mensagens antigas nao tinham esse campo e o `content` delas era o
+                                  proprio nome do ficheiro (ja mostrado no cartao acima); repeti-lo
+                                  aqui duplicaria. Mensagens novas separam sempre nome do ficheiro
+                                  (fileName) de comentario (content), por isso mostram os dois. */}
+                              {(() => {
+                                const isDocLike = msg.type === 'DOCUMENT' || !!msg.mediaType?.startsWith('application/');
+                                const hideForLegacyDoc = isDocLike && !msg.fileName;
+                                const isPlaceholder = ['[Audio]', '[Imagem]', '[Video]', '[Sticker]', '[Documento]'].includes(msg.content);
+                                if (!msg.content || hideForLegacyDoc || isPlaceholder) return null;
+                                return <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>;
+                              })()}
                             </>
                           )}
                           <div className="flex items-center justify-end gap-1 mt-1 text-xs" style={{ color: out ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
@@ -2869,23 +2913,39 @@ export default function InboxPage() {
                   </button>
                 )}
               </div>
-              {/* Preview do anexo */}
-              {attachment && (
-                <div className="flex items-center gap-2 p-2 rounded mb-2" style={{ background: 'var(--surface-2)' }}>
-                  {attachment.mimeType.startsWith('image/') ? (
-                    <img src={`${(import.meta.env as any).VITE_API_URL || ''}${attachment.url}`} className="w-10 h-10 rounded object-cover" alt="" />
-                  ) : (
-                    <div className="w-10 h-10 rounded flex items-center justify-center" style={{ background: 'var(--primary-light)' }}>
-                      <Paperclip size={16} style={{ color: 'var(--primary)' }} />
-                    </div>
+              {/* Preview dos anexos (pode ser mais de um). O comentario escrito
+                  no composer vai so no ultimo desta lista ao enviar. */}
+              {attachments.length > 0 && (
+                <div className="space-y-1 mb-2">
+                  {attachments.length > 1 && (
+                    <p className="text-[10px] px-1" style={{ color: 'var(--text-muted)' }}>
+                      {attachments.length} ficheiros · o comentário fica no último
+                    </p>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{attachment.name}</p>
-                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{(attachment.size / 1024).toFixed(1)} KB</p>
-                  </div>
-                  <button onClick={() => { setAttachment(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="p-1">
-                    <X size={14} style={{ color: 'var(--text-muted)' }} />
-                  </button>
+                  {attachments.map((att) => (
+                    <div key={att.id} className="flex items-center gap-2 p-2 rounded" style={{ background: 'var(--surface-2)' }}>
+                      {att.mimeType.startsWith('image/') ? (
+                        <img src={`${(import.meta.env as any).VITE_API_URL || ''}${att.url}`} className="w-10 h-10 rounded object-cover" alt="" />
+                      ) : (
+                        <div className="w-10 h-10 rounded flex items-center justify-center" style={{ background: 'var(--primary-light)' }}>
+                          <Paperclip size={16} style={{ color: 'var(--primary)' }} />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{att.name}</p>
+                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{(att.size / 1024).toFixed(1)} KB</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setAttachments((prev) => prev.filter((a) => a.id !== att.id));
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                        }}
+                        className="p-1"
+                      >
+                        <X size={14} style={{ color: 'var(--text-muted)' }} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -2909,7 +2969,7 @@ export default function InboxPage() {
                 </div>
               )}
 
-              <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
               {recording ? (
                 <div className="flex items-center gap-3 p-3 rounded-xl" style={{ border: '1px solid #EF4444', background: '#FEF2F2' }}>
                   <div className="w-3 h-3 rounded-full animate-pulse" style={{ background: '#EF4444' }} />
@@ -2978,13 +3038,13 @@ export default function InboxPage() {
                     autoCorrect="on"
                     autoCapitalize="sentences"
                   />
-                  {!draft.trim() && !attachment && !isInternalNote && (
+                  {!draft.trim() && attachments.length === 0 && !isInternalNote && (
                     <button onClick={startRecording} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" title="Gravar mensagem de voz">
                       <Mic size={18} style={{ color: 'var(--text-muted)' }} />
                     </button>
                   )}
-                  <button onClick={sendMessage} disabled={sending || (!draft.trim() && !attachment)} className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: isInternalNote ? '#F59E0B' : 'var(--primary)', opacity: ((!draft.trim() && !attachment) || sending) ? 0.5 : 1 }}>
+                  <button onClick={sendMessage} disabled={sending || (!draft.trim() && attachments.length === 0)} className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: isInternalNote ? '#F59E0B' : 'var(--primary)', opacity: ((!draft.trim() && attachments.length === 0) || sending) ? 0.5 : 1 }}>
                     {sending ? <Loader2 size={16} className="animate-spin text-white" /> : <Send size={16} className="text-white" />}
                   </button>
                 </div>

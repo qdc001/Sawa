@@ -415,6 +415,11 @@ model Message {
   status        MessageStatus @default(SENT)
   mediaUrl      String?
   mediaType     String?
+  // Nome original do ficheiro anexado (ex: "relatorio.pdf"). Separado de
+  // `content` porque `content` guarda o comentario/legenda da mensagem —
+  // antes eram a mesma coisa e um comentario escrito ao enviar um documento
+  // substituia (e escondia) o nome do ficheiro em vez de aparecer como texto.
+  fileName      String?
   externalId    String?
   readAt        DateTime?
   editedAt      DateTime?

@@ -647,6 +647,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
         let msgType = 'TEXT';
         let mediaUrl: string | undefined;
         let interactiveId: string | null = null;
+        let docFileName: string | null = null;
 
         const creds: any = getCreds(matched);
 
@@ -685,7 +686,11 @@ router.post('/evolution', async (req: Request, res: Response) => {
         } else if (unwrapped.documentMessage || msg.documentMessage) {
           const dm = unwrapped.documentMessage || msg.documentMessage;
           msgType = 'DOCUMENT';
-          content = dm.fileName || '[Documento]';
+          // dm.caption e o comentario que a pessoa escreveu ao enviar o
+          // documento (distinto de dm.fileName). Antes so se guardava o
+          // nome do ficheiro e o comentario era descartado em silencio.
+          content = dm.caption || '[Documento]';
+          docFileName = dm.fileName || null;
           const ext = (dm.fileName || '').split('.').pop() || 'bin';
           const local = await fetchMediaFromEvolution(creds, m, ext);
           mediaUrl = local ? absoluteUrl(req, local) : dm.url;
@@ -817,6 +822,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
             status: fromMe ? 'SENT' : 'DELIVERED',
             externalId: m.key?.id || undefined,
             mediaUrl,
+            fileName: docFileName,
             leadId: lead?.id,
             contactId: contact.id,
           },

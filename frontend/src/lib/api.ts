@@ -281,6 +281,7 @@ export interface Message {
   status: string;
   mediaUrl?: string;
   mediaType?: string;
+  fileName?: string | null;
   readAt?: string | null;
   editedAt?: string | null;
   isInternal?: boolean;

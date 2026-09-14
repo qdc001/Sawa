@@ -282,7 +282,9 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { content, channel, contactId, leadId, type, direction, mediaUrl, mediaType, replyToId, isInternal, fileName } = req.body;
-    if (!content) throw new AppError('Conteudo obrigatório', 400);
+    // Conteudo (a legenda/comentario) pode ficar vazio quando ha um anexo —
+    // so e obrigatorio para mensagens de texto puro.
+    if (!content && !mediaUrl) throw new AppError('Conteudo obrigatório', 400);
     if (!channel) throw new AppError('Canal obrigatório', 400);
 
     let externalId: string | undefined;
@@ -321,7 +323,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 
     const message = await prisma.message.create({
       data: {
-        content,
+        content: content || '',
         channel,
         type: type || 'TEXT',
         direction: direction || 'OUTBOUND',
@@ -331,6 +333,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
         replyToId: replyToId || null,
         isInternal: !!isInternal,
         mediaUrl, mediaType,
+        fileName: fileName || null,
         externalId,
         sentById: req.user!.id,
       },
@@ -1054,9 +1057,10 @@ router.post('/export-docx', async (req: AuthRequest, res: Response, next) => {
           }));
         } else {
           // VIDEO/DOCUMENT: nao dá para embutir em Word de forma util,
-          // pomos so o nome do ficheiro.
+          // pomos so o nome do ficheiro. Preferir o fileName original
+          // guardado (ex: "relatorio.pdf") ao nome aleatorio no disco.
           const label = m.type === 'VIDEO' ? 'Video' : 'Documento';
-          const fname = path.basename(m.mediaUrl);
+          const fname = m.fileName || path.basename(m.mediaUrl);
           children.push(new Paragraph({
             children: [new TextRun({ text: `[${label}: ${fname}]`, italics: true, size: 20 })],
           }));
