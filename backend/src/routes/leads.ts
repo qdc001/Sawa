@@ -116,6 +116,11 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
         .catch((e) => console.error('Automation lead_assigned error:', e));
       notifyNewLead(lead.id, lead.assignedToId).catch((e) => console.error('notifyNewLead error:', e));
       notifyWhatsAppAssignment(req.user!.workspaceId, lead.assignedToId, 'lead', lead.id).catch(() => {});
+      // Mesma lacuna que existia no PATCH: criar um lead ja com responsável
+      // explícito também deve sincronizar Contacto/Conversa/Tarefa aberta.
+      if (lead.contactId) {
+        propagateAssignee(req.user!.workspaceId, lead.contactId, lead.assignedToId, 'lead').catch(() => {});
+      }
     }
 
     res.status(201).json(lead);

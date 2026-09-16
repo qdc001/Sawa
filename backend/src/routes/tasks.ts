@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
+import { propagateAssignee } from '../lib/propagateAssignee';
 import prisma from '../lib/prisma';
 const router = Router();
 
@@ -125,6 +126,15 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       });
     }
     triggerAutomations({ type: 'task_created', workspaceId: req.user!.workspaceId, entityType: 'task', entityId: task.id }).catch(() => {});
+
+    // Propagar so quando o utilizador escolheu explicitamente um responsável
+    // no formulário (nao quando caiu no default "eu próprio") — criar uma
+    // tarefa não deve silenciosamente mudar quem é dono do contacto/lead so
+    // porque quem a criou nao mexeu no campo Responsável.
+    if (assignedToId && finalContactId && !parentTaskId && (task.status === 'PENDING' || task.status === 'IN_PROGRESS')) {
+      propagateAssignee(req.user!.workspaceId, finalContactId, assignedToId, 'task').catch(() => {});
+    }
+
     res.status(201).json(task);
   } catch (e) { next(e); }
 });
@@ -189,6 +199,17 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       data,
       include: taskInclude,
     });
+
+    // Propagar a mudança de responsável para Contacto/Conversa/Lead do mesmo
+    // contacto — so quando o campo veio mesmo no pedido (o utilizador mexeu
+    // nele explicitamente) e a tarefa e a aberta desse contacto (nao uma
+    // subtarefa nem uma tarefa ja fechada, cujo responsável e histórico).
+    if (
+      'assignedToId' in data && task.contactId && !task.parentTaskId &&
+      (task.status === 'PENDING' || task.status === 'IN_PROGRESS')
+    ) {
+      propagateAssignee(req.user!.workspaceId, task.contactId, task.assignedToId, 'task').catch(() => {});
+    }
 
     // Se concluiu uma tarefa recorrente, criar a próxima
     if (
@@ -263,10 +284,27 @@ router.post('/bulk-assign', async (req: AuthRequest, res: Response, next) => {
   try {
     const { ids, assignedToId } = req.body;
     if (!Array.isArray(ids) || ids.length === 0 || !assignedToId) throw new AppError('ids e assignedToId obrigatórios', 400);
+
+    // Buscar antes de actualizar: precisamos do contactId de cada tarefa
+    // aberta para propagar o novo responsável a Contacto/Conversa/Lead.
+    const affected = await prisma.task.findMany({
+      where: {
+        id: { in: ids }, assignedTo: { workspaceId: req.user!.workspaceId },
+        parentTaskId: null, status: { in: ['PENDING', 'IN_PROGRESS'] }, contactId: { not: null },
+      },
+      select: { contactId: true },
+    });
+
     const result = await prisma.task.updateMany({
       where: { id: { in: ids }, assignedTo: { workspaceId: req.user!.workspaceId } },
       data: { assignedToId },
     });
+
+    const uniqueContactIds = [...new Set(affected.map((t) => t.contactId!))];
+    await Promise.all(
+      uniqueContactIds.map((cid) => propagateAssignee(req.user!.workspaceId, cid, assignedToId, 'task').catch(() => {})),
+    );
+
     res.json({ updated: result.count });
   } catch (e) { next(e); }
 });

@@ -10,6 +10,7 @@ import path from 'path';
 
 import prisma from '../lib/prisma';
 import { getCreds } from '../lib/integrationCrypto';
+import { propagateAssignee } from '../lib/propagateAssignee';
 const router = Router();
 
 const uploadsDir = path.join(__dirname, '../../uploads');
@@ -56,24 +57,55 @@ async function autoAssignConversation(workspaceId: string, contactId: string, ch
   });
   if (existing?.assignedToId) return existing.assignedToId;
 
-  const agents = await prisma.user.findMany({
-    where: { workspaceId, isActive: true, role: { in: ['AGENT', 'MANAGER'] } },
-    select: { id: true, status: true },
-  });
-  if (agents.length === 0) return null;
+  // Antes de sortear alguem novo por round-robin, verificar se este contacto
+  // ja tem um responsavel definido noutro sitio (ficha do contacto, outro
+  // canal ja atribuido, ou uma tarefa aberta). Sem isto, um contacto ja
+  // atribuido ao Agente A podia ficar com o Agente B so por escrever pela
+  // primeira vez num canal novo (ex: ja tem WhatsApp com o Agente A, manda
+  // a primeira mensagem por Instagram) — era exactamente o "o CRM troca de
+  // responsavel sozinho" reportado pelas clinicas.
+  let chosen: string | null = null;
+  const contact = await prisma.contact.findUnique({ where: { id: contactId }, select: { assignedToId: true } });
+  chosen = contact?.assignedToId || null;
 
-  let pool = agents.filter((a) => a.status === 'ONLINE');
-  if (pool.length === 0) pool = agents;
+  if (!chosen) {
+    const otherConvMeta = await prisma.conversationMeta.findFirst({
+      where: { workspaceId, contactId, assignedToId: { not: null } },
+      select: { assignedToId: true },
+    });
+    chosen = otherConvMeta?.assignedToId || null;
+  }
 
-  const counts = await Promise.all(
-    pool.map(async (a) => ({
-      id: a.id,
-      n: await prisma.conversationMeta.count({ where: { workspaceId, assignedToId: a.id, isArchived: false } }),
-    })),
-  );
-  counts.sort((a, b) => a.n - b.n);
-  const chosen = counts[0]?.id;
-  if (!chosen) return null;
+  if (!chosen) {
+    const openTask = await prisma.task.findFirst({
+      where: { contactId, parentTaskId: null, status: { in: ['PENDING', 'IN_PROGRESS'] } },
+      select: { assignedToId: true },
+    });
+    chosen = openTask?.assignedToId || null;
+  }
+
+  let isFreshRoundRobin = false;
+  if (!chosen) {
+    const agents = await prisma.user.findMany({
+      where: { workspaceId, isActive: true, role: { in: ['AGENT', 'MANAGER'] } },
+      select: { id: true, status: true },
+    });
+    if (agents.length === 0) return null;
+
+    let pool = agents.filter((a) => a.status === 'ONLINE');
+    if (pool.length === 0) pool = agents;
+
+    const counts = await Promise.all(
+      pool.map(async (a) => ({
+        id: a.id,
+        n: await prisma.conversationMeta.count({ where: { workspaceId, assignedToId: a.id, isArchived: false } }),
+      })),
+    );
+    counts.sort((a, b) => a.n - b.n);
+    chosen = counts[0]?.id || null;
+    if (!chosen) return null;
+    isFreshRoundRobin = true;
+  }
 
   await prisma.conversationMeta.upsert({
     where: { workspaceId_contactId_channel: { workspaceId, contactId, channel } },
@@ -81,15 +113,26 @@ async function autoAssignConversation(workspaceId: string, contactId: string, ch
     update: { assignedToId: chosen },
   });
 
-  await prisma.notification.create({
-    data: {
-      userId: chosen,
-      title: 'Conversa atribuída',
-      body: 'Foi-te atribuída uma nova conversa via round-robin',
-      type: 'auto_assign',
-      link: '/inbox',
-    },
-  }).catch(() => {});
+  // Manter Contacto/Lead/Tarefa aberta sincronizados com esta atribuicao —
+  // tanto quando herdamos de outro sitio (reforça o valor já existente, não
+  // muda nada na prática) como quando veio de round-robin puro (esse
+  // agente passa agora a ser o responsável em todo o lado, não só nesta
+  // conversa).
+  propagateAssignee(workspaceId, contactId, chosen, 'conversation').catch(() => {});
+
+  // So notifica de "atribuida via round-robin" quando foi mesmo um sorteio
+  // novo — herdar o responsavel que ja existia nao e novidade para ninguem.
+  if (isFreshRoundRobin) {
+    await prisma.notification.create({
+      data: {
+        userId: chosen,
+        title: 'Conversa atribuída',
+        body: 'Foi-te atribuída uma nova conversa via round-robin',
+        type: 'auto_assign',
+        link: '/inbox',
+      },
+    }).catch(() => {});
+  }
 
   return chosen;
 }
