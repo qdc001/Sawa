@@ -34,6 +34,19 @@ const MIME_TO_EXT: Record<string, string> = {
   'video/quicktime': 'mov',
 };
 
+async function requestBase64(creds: any, baileysMessage: any, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/getBase64FromMediaMessage/${creds.instanceName}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+      body: JSON.stringify({ message: { key: baileysMessage.key, message: baileysMessage.message } }),
+      signal: controller.signal,
+    });
+  } finally { clearTimeout(timer); }
+}
+
 export async function fetchMediaFromEvolution(
   creds: any,
   baileysMessage: any,
@@ -42,21 +55,20 @@ export async function fetchMediaFromEvolution(
 ): Promise<string | null> {
   if (!creds?.baseUrl || !creds?.apiKey || !creds?.instanceName) return null;
   try {
-    // Timeout para evitar que um download lento bloqueie a thread do webhook
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res: Response;
-    try {
-      res = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/getBase64FromMediaMessage/${creds.instanceName}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
-        body: JSON.stringify({ message: { key: baileysMessage.key, message: baileysMessage.message } }),
-        signal: controller.signal,
-      });
-    } finally { clearTimeout(timer); }
+    let res = await requestBase64(creds, baileysMessage, timeoutMs);
     if (!res.ok) {
-      console.error('getBase64FromMediaMessage failed:', await res.text());
-      return null;
+      // Falhas como "Cannot derive from empty media key" ou "Connection Closed"
+      // sao frequentemente transitorias (ligacao Evolution ainda a estabilizar
+      // logo a seguir a uma reconexao). Uma segunda tentativa, apos uma pequena
+      // pausa, recupera a maioria destes casos sem custo perceptivel no webhook.
+      const firstError = await res.text();
+      console.error('getBase64FromMediaMessage falhou, a tentar 1x:', firstError);
+      await new Promise((r) => setTimeout(r, 2000));
+      res = await requestBase64(creds, baileysMessage, timeoutMs);
+      if (!res.ok) {
+        console.error('getBase64FromMediaMessage falhou (2a tentativa):', await res.text());
+        return null;
+      }
     }
     const data = await res.json();
     const base64 = data?.base64 || data?.media || data;
