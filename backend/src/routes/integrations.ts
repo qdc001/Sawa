@@ -460,7 +460,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
       const emit = (payload: any) => {
         if (io) io.to(`workspace:${workspaceId}`).emit('evolution:sync', payload);
       };
-      const stats = { chatsScanned: 0, contactsCreated: 0, contactsUpdated: 0, leadsCreated: 0, messagesImported: 0, messagesSkipped: 0, errors: 0 };
+      const stats = { chatsScanned: 0, contactsCreated: 0, contactsUpdated: 0, leadsCreated: 0, messagesImported: 0, messagesSkipped: 0, errors: 0, groupsScanned: 0, groupsCreated: 0 };
 
       try {
         emit({ stage: 'started', maxChats, msgsPerChat });
@@ -482,15 +482,31 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
           }
         }
 
-        // Filtrar grupos e limitar
-        chats = chats
-          .filter((c: any) => {
-            const jid = c?.remoteJid || c?.id || c?.chatId || '';
-            return jid && !String(jid).endsWith('@g.us') && !String(jid).endsWith('@broadcast');
-          })
+        // Separar contactos individuais de grupos. Excluir so as broadcast lists
+        // (nao sao conversas reais). Grupos ficam numa lista a parte porque tem
+        // o seu proprio percurso de import a seguir (sem Lead, sem prefixo de
+        // participante nas legendas, nome vindo de chat.subject em vez do
+        // numero de telefone).
+        //
+        // Grupos entraram aqui porque sao o UNICO tipo de conversa sem
+        // nenhuma rede de seguranca contra perda de mensagens: o resync
+        // automatico do webhook (messages.set) e ignorado de proposito (para
+        // nao duplicar em cada reconexao), e ate agora esta sincronizacao
+        // manual tambem os saltava — uma mensagem de grupo perdida numa
+        // quebra de ligacao ficava perdida para sempre, sem forma de a
+        // recuperar.
+        const allChats = chats.filter((c: any) => {
+          const jid = c?.remoteJid || c?.id || c?.chatId || '';
+          return jid && !String(jid).endsWith('@broadcast');
+        });
+        chats = allChats
+          .filter((c: any) => !String(c?.remoteJid || c?.id || c?.chatId || '').endsWith('@g.us'))
+          .slice(0, maxChats);
+        const groupChats = allChats
+          .filter((c: any) => String(c?.remoteJid || c?.id || c?.chatId || '').endsWith('@g.us'))
           .slice(0, maxChats);
 
-        emit({ stage: 'chats_listed', total: chats.length });
+        emit({ stage: 'chats_listed', total: chats.length, totalGroups: groupChats.length });
 
         // 1.5) Buscar lista global de contactos da Evolution (fonte fiável para nomes)
         // e indexar por número (rawDigits). Inclui pushName/verifiedName/name.
@@ -536,6 +552,60 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
           include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
         });
         const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
+
+        // Extrai (content, tipo, media) de uma mensagem crua da Evolution.
+        // Partilhado entre o import de contactos individuais e o de grupos —
+        // o formato da mensagem em si (documentMessage, imageMessage, etc.)
+        // e identico nos dois casos, so muda o que se faz DEPOIS com o
+        // resultado (grupos preciam de prefixo com o nome do participante).
+        const extractMessageBody = async (m: any): Promise<{ content: string; msgType: any; mediaUrlLocal: string | null; mediaTypeStr: string | null; skip: boolean }> => {
+          const msg = m?.message || {};
+          const unwrapped =
+            msg.ephemeralMessage?.message ||
+            msg.viewOnceMessage?.message ||
+            msg.viewOnceMessageV2?.message ||
+            msg.documentWithCaptionMessage?.message ||
+            msg;
+
+          let content = '';
+          let msgType: any = 'TEXT';
+          let mediaUrlLocal: string | null = null;
+          let mediaTypeStr: string | null = null;
+
+          if (unwrapped.conversation || msg.conversation) {
+            content = unwrapped.conversation || msg.conversation;
+          } else if (unwrapped.extendedTextMessage?.text || msg.extendedTextMessage?.text) {
+            content = unwrapped.extendedTextMessage?.text || msg.extendedTextMessage?.text;
+          } else if (unwrapped.imageMessage || msg.imageMessage) {
+            msgType = 'IMAGE';
+            const im = unwrapped.imageMessage || msg.imageMessage;
+            content = im?.caption || '[Imagem]';
+            const local = await fetchMediaFromEvolution(creds, m, 'jpg');
+            if (local) { mediaUrlLocal = publicMediaUrl(local); mediaTypeStr = im?.mimetype || 'image/jpeg'; }
+          } else if (unwrapped.videoMessage || msg.videoMessage) {
+            msgType = 'VIDEO';
+            const vm = unwrapped.videoMessage || msg.videoMessage;
+            content = vm?.caption || '[Video]';
+          } else if (unwrapped.audioMessage || msg.audioMessage) {
+            msgType = 'AUDIO'; content = '[Audio]';
+          } else if (unwrapped.documentMessage || msg.documentMessage) {
+            msgType = 'DOCUMENT';
+            const dm = unwrapped.documentMessage || msg.documentMessage;
+            content = dm?.fileName || '[Documento]';
+          } else if (msg.locationMessage) {
+            msgType = 'LOCATION';
+            content = `Localização: ${msg.locationMessage.degreesLatitude}, ${msg.locationMessage.degreesLongitude}`;
+          } else if (msg.stickerMessage) {
+            msgType = 'IMAGE'; content = '[Sticker]';
+            const local = await fetchMediaFromEvolution(creds, m, 'webp');
+            if (local) { mediaUrlLocal = publicMediaUrl(local); mediaTypeStr = 'image/webp'; }
+          } else if (msg.protocolMessage) {
+            return { content: '', msgType: 'TEXT', mediaUrlLocal: null, mediaTypeStr: null, skip: true };
+          } else {
+            content = '[Mensagem]';
+          }
+          return { content, msgType, mediaUrlLocal, mediaTypeStr, skip: false };
+        };
 
         for (let i = 0; i < chats.length; i++) {
           const chat = chats[i];
@@ -660,53 +730,8 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
                 if (exists) { stats.messagesSkipped++; continue; }
 
                 const fromMe = !!m?.key?.fromMe;
-                const msg = m?.message || {};
-                const unwrapped =
-                  msg.ephemeralMessage?.message ||
-                  msg.viewOnceMessage?.message ||
-                  msg.viewOnceMessageV2?.message ||
-                  msg.documentWithCaptionMessage?.message ||
-                  msg;
-
-                let content = '';
-                let msgType: any = 'TEXT';
-                let mediaUrlLocal: string | null = null;
-                let mediaTypeStr: string | null = null;
-
-                if (unwrapped.conversation || msg.conversation) {
-                  content = unwrapped.conversation || msg.conversation;
-                } else if (unwrapped.extendedTextMessage?.text || msg.extendedTextMessage?.text) {
-                  content = unwrapped.extendedTextMessage?.text || msg.extendedTextMessage?.text;
-                } else if (unwrapped.imageMessage || msg.imageMessage) {
-                  msgType = 'IMAGE';
-                  const im = unwrapped.imageMessage || msg.imageMessage;
-                  content = im?.caption || '[Imagem]';
-                  // Baixar imagem para mostrar como preview inline
-                  const local = await fetchMediaFromEvolution(creds, m, 'jpg');
-                  if (local) { mediaUrlLocal = publicMediaUrl(local); mediaTypeStr = im?.mimetype || 'image/jpeg'; }
-                } else if (unwrapped.videoMessage || msg.videoMessage) {
-                  msgType = 'VIDEO';
-                  const vm = unwrapped.videoMessage || msg.videoMessage;
-                  content = vm?.caption || '[Video]';
-                  // Baixar video é caro — para já só imagens. Mantemos o tipo.
-                } else if (unwrapped.audioMessage || msg.audioMessage) {
-                  msgType = 'AUDIO'; content = '[Audio]';
-                } else if (unwrapped.documentMessage || msg.documentMessage) {
-                  msgType = 'DOCUMENT';
-                  const dm = unwrapped.documentMessage || msg.documentMessage;
-                  content = dm?.fileName || '[Documento]';
-                } else if (msg.locationMessage) {
-                  msgType = 'LOCATION';
-                  content = `Localização: ${msg.locationMessage.degreesLatitude}, ${msg.locationMessage.degreesLongitude}`;
-                } else if (msg.stickerMessage) {
-                  msgType = 'IMAGE'; content = '[Sticker]';
-                  const local = await fetchMediaFromEvolution(creds, m, 'webp');
-                  if (local) { mediaUrlLocal = publicMediaUrl(local); mediaTypeStr = 'image/webp'; }
-                } else if (msg.protocolMessage) {
-                  stats.messagesSkipped++; continue; // mensagens de sistema/protocol (apagadas, etc)
-                } else {
-                  content = '[Mensagem]';
-                }
+                const { content, msgType, mediaUrlLocal, mediaTypeStr, skip } = await extractMessageBody(m);
+                if (skip) { stats.messagesSkipped++; continue; } // mensagens de sistema/protocol (apagadas, etc)
 
                 const ts = Number(m?.messageTimestamp || m?.timestamp || 0);
                 const createdAt = ts > 0 ? new Date(ts * 1000) : new Date();
@@ -737,13 +762,135 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
             console.error('sync-chats chat error:', eChat.message);
           }
 
-          // Emitir progresso a cada 5 chats
+          // Emitir progresso a cada 5 chats. Total inclui os grupos desde ja
+          // (mesmo antes de comecar essa fase) para a barra de progresso no
+          // frontend nao "saltar" o denominador a meio.
           if ((i + 1) % 5 === 0 || i === chats.length - 1) {
-            emit({ stage: 'progress', current: i + 1, total: chats.length, ...stats });
+            emit({ stage: 'progress', current: i + 1, total: chats.length + groupChats.length, ...stats });
           }
 
           // Pausa entre chats para não rebentar a Evolution / DB em syncs grandes
           if (sleepMs > 0 && i < chats.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, sleepMs));
+          }
+        }
+
+        // 2) Grupos — mesma logica de mensagens que os contactos individuais
+        // (extractMessageBody), mas: sem Lead (grupos nunca tiveram), nome
+        // vindo de chat.subject/chat.name em vez do numero de telefone
+        // (aqui a Evolution devolve o nome real do grupo — nao ha o mesmo
+        // problema de "pushName e do participante, nao do grupo" que existe
+        // no payload do webhook ao vivo), e prefixo do participante nas
+        // legendas de texto reais (nunca nos marcadores tipo [Documento],
+        // para nao repetir o bug corrigido no webhook).
+        for (let gi = 0; gi < groupChats.length; gi++) {
+          const chat = groupChats[gi];
+          stats.chatsScanned++;
+          stats.groupsScanned++;
+
+          try {
+            const remoteJid: string = chat?.remoteJid || chat?.id || chat?.chatId || '';
+            if (!remoteJid) { stats.errors++; continue; }
+
+            const groupName = (chat?.subject || chat?.name || chat?.notify || '').trim() || 'Grupo WhatsApp';
+
+            let contact = await prisma.contact.findFirst({ where: { whatsapp: remoteJid, workspaceId } });
+            if (!contact) {
+              contact = await prisma.contact.create({
+                data: {
+                  firstName: groupName,
+                  whatsapp: remoteJid,
+                  workspaceId,
+                  type: 'COMPANY',
+                  notes: 'Grupo WhatsApp (não enviar campanhas)',
+                },
+              });
+              stats.contactsCreated++;
+              stats.groupsCreated++;
+            } else if (groupName !== 'Grupo WhatsApp' && contact.firstName === 'Grupo WhatsApp') {
+              // Nome melhor disponivel agora do que quando o grupo foi criado
+              // (ex: pelo webhook ao vivo, que so tem o nome do participante).
+              contact = await prisma.contact.update({ where: { id: contact.id }, data: { firstName: groupName } });
+              stats.contactsUpdated++;
+            }
+
+            const limitedMode = msgsPerChat !== Number.MAX_SAFE_INTEGER;
+            let messages: any[] = [];
+            try {
+              const body: any = { where: { key: { remoteJid } } };
+              if (limitedMode) body.limit = msgsPerChat;
+              const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}`, {
+                method: 'POST',
+                body: JSON.stringify(body),
+              });
+              messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
+            } catch { /* tenta variante v1 */ }
+
+            if (messages.length === 0) {
+              try {
+                const qs = limitedMode ? `limit=${msgsPerChat}&` : '';
+                const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}?${qs}remoteJid=${encodeURIComponent(remoteJid)}`, { method: 'GET' });
+                messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
+              } catch { /* silent */ }
+            }
+
+            messages.sort((a: any, b: any) => {
+              const ta = Number(a?.messageTimestamp || a?.timestamp || 0);
+              const tb = Number(b?.messageTimestamp || b?.timestamp || 0);
+              return ta - tb;
+            });
+
+            for (const m of messages) {
+              try {
+                const externalId: string | undefined = m?.key?.id || m?.id;
+                if (!externalId) { stats.messagesSkipped++; continue; }
+
+                const exists = await prisma.message.findFirst({ where: { externalId }, select: { id: true } });
+                if (exists) { stats.messagesSkipped++; continue; }
+
+                const fromMe = !!m?.key?.fromMe;
+                let { content, msgType, mediaUrlLocal, mediaTypeStr, skip } = await extractMessageBody(m);
+                if (skip) { stats.messagesSkipped++; continue; }
+
+                const pushName: string | undefined = m?.pushName;
+                const isPlaceholderContent = ['[Audio]', '[Imagem]', '[Video]', '[Sticker]', '[Documento]'].includes(content);
+                if (!fromMe && pushName && content && !isPlaceholderContent) {
+                  content = `${pushName}: ${content}`;
+                }
+
+                const ts = Number(m?.messageTimestamp || m?.timestamp || 0);
+                const createdAt = ts > 0 ? new Date(ts * 1000) : new Date();
+
+                await prisma.message.create({
+                  data: {
+                    content,
+                    type: msgType,
+                    direction: fromMe ? 'OUTBOUND' : 'INBOUND',
+                    channel: 'WHATSAPP',
+                    status: fromMe ? 'SENT' : 'DELIVERED',
+                    externalId,
+                    contactId: contact.id,
+                    createdAt,
+                    mediaUrl: mediaUrlLocal || undefined,
+                    mediaType: mediaTypeStr || undefined,
+                  },
+                });
+                stats.messagesImported++;
+              } catch (eMsg: any) {
+                stats.errors++;
+                console.error('sync-chats group message error:', eMsg.message);
+              }
+            }
+          } catch (eChat: any) {
+            stats.errors++;
+            console.error('sync-chats group error:', eChat.message);
+          }
+
+          if ((gi + 1) % 5 === 0 || gi === groupChats.length - 1) {
+            emit({ stage: 'progress', current: chats.length + gi + 1, total: chats.length + groupChats.length, ...stats });
+          }
+
+          if (sleepMs > 0 && gi < groupChats.length - 1) {
             await new Promise((resolve) => setTimeout(resolve, sleepMs));
           }
         }
@@ -768,7 +915,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
           data: {
             userId,
             title: 'Sincronização WhatsApp concluída',
-            body: `${stats.chatsScanned} conversas, ${stats.contactsCreated} contactos novos, ${stats.messagesImported} mensagens importadas.`,
+            body: `${stats.chatsScanned} conversas (${stats.groupsScanned} grupos), ${stats.contactsCreated} contactos novos, ${stats.messagesImported} mensagens importadas.`,
             type: 'evolution_sync',
             link: '/inbox',
           },

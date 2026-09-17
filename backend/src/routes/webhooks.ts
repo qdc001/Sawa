@@ -851,8 +851,16 @@ router.post('/evolution', async (req: Request, res: Response) => {
           }
         }
 
-        // Para grupos: prefixar conteúdo com o nome do participante (se inbound)
-        if (isGroup && !fromMe && m.pushName && content) {
+        // Para grupos: prefixar conteúdo com o nome do participante (se inbound).
+        // NAO prefixar os marcadores de anexo sem legenda ([Documento], [Imagem],
+        // etc.) — sao comparados a null-check exacto noutros sitios (frontend,
+        // export para Word, reenvio de anexos) para decidir "isto e um
+        // placeholder, nao uma legenda real". Prefixa-los corrompia essa
+        // comparacao e o nome do participante acabava a ser usado como nome
+        // de ficheiro em reenvios (ex: "absalaomate9: [Documento]" a serio
+        // como fileName de um documento reenviado a outro contacto).
+        const isPlaceholderContent = ['[Audio]', '[Imagem]', '[Video]', '[Sticker]', '[Documento]'].includes(content);
+        if (isGroup && !fromMe && m.pushName && content && !isPlaceholderContent) {
           content = `${m.pushName}: ${content}`;
         }
 
