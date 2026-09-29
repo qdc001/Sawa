@@ -78,8 +78,19 @@ export async function checkEvolutionInstances(): Promise<void> {
     // em vez de desistir de vez — sessões Evolution por vezes recuperam
     // sozinhas horas depois (reinício do servidor, rede instável), e sem
     // reentrada isso ficava para sempre pendente de intervenção humana.
+    //
+    // 'connecting' é tratado à parte: nesse estado a Evolution/Baileys já
+    // está a meio de um handshake (retry interno ou rede instável a
+    // recuperar sozinha). Chamar /instance/connect por cima disso cria uma
+    // segunda tentativa de ligação em paralelo com a mesma identidade de
+    // dispositivo, e o WhatsApp resolve esse conflito desligando a sessão
+    // (visto em produção como disconnectionReasonCode 401,
+    // tag "conflict"/"device_removed"). Só forçamos reconnect se 'connecting'
+    // persistir tempo a mais (>3min), sinal de que ficou preso e não vai
+    // resolver-se sozinho.
+    const isStuckConnecting = state === 'connecting' && elapsedMs > 3 * 60_000;
     const shouldAttempt =
-      (state === 'close' || state === 'connecting' || state === 'unknown' || state === 'error') &&
+      (state === 'close' || state === 'unknown' || state === 'error' || isStuckConnecting) &&
       (elapsedMs < 30 * 60_000 || now - lastAttemptAt > 60 * 60_000);
     if (shouldAttempt) {
       try {
