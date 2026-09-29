@@ -795,6 +795,29 @@ async function transcribeWithGroq(buffer: Buffer, filename: string, mime: string
   return (data.text || '').trim();
 }
 
+// POST /api/messages/transcribe-preview — transcreve um audio ainda nao
+// enviado (gravado/carregado no composer, so existe como anexo pendente,
+// sem Message criada). So aceita URLs da propria pasta /uploads/ do
+// backend (onde /files/upload guarda o que o utilizador acabou de
+// carregar) para nao virar um proxy de fetch para qualquer URL externa.
+router.post('/transcribe-preview', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { mediaUrl } = req.body;
+    if (!mediaUrl || typeof mediaUrl !== 'string' || !mediaUrl.includes('/uploads/')) {
+      throw new AppError('mediaUrl invalido', 400);
+    }
+
+    const apiKey = process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('GROQ_API_KEY não configurada no backend', 500);
+
+    const audio = await fetchAudio(mediaUrl);
+    const text = await transcribeWithGroq(audio.buffer, audio.filename, audio.mime, apiKey);
+    if (!text) throw new AppError('Não foi possível transcrever (audio vazio ou inaudivel)', 422);
+
+    res.json({ transcription: text });
+  } catch (e) { next(e); }
+});
+
 // POST /api/messages/:id/transcribe — transcreve o audio da mensagem
 router.post('/:id/transcribe', async (req: AuthRequest, res: Response, next) => {
   try {

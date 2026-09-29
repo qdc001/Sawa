@@ -453,6 +453,32 @@ export default function InboxPage() {
     }
   };
 
+  // Transcrição de um audio ainda por enviar (gravado/carregado no composer,
+  // antes de premir "Enviar"). Guarda o texto por anexo para mostrar a opção
+  // de o usar como mensagem de texto em vez do audio.
+  const [transcribingAttachmentId, setTranscribingAttachmentId] = useState<string | null>(null);
+  const [pendingTranscriptions, setPendingTranscriptions] = useState<Record<string, string>>({});
+  const transcribePendingAudio = async (att: PendingAttachment) => {
+    if (transcribingAttachmentId) return;
+    setTranscribingAttachmentId(att.id);
+    try {
+      const apiBase = (import.meta.env as any).VITE_API_URL || '';
+      const { data } = await api.post('/messages/transcribe-preview', { mediaUrl: `${apiBase}${att.url}` });
+      setPendingTranscriptions((prev) => ({ ...prev, [att.id]: data.transcription }));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao transcrever');
+    } finally {
+      setTranscribingAttachmentId(null);
+    }
+  };
+  const usePendingTranscriptionAsText = (att: PendingAttachment) => {
+    const text = pendingTranscriptions[att.id];
+    if (!text) return;
+    setDraft((prev) => (prev.trim() ? `${prev.trim()}\n${text}` : text));
+    setAttachments((prev) => prev.filter((a) => a.id !== att.id));
+    setPendingTranscriptions((prev) => { const next = { ...prev }; delete next[att.id]; return next; });
+  };
+
   const [search, setSearch] = useState(globalSearchQuery || '');
   const [channelFilter, setChannelFilter] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -2923,27 +2949,56 @@ export default function InboxPage() {
                     </p>
                   )}
                   {attachments.map((att) => (
-                    <div key={att.id} className="flex items-center gap-2 p-2 rounded" style={{ background: 'var(--surface-2)' }}>
-                      {att.mimeType.startsWith('image/') ? (
-                        <img src={`${(import.meta.env as any).VITE_API_URL || ''}${att.url}`} className="w-10 h-10 rounded object-cover" alt="" />
-                      ) : (
-                        <div className="w-10 h-10 rounded flex items-center justify-center" style={{ background: 'var(--primary-light)' }}>
-                          <Paperclip size={16} style={{ color: 'var(--primary)' }} />
+                    <div key={att.id} className="rounded" style={{ background: 'var(--surface-2)' }}>
+                      <div className="flex items-center gap-2 p-2">
+                        {att.mimeType.startsWith('image/') ? (
+                          <img src={`${(import.meta.env as any).VITE_API_URL || ''}${att.url}`} className="w-10 h-10 rounded object-cover" alt="" />
+                        ) : (
+                          <div className="w-10 h-10 rounded flex items-center justify-center" style={{ background: 'var(--primary-light)' }}>
+                            <Paperclip size={16} style={{ color: 'var(--primary)' }} />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{att.name}</p>
+                          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{(att.size / 1024).toFixed(1)} KB</p>
+                        </div>
+                        {att.mimeType.startsWith('audio/') && !pendingTranscriptions[att.id] && (
+                          <button
+                            onClick={() => transcribePendingAudio(att)}
+                            disabled={transcribingAttachmentId === att.id}
+                            className="text-[11px] px-2 py-1 rounded font-medium flex items-center gap-1 flex-shrink-0"
+                            style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                          >
+                            {transcribingAttachmentId === att.id
+                              ? (<><Loader2 size={11} className="animate-spin" /> A transcrever...</>)
+                              : 'Transcrever'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setAttachments((prev) => prev.filter((a) => a.id !== att.id));
+                            setPendingTranscriptions((prev) => { const next = { ...prev }; delete next[att.id]; return next; });
+                            if (fileInputRef.current) fileInputRef.current.value = '';
+                          }}
+                          className="p-1"
+                        >
+                          <X size={14} style={{ color: 'var(--text-muted)' }} />
+                        </button>
+                      </div>
+                      {pendingTranscriptions[att.id] && (
+                        <div className="px-2 pb-2">
+                          <p className="text-xs p-2 rounded" style={{ background: 'var(--surface)', color: 'var(--text-primary)' }}>
+                            "{pendingTranscriptions[att.id]}"
+                          </p>
+                          <button
+                            onClick={() => usePendingTranscriptionAsText(att)}
+                            className="text-[11px] px-2 py-1 mt-1 rounded font-medium"
+                            style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                          >
+                            Usar como texto (em vez do audio)
+                          </button>
                         </div>
                       )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{att.name}</p>
-                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{(att.size / 1024).toFixed(1)} KB</p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setAttachments((prev) => prev.filter((a) => a.id !== att.id));
-                          if (fileInputRef.current) fileInputRef.current.value = '';
-                        }}
-                        className="p-1"
-                      >
-                        <X size={14} style={{ color: 'var(--text-muted)' }} />
-                      </button>
                     </div>
                   ))}
                 </div>
