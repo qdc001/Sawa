@@ -52,10 +52,11 @@ const messageInclude = {
 };
 
 // GET /api/messages/conversations - lista de conversas (paginada)
-// query: page, limit (default 100), channel, search, unreadOnly, combineByContact
+// query: page, limit (default 100), channel, search, unreadOnly, unansweredOnly,
+// unansweredWindowHours, combineByContact
 router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { channel, search, unreadOnly, combineByContact, page = 1, limit = 100 } = req.query;
+    const { channel, search, unreadOnly, unansweredOnly, unansweredWindowHours, combineByContact, page = 1, limit = 100 } = req.query;
     const pageNum = Math.max(1, Number(page) || 1);
     const lim = Math.min(Math.max(1, Number(limit) || 100), 500);
     const messageWhere: any = {
@@ -212,6 +213,18 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
     }));
 
     if (unreadOnly === 'true') conversations = conversations.filter((c: any) => c.unread > 0);
+    // "Não respondidas": última mensagem foi do contacto (INBOUND), ou seja
+    // ninguem da equipa respondeu depois disso. A janela de horas evita
+    // encher a lista com conversas abandonadas ha meses — só mostra as que
+    // ficaram sem resposta dentro do prazo configurado (default 48h).
+    if (unansweredOnly === 'true') {
+      const windowHours = Math.min(Math.max(Number(unansweredWindowHours) || 48, 1), 24 * 30);
+      const cutoff = Date.now() - windowHours * 60 * 60 * 1000;
+      conversations = conversations.filter((c: any) =>
+        c.lastMessage?.direction === 'INBOUND' &&
+        c.lastMessage?.createdAt && new Date(c.lastMessage.createdAt).getTime() >= cutoff,
+      );
+    }
     if (search) {
       // Normalizar removendo acentos para que "Joao" apanhe "João".
       const stripAccents = (s: string) =>

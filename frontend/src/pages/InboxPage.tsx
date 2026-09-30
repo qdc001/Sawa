@@ -482,6 +482,11 @@ export default function InboxPage() {
   const [search, setSearch] = useState(globalSearchQuery || '');
   const [channelFilter, setChannelFilter] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [unansweredOnly, setUnansweredOnly] = useState(false);
+  const [unansweredWindowHours, setUnansweredWindowHours] = useState<number>(() => {
+    return Number(localStorage.getItem('kommo:unansweredWindowHours')) || 48;
+  });
+  useEffect(() => { localStorage.setItem('kommo:unansweredWindowHours', String(unansweredWindowHours)); }, [unansweredWindowHours]);
   const [combineByContact, setCombineByContact] = useState(false);
   const [folderFilter, setFolderFilter] = useState<'all' | 'fav' | 'archive' | 'mine'>('all');
 
@@ -1033,6 +1038,10 @@ export default function InboxPage() {
     if (channelFilter) params.set('channel', channelFilter);
     if (search.trim()) params.set('search', search.trim());
     if (unreadOnly) params.set('unreadOnly', 'true');
+    if (unansweredOnly) {
+      params.set('unansweredOnly', 'true');
+      params.set('unansweredWindowHours', String(unansweredWindowHours));
+    }
     if (combineByContact) params.set('combineByContact', 'true');
     params.set('page', String(convPage));
     params.set('limit', String(CONV_PAGE_SIZE));
@@ -1056,10 +1065,10 @@ export default function InboxPage() {
       .finally(() => setLoadingConvs(false));
   };
 
-  useEffect(() => { loadConversations(); /* eslint-disable-next-line */ }, [channelFilter, search, unreadOnly, combineByContact, convPage]);
+  useEffect(() => { loadConversations(); /* eslint-disable-next-line */ }, [channelFilter, search, unreadOnly, unansweredOnly, unansweredWindowHours, combineByContact, convPage]);
 
   // Sempre que muda um filtro, voltar à página 1
-  useEffect(() => { setConvPage(1); }, [channelFilter, search, unreadOnly, combineByContact]);
+  useEffect(() => { setConvPage(1); }, [channelFilter, search, unreadOnly, unansweredOnly, unansweredWindowHours, combineByContact]);
 
   // Abrir conversa específica via URL (?contactId=X ou ?leadId=Y vindos de Tasks/Pipeline)
   // Dispara sempre que o searchParams muda (ex. clique no botão chat de Contactos).
@@ -1916,6 +1925,25 @@ export default function InboxPage() {
               style={{ background: unreadOnly ? 'var(--primary)' : 'var(--surface-3)', color: unreadOnly ? '#fff' : 'var(--text-secondary)' }}>
               Não lidas
             </button>
+            <button onClick={() => setUnansweredOnly(!unansweredOnly)} className="text-xs px-2 py-1 rounded font-medium"
+              title="Conversas em que a última mensagem foi do contacto (ninguém da equipa respondeu ainda)"
+              style={{ background: unansweredOnly ? 'var(--primary)' : 'var(--surface-3)', color: unansweredOnly ? '#fff' : 'var(--text-secondary)' }}>
+              Não respondidas
+            </button>
+            {unansweredOnly && (
+              <select
+                value={unansweredWindowHours}
+                onChange={(e) => setUnansweredWindowHours(Number(e.target.value))}
+                className="text-xs px-1.5 py-1 rounded font-medium"
+                style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)', border: 'none' }}
+                title="Só mostra as que ficaram sem resposta dentro deste prazo"
+              >
+                <option value={24}>últimas 24h</option>
+                <option value={48}>últimas 48h</option>
+                <option value={72}>últimas 72h</option>
+                <option value={168}>última semana</option>
+              </select>
+            )}
             <button onClick={() => setCombineByContact(!combineByContact)} className="text-xs px-2 py-1 rounded font-medium"
               title="Juntar todos os canais do mesmo contacto numa única conversa"
               style={{ background: combineByContact ? 'var(--primary)' : 'var(--surface-3)', color: combineByContact ? '#fff' : 'var(--text-secondary)' }}>
