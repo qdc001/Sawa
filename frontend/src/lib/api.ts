@@ -394,6 +394,7 @@ export interface Conversation {
   contact: {
     id: string;
     firstName: string;
+    assigneeCode?: string | null;
     lastName?: string;
     phone?: string;
     whatsapp?: string;
