@@ -1049,44 +1049,89 @@ router.post('/evolution', async (req: Request, res: Response) => {
         const calls = Array.isArray(data?.calls) ? data.calls : (Array.isArray(data) ? data : [data]);
         for (const c of calls) {
           if (!c) continue;
-          const from = c.from || c.jid || c.peerJid;
-          if (!from || String(from).endsWith('@g.us')) continue;
-          const phone = String(from).split('@')[0].replace(/\D/g, '');
-          const contact = await prisma.contact.findFirst({ where: { whatsapp: phone, workspaceId } });
+          const candidates = [c.from, c.chatId, c.jid, c.peerJid]
+            .filter((x) => typeof x === 'string' && x && !x.endsWith('@g.us')) as string[];
+          console.log(`[evo] call status=${c.status} video=${!!c.isVideo} id=${String(c.id || '').slice(0, 8)} from=${candidates.map((x) => x.slice(0, 18)).join('|') || '-'}`);
+          if (candidates.length === 0) continue;
+
+          // Procurar contacto por qualquer um dos JIDs candidatos (o "from" de
+          // uma chamada pode vir como LID e o chatId como numero, ou vice-versa).
+          let contact: any = null;
+          for (const jid of candidates) {
+            const digits = jid.split('@')[0].replace(/\D/g, '');
+            if (!digits) continue;
+            contact = await prisma.contact.findFirst({ where: { whatsapp: digits, workspaceId } });
+            if (contact) break;
+          }
+          // Primeira chamada de alguem que nunca escreveu: criar o contacto
+          // (como o fluxo de mensagens) em vez de perder o registo da chamada.
+          if (!contact) {
+            const digits = candidates[0].split('@')[0].replace(/\D/g, '');
+            if (!digits) continue;
+            const info = analysePhone(digits);
+            contact = await prisma.contact.create({
+              data: {
+                firstName: nameFromPushOrPhone('', digits),
+                whatsapp: info.rawDigits,
+                phone: info.isLid ? null : info.display,
+                workspaceId,
+                type: 'PERSON',
+              },
+            });
+          }
+
+          const lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
           const callType = c.isVideo ? 'video' : 'voice';
-          const status = c.status || 'ringing';
+          const status = String(c.status || 'ringing').toLowerCase();
+          const ringingText = `📞 Chamada de ${callType === 'video' ? 'video' : 'voz'} recebida (atende no telefone)`;
+          const missedText = '📞 Chamada perdida';
 
-          // Persistir como mensagem SYSTEM para aparecer na timeline
-          if (contact) {
-            const lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
-            const text = status === 'ringing'
-              ? `📞 Chamada de ${callType === 'video' ? 'video' : 'voz'} recebida (atende no telefone)`
-              : status === 'accept'
-              ? `📞 Chamada atendida`
-              : status === 'reject'
-              ? `📞 Chamada rejeitada`
-              : status === 'timeout'
-              ? `📞 Chamada perdida`
-              : `📞 Chamada (${status})`;
+          // Uma unica mensagem por chamada (externalId = call:<id>): o Baileys
+          // envia varios eventos por chamada (offer/ringing/accept/terminate...)
+          // e antes cada um criava uma mensagem nova, incluindo "Chamada (offer)".
+          const externalId = c.id ? `call:${c.id}` : undefined;
+          const existing = externalId
+            ? await prisma.message.findFirst({ where: { externalId, contactId: contact.id } })
+            : null;
 
-            const saved = await prisma.message.create({
+          let text: string | null;
+          if (status === 'offer' || status === 'ringing') text = ringingText;
+          else if (status === 'accept') text = '📞 Chamada atendida';
+          else if (status === 'reject') text = '📞 Chamada rejeitada';
+          else if (status === 'timeout') text = missedText;
+          else if (status === 'terminate') text = existing && existing.content !== ringingText ? null : missedText;
+          else text = `📞 Chamada (${status})`;
+
+          let saved: any = null;
+          if (existing) {
+            if (text && text !== existing.content) {
+              saved = await prisma.message.update({ where: { id: existing.id }, data: { content: text } });
+              if (io) io.to(`workspace:${workspaceId}`).emit('message:updated', saved);
+            }
+          } else if (text) {
+            saved = await prisma.message.create({
               data: {
                 content: text,
                 type: 'SYSTEM',
                 direction: 'INBOUND',
                 channel: 'WHATSAPP',
                 status: 'DELIVERED',
+                externalId,
                 contactId: contact.id,
                 leadId: lead?.id,
               },
             });
+            if (io) io.to(`workspace:${workspaceId}`).emit('message:new', saved);
+          }
 
-            if (io) {
-              io.to(`workspace:${workspaceId}`).emit('message:new', saved);
-              io.to(`workspace:${workspaceId}`).emit('call:incoming', {
-                contactId: contact.id, contactName: contact.firstName, phone, callType, status,
-              });
-            }
+          // O Baileys envia 'offer' antes de 'ringing'; o frontend so mostra o
+          // aviso para 'ringing', e ambos referem a mesma chamada — avisamos
+          // uma so vez, na primeira vez que a vemos.
+          const emitStatus = status === 'offer' ? 'ringing' : status;
+          if (io && !(emitStatus === 'ringing' && existing)) {
+            io.to(`workspace:${workspaceId}`).emit('call:incoming', {
+              contactId: contact.id, contactName: contact.firstName, phone: contact.whatsapp, callType, status: emitStatus,
+            });
           }
         }
       } catch (e) { console.error('call parse error:', e); }
