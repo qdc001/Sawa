@@ -864,6 +864,24 @@ router.post('/evolution', async (req: Request, res: Response) => {
           content = `${m.pushName}: ${content}`;
         }
 
+        // Resposta citada ("destacar" uma mensagem no WhatsApp): o contextInfo
+        // traz o id da mensagem original (stanzaId). Ligamos a mensagem do CRM
+        // correspondente para o balao mostrar a citacao. Se a original nao
+        // existe no CRM (anterior a ligacao), fica sem citacao.
+        let replyToId: string | undefined;
+        const quoteHolder =
+          unwrapped.extendedTextMessage || unwrapped.imageMessage || unwrapped.videoMessage ||
+          unwrapped.audioMessage || unwrapped.documentMessage || unwrapped.stickerMessage ||
+          msg.extendedTextMessage;
+        const quotedExternalId: string | undefined = quoteHolder?.contextInfo?.stanzaId;
+        if (quotedExternalId) {
+          const quoted = await prisma.message.findFirst({
+            where: { externalId: quotedExternalId, contactId: contact.id },
+            select: { id: true },
+          });
+          if (quoted) replyToId = quoted.id;
+        }
+
         const saved = await prisma.message.create({
           data: {
             content,
@@ -876,6 +894,10 @@ router.post('/evolution', async (req: Request, res: Response) => {
             fileName: docFileName,
             leadId: lead?.id,
             contactId: contact.id,
+            replyToId,
+          },
+          include: {
+            replyTo: { select: { id: true, content: true, direction: true, sentBy: { select: { name: true } } } },
           },
         });
 
