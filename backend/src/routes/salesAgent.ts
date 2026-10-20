@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { propagateAssignee } from '../lib/propagateAssignee';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import prisma from '../lib/prisma';
@@ -397,6 +398,7 @@ router.post('/suggestions/:id/approve', async (req: AuthRequest, res: Response, 
         create: { workspaceId: suggestion.workspaceId, contactId: suggestion.contactId, channel: 'WHATSAPP', assignedToId },
         update: { assignedToId },
       });
+      await propagateAssignee(suggestion.workspaceId, suggestion.contactId, assignedToId, 'conversation');
       const updated = await prisma.aiSalesSuggestion.update({
         where: { id: suggestion.id },
         data: { status: 'APPROVED', decidedAt: new Date(), decidedById: req.user!.id, finalParts: partsArr as any },

@@ -26,6 +26,51 @@
 import prisma from './prisma';
 export type AssigneeSource = 'contact' | 'conversation' | 'lead' | 'task';
 
+// Gera/limpa Contact.assigneeCode conforme o prefixo do responsavel actual.
+// Mantem o codigo se ja tem o mesmo prefixo (evita renumerar a cada sync).
+export async function syncAssigneeCode(
+  workspaceId: string,
+  contactId: string,
+  assignedToId: string | null,
+): Promise<void> {
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId },
+    select: { assigneeCode: true },
+  });
+  if (!contact) return;
+
+  let prefix = '';
+  if (assignedToId) {
+    const user = await prisma.user.findFirst({
+      where: { id: assignedToId, workspaceId },
+      select: { contactCodePrefix: true },
+    });
+    prefix = (user?.contactCodePrefix || '').trim().toUpperCase();
+  }
+
+  if (!prefix) {
+    if (contact.assigneeCode) {
+      await prisma.contact.update({ where: { id: contactId }, data: { assigneeCode: null } });
+    }
+    return;
+  }
+  if (contact.assigneeCode?.startsWith(`${prefix}-`)) return;
+
+  const existing = await prisma.contact.findMany({
+    where: { workspaceId, assigneeCode: { startsWith: `${prefix}-` } },
+    select: { assigneeCode: true },
+  });
+  let max = 0;
+  for (const c of existing) {
+    const n = parseInt((c.assigneeCode || '').slice(prefix.length + 1), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  await prisma.contact.update({
+    where: { id: contactId },
+    data: { assigneeCode: `${prefix}-${String(max + 1).padStart(4, '0')}` },
+  });
+}
+
 export async function propagateAssignee(
   workspaceId: string,
   contactId: string,
@@ -74,6 +119,7 @@ export async function propagateAssignee(
     }
 
     await Promise.all(tasks);
+    await syncAssigneeCode(workspaceId, contactId, assignedToId);
   } catch (e: any) {
     console.error('propagateAssignee fatal:', e.message);
   }

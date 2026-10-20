@@ -2143,6 +2143,7 @@ export default function InboxPage() {
                       <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                         {selected.combined ? 'Multi-canal' : CHANNEL_LABELS[selected.channel]}
                         {selected.contact?.phone && ` · ${selected.contact.phone}`}
+                        {selected.contact?.assigneeCode && ` · ${selected.contact.assigneeCode}`}
                       </span>
                     )}
                   </div>

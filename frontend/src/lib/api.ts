@@ -255,6 +255,7 @@ export interface Lead {
 
 export interface Contact {
   id: string;
+  assigneeCode?: string | null;
   type: 'PERSON' | 'COMPANY';
   firstName: string;
   lastName?: string;

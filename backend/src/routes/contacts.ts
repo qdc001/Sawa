@@ -169,7 +169,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     await checkLimit(req.user!.workspaceId, 'contacts');
-    const { tags, customValues, ...rest } = req.body;
+    const { tags, customValues, assigneeCode: _ignoredCode, ...rest } = req.body;
     const cleanCV = Array.isArray(customValues)
       ? customValues
           .filter((cv: any) => cv && cv.fieldId && cv.value !== undefined && cv.value !== null && cv.value !== '')
@@ -186,6 +186,9 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       },
       include: contactInclude,
     });
+    if (contact.assignedToId) {
+      await propagateAssignee(req.user!.workspaceId, contact.id, contact.assignedToId, 'contact');
+    }
     triggerAutomations({ type: 'contact_created', workspaceId: req.user!.workspaceId, entityType: 'contact', entityId: contact.id }).catch(() => {});
     res.status(201).json(contact);
   } catch (e) { next(e); }
@@ -277,7 +280,7 @@ router.post('/bulk', async (req: AuthRequest, res: Response, next) => {
 // PATCH /api/contacts/:id
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { tags, customValues, ...rest } = req.body;
+    const { tags, customValues, assigneeCode: _ignoredCode, ...rest } = req.body;
 
     // Substituir tags se enviadas
     if (Array.isArray(tags)) {

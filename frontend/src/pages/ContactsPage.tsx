@@ -670,7 +670,9 @@ function ContactFormModal({
             )}
 
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Responsável</label>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Responsável{(contact as any)?.assigneeCode && <span className="ml-2 text-xs font-semibold" style={{ color: 'var(--primary)' }}>Código: {(contact as any).assigneeCode}</span>}
+              </label>
               <select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)} className="input-base">
                 <option value="">— Sem responsável —</option>
                 {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -1153,6 +1155,9 @@ export default function ContactsPage() {
                           <img src={c.avatar} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />
                         ) : c.type === 'COMPANY' ? <Building2 size={14} style={{ color: 'var(--text-muted)' }} /> : <UserIcon size={14} style={{ color: 'var(--text-muted)' }} />}
                         <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{c.firstName} {c.lastName || ''}</span>
+                        {(c as any).assigneeCode && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded font-semibold" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }} title="Código do responsável">{(c as any).assigneeCode}</span>
+                        )}
                       </button>
                     </td>
                   )}

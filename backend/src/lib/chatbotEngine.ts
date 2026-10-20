@@ -16,6 +16,7 @@
  */
 
 import prisma from './prisma';
+import { propagateAssignee } from './propagateAssignee';
 import { getCreds, encryptForStore } from './integrationCrypto';
 
 // ── Types ─────────────────────────────────────────────
@@ -342,7 +343,8 @@ async function executeAction(node: FlowNode, ctx: RunContext) {
     case 'assign_user': {
       if (!ctx.leadId) { ctx.log.push('action assign_user: sem lead'); return; }
       if (!params.userId) { ctx.log.push('action assign_user: sem userId'); return; }
-      await prisma.lead.update({ where: { id: ctx.leadId }, data: { assignedToId: params.userId } });
+      const botLead = await prisma.lead.update({ where: { id: ctx.leadId }, data: { assignedToId: params.userId }, select: { contactId: true } });
+      if (botLead.contactId) await propagateAssignee(ctx.workspaceId, botLead.contactId, params.userId, 'lead');
       ctx.log.push(`action assign_user: lead atribuído a ${params.userId}`);
       break;
     }
@@ -600,6 +602,7 @@ async function executeHandoff(node: FlowNode, ctx: RunContext) {
       create: { workspaceId: ctx.workspaceId, contactId: ctx.contactId, channel, assignedToId: assignTo },
       update: { assignedToId: assignTo },
     });
+    await propagateAssignee(ctx.workspaceId, ctx.contactId, assignTo, 'conversation');
 
     // Notificar o agente
     await prisma.notification.create({

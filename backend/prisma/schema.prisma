@@ -25,6 +25,9 @@ model User {
   status           String    @default("OFFLINE") // ONLINE | AWAY | BUSY | DND | OFFLINE
   internalNotes    String?
   viewOnlyOwn      Boolean   @default(false)
+  // Prefixo definivel (ex: "ABS") usado para gerar o codigo dos contactos que
+  // lhe sao atribuidos (ex: "ABS-0001"). Sem prefixo => nao gera codigo.
+  contactCodePrefix String?
   lastLoginAt      DateTime?
   // 2FA
   twoFactorEnabled Boolean   @default(false)
@@ -382,6 +385,9 @@ model Contact {
 
   assignedTo   User?   @relation("AssignedContacts", fields: [assignedToId], references: [id], onDelete: SetNull)
   assignedToId String?
+  // Codigo gerado ao atribuir o contacto a um colaborador com prefixo definido
+  // (ex: "ABS-0001"). Muda quando o responsavel muda; limpo sem responsavel.
+  assigneeCode String?
 
   leads               Lead[]
   broadcastRecipients BroadcastRecipient[]
@@ -396,6 +402,7 @@ model Contact {
   appointments        Appointment[]
 
   @@index([assignedToId])
+  @@index([workspaceId, assigneeCode])
   @@map("contacts")
 }
 

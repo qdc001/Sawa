@@ -9,13 +9,14 @@ import { sendSystemEmail } from '../lib/mailer';
 
 import prisma from '../lib/prisma';
 import { checkLimit } from '../lib/planLimits';
+import { syncAssigneeCode } from '../lib/propagateAssignee';
 const router = Router();
 
 const userSelect = {
   id: true, name: true, email: true, avatar: true, phone: true,
   digestGroupJid: true,
   role: true, isActive: true, status: true, internalNotes: true,
-  viewOnlyOwn: true, teamId: true,
+  viewOnlyOwn: true, teamId: true, contactCodePrefix: true,
   twoFactorEnabled: true, language: true, emailPreferences: true,
   workspaceId: true, lastLoginAt: true,
   createdAt: true, updatedAt: true,
@@ -247,7 +248,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN podem editar membros', 403);
     }
-    const { role, isActive, name, internalNotes, viewOnlyOwn, teamId, phone, digestGroupJid } = req.body;
+    const { role, isActive, name, internalNotes, viewOnlyOwn, teamId, phone, digestGroupJid, contactCodePrefix } = req.body;
     if (role === 'OWNER' && req.user!.role !== 'OWNER') {
       throw new AppError('Apenas OWNER pode promover outro a OWNER', 403);
     }
@@ -255,9 +256,24 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       const owners = await prisma.user.count({ where: { workspaceId: req.user!.workspaceId, role: 'OWNER' } });
       if (owners <= 1) throw new AppError('Tem de existir pelo menos um OWNER', 400);
     }
+    let newPrefix: string | null | undefined;
+    if (contactCodePrefix !== undefined) {
+      newPrefix = String(contactCodePrefix || '').trim().toUpperCase() || null;
+      if (newPrefix && !/^[A-Z0-9]{1,6}$/.test(newPrefix)) {
+        throw new AppError('Prefixo do código: 1 a 6 letras/números, sem espaços', 400);
+      }
+      if (newPrefix) {
+        const clash = await prisma.user.findFirst({
+          where: { workspaceId: req.user!.workspaceId, contactCodePrefix: newPrefix, id: { not: req.params.id } },
+          select: { name: true },
+        });
+        if (clash) throw new AppError(`O prefixo ${newPrefix} já é usado por ${clash.name}`, 400);
+      }
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: {
+        ...(newPrefix !== undefined && { contactCodePrefix: newPrefix }),
         ...(role && { role }),
         ...(isActive !== undefined && { isActive }),
         ...(name && { name }),
@@ -269,6 +285,15 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
       },
       select: userSelect,
     });
+    if (newPrefix !== undefined && newPrefix !== target.contactCodePrefix) {
+      const owned = await prisma.contact.findMany({
+        where: { workspaceId: req.user!.workspaceId, assignedToId: target.id },
+        select: { id: true },
+      });
+      for (const c of owned) {
+        await syncAssigneeCode(req.user!.workspaceId, c.id, target.id).catch(() => {});
+      }
+    }
     res.json(user);
   } catch (e) { next(e); }
 });

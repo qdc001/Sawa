@@ -313,6 +313,75 @@ router.get('/team-performance', async (req: AuthRequest, res: Response, next) =>
   } catch (e) { next(e); }
 });
 
+// GET /api/analytics/response-times
+// Tempo de resposta por colaborador: para cada mensagem do contacto (INBOUND)
+// sem resposta pendente, mede o tempo ate a primeira resposta OUTBOUND de um
+// utilizador. Respostas sem utilizador (enviadas do telemovel, bot, automacao)
+// fecham o "pendente" mas nao contam para ninguem. Intervalos acima de
+// RESPONSE_CAP_HOURS (ex: cliente que volta dias depois) sao ignorados para
+// nao distorcer a media.
+const RESPONSE_CAP_HOURS = 72;
+router.get('/response-times', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const { from, to } = getDateRange(req);
+
+    const messages = await prisma.message.findMany({
+      where: {
+        contact: { workspaceId },
+        isInternal: false,
+        type: { not: 'SYSTEM' },
+        createdAt: { gte: from, lte: to },
+      },
+      select: { contactId: true, direction: true, sentById: true, createdAt: true },
+      orderBy: [{ contactId: 'asc' }, { createdAt: 'asc' }],
+      take: 100000,
+    });
+
+    const capMs = RESPONSE_CAP_HOURS * 3600 * 1000;
+    const deltasByUser = new Map<string, number[]>();
+    let currentContact: string | null = null;
+    let pendingInboundAt: number | null = null;
+
+    for (const m of messages) {
+      if (m.contactId !== currentContact) { currentContact = m.contactId; pendingInboundAt = null; }
+      const t = m.createdAt.getTime();
+      if (m.direction === 'INBOUND') {
+        if (pendingInboundAt === null) pendingInboundAt = t;
+      } else if (pendingInboundAt !== null) {
+        const delta = t - pendingInboundAt;
+        pendingInboundAt = null;
+        if (m.sentById && delta >= 0 && delta <= capMs) {
+          const arr = deltasByUser.get(m.sentById) || [];
+          arr.push(delta);
+          deltasByUser.set(m.sentById, arr);
+        }
+      }
+    }
+
+    const users = await prisma.user.findMany({
+      where: { workspaceId },
+      select: { id: true, name: true, avatar: true },
+    });
+    const result = users.map((u) => {
+      const d = (deltasByUser.get(u.id) || []).sort((a, b) => a - b);
+      const avg = d.length ? d.reduce((s, x) => s + x, 0) / d.length : 0;
+      const median = d.length ? d[Math.floor(d.length / 2)] : 0;
+      return {
+        id: u.id, name: u.name, avatar: u.avatar,
+        replies: d.length,
+        avgSeconds: Math.round(avg / 1000),
+        medianSeconds: Math.round(median / 1000),
+      };
+    });
+    result.sort((a, b) => {
+      if (!a.replies !== !b.replies) return a.replies ? -1 : 1;
+      return a.avgSeconds - b.avgSeconds;
+    });
+    res.json({ capHours: RESPONSE_CAP_HOURS, users: result });
+  } catch (e) { next(e); }
+});
+
 // GET /api/analytics/lead-sources
 router.get('/lead-sources', async (req: AuthRequest, res: Response, next) => {
   try {

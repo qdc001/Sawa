@@ -148,7 +148,7 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
             contactId: { in: uniqueContactIds },
           },
           include: {
-            contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, email: true, avatar: true, type: true } },
+            contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, email: true, avatar: true, type: true, assigneeCode: true } },
             lead: { select: { id: true, title: true } },
             sentBy: { select: { id: true, name: true } },
           },
@@ -160,7 +160,7 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
       messages = await prisma.message.findMany({
         where: messageWhere,
         include: {
-          contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, email: true, avatar: true, type: true } },
+          contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, email: true, avatar: true, type: true, assigneeCode: true } },
           lead: { select: { id: true, title: true } },
           sentBy: { select: { id: true, name: true } },
         },

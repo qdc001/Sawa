@@ -148,6 +148,7 @@ function MemberDetailModal({ user, teams, onClose, onChanged }: {
   const [teamId, setTeamId] = useState((user as any).teamId || '');
   const [phone, setPhone] = useState((user as any).phone || '');
   const [digestGroupJid, setDigestGroupJid] = useState((user as any).digestGroupJid || '');
+  const [contactCodePrefix, setContactCodePrefix] = useState((user as any).contactCodePrefix || '');
   const [groups, setGroups] = useState<{ jid: string; name: string }[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -171,6 +172,7 @@ function MemberDetailModal({ user, teams, onClose, onChanged }: {
         internalNotes, viewOnlyOwn, teamId: teamId || null,
         phone: phone || null,
         digestGroupJid: digestGroupJid || null,
+        contactCodePrefix: contactCodePrefix.trim() || null,
       });
       toast.success('Guardado');
       onChanged();
@@ -203,6 +205,19 @@ function MemberDetailModal({ user, teams, onClose, onChanged }: {
               <option value="">— Sem equipa —</option>
               {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Prefixo do código dos contactos</label>
+            <input
+              value={contactCodePrefix}
+              onChange={(e) => setContactCodePrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
+              className="input-base"
+              placeholder="Ex: ABS"
+              maxLength={6}
+            />
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              Cada contacto atribuído a {user.name} recebe um código com este prefixo (ex: {contactCodePrefix || 'ABS'}-0001). Vazio = sem código. Ao mudar o prefixo, os contactos dele são renumerados.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Telefone WhatsApp</label>

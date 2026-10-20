@@ -22,6 +22,7 @@
  */
 
 import prisma from './prisma';
+import { propagateAssignee } from './propagateAssignee';
 import { getCreds, encryptForStore } from './integrationCrypto';
 
 interface TriggerEvent {
@@ -253,7 +254,8 @@ async function executeAction(action: Action, ctx: RuleContext): Promise<void> {
     case 'assign_user': {
       if (!leadId) { record(ctx, 'assign_user skip', 'sem lead'); return; }
       if (!params.userId) { record(ctx, 'assign_user skip', 'sem userId'); return; }
-      await prisma.lead.update({ where: { id: leadId }, data: { assignedToId: params.userId } });
+      const autoLead = await prisma.lead.update({ where: { id: leadId }, data: { assignedToId: params.userId }, select: { contactId: true, workspaceId: true } });
+      if (autoLead.contactId) await propagateAssignee(autoLead.workspaceId, autoLead.contactId, params.userId, 'lead');
       record(ctx, 'assign_user', params.userId);
       break;
     }

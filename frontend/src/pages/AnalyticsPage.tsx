@@ -14,6 +14,17 @@ const PERIOD_LABELS: Record<Period, string> = {
   today: 'Hoje', '7d': '7 dias', '30d': '30 dias', '3m': '3 meses', '6m': '6 meses', '1y': '1 ano',
 };
 
+type ResponseTimeStat = { id: string; name: string; replies: number; avgSeconds: number; medianSeconds: number };
+function formatDuration(sec: number): string {
+  if (!sec) return '—';
+  if (sec < 60) return `${sec}s`;
+  const m = Math.round(sec / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm ? `${h}h ${rm}min` : `${h}h`;
+}
+
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const [section, setSection] = useState<'trends' | 'team' | 'sources' | 'pipeline'>('trends');
@@ -24,6 +35,7 @@ export default function AnalyticsPage() {
   const [team, setTeam] = useState<TeamMemberStats[]>([]);
   const [sources, setSources] = useState<LeadSourceStat[]>([]);
   const [conv, setConv] = useState<ConversionStats | null>(null);
+  const [responseTimes, setResponseTimes] = useState<{ capHours: number; users: ResponseTimeStat[] }>({ capHours: 72, users: [] });
 
   useEffect(() => {
     setLoading(true);
@@ -33,12 +45,14 @@ export default function AnalyticsPage() {
       api.get(`/analytics/team-performance?period=${period}`),
       api.get(`/analytics/lead-sources?period=${period}`),
       api.get(`/analytics/conversion-stats?period=${period}`),
-    ]).then(([d, r, t, s, c]) => {
+      api.get(`/analytics/response-times?period=${period}`),
+    ]).then(([d, r, t, s, c, rt]) => {
       setDashboard(d.data);
       setRevenue(Array.isArray(r.data) ? r.data : []);
       setTeam(Array.isArray(t.data) ? t.data : []);
       setSources(Array.isArray(s.data) ? s.data : []);
       setConv(c.data);
+      setResponseTimes(rt.data?.users ? rt.data : { capHours: 72, users: [] });
     }).catch(() => {}).finally(() => setLoading(false));
   }, [period]);
 
@@ -189,6 +203,36 @@ export default function AnalyticsPage() {
                 </BarChart>
               </ResponsiveContainer>
             )}
+          </div>
+
+          {/* Tempo medio de resposta por colaborador */}
+          <div className="card p-5">
+            <h3 className="font-semibold mb-1 flex items-center gap-2"><Hourglass size={16} style={{ color: '#0EA5E9' }} /> Tempo de resposta por colaborador</h3>
+            <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
+              Tempo desde a mensagem do cliente até à primeira resposta de cada colaborador pelo CRM (respostas após mais de {responseTimes.capHours}h ignoradas; respostas enviadas pelo telemóvel não contam).
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    <th className="text-left py-2 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>Membro</th>
+                    <th className="text-right py-2 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>Respostas</th>
+                    <th className="text-right py-2 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>Média</th>
+                    <th className="text-right py-2 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>Mediana</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {responseTimes.users.map((u) => (
+                    <tr key={u.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td className="py-2 font-medium">{u.name}</td>
+                      <td className="py-2 text-right">{u.replies}</td>
+                      <td className="py-2 text-right font-semibold">{formatDuration(u.avgSeconds)}</td>
+                      <td className="py-2 text-right">{formatDuration(u.medianSeconds)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Tabela leaderboard */}
