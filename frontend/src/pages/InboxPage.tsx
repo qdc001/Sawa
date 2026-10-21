@@ -1989,7 +1989,12 @@ export default function InboxPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{fullName(conv.contact)}</span>
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{fullName(conv.contact)}</span>
+                          {conv.contact?.assigneeCode && (
+                            <span className="text-[10px] px-1 py-0.5 rounded font-semibold flex-shrink-0" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }} title="Código do responsável">{conv.contact.assigneeCode}</span>
+                          )}
+                        </span>
                         <span className="text-xs flex-shrink-0 ml-2" style={{ color: 'var(--text-muted)' }}>{conv.lastMessage?.createdAt ? timeShort(conv.lastMessage.createdAt) : ''}</span>
                       </div>
                       <div className="flex items-center gap-1 mt-0.5">

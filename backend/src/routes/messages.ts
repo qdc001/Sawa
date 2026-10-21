@@ -516,9 +516,15 @@ router.post('/:id/react', async (req: AuthRequest, res: Response, next) => {
     }
 
     const hasReactions = Object.keys(reactions).length > 0;
+    const reactionTimes: Record<string, string> = { ...(existing.reactionTimes as any || {}) };
+    if (applying) reactionTimes[userId] = new Date().toISOString();
+    else delete reactionTimes[userId];
     const message = await prisma.message.update({
       where: { id: req.params.id },
-      data: { reactions: (hasReactions ? reactions : null) as any },
+      data: {
+        reactions: (hasReactions ? reactions : null) as any,
+        reactionTimes: (Object.keys(reactionTimes).length ? reactionTimes : null) as any,
+      },
       include: messageInclude,
     });
 

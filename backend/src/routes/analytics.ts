@@ -313,18 +313,84 @@ router.get('/team-performance', async (req: AuthRequest, res: Response, next) =>
   } catch (e) { next(e); }
 });
 
-// GET /api/analytics/response-times
-// Tempo de resposta por colaborador: para cada mensagem do contacto (INBOUND)
-// sem resposta pendente, mede o tempo ate a primeira resposta OUTBOUND de um
-// utilizador. Respostas sem utilizador (enviadas do telemovel, bot, automacao)
-// fecham o "pendente" mas nao contam para ninguem. Intervalos acima de
-// RESPONSE_CAP_HOURS (ex: cliente que volta dias depois) sao ignorados para
-// nao distorcer a media.
+// ---- Tempo de resposta por colaborador ----
+// Para cada mensagem do contacto (INBOUND) sem resposta pendente, mede o tempo
+// ate a primeira resposta de um utilizador: mensagem OUTBOUND enviada pelo CRM
+// ou reaccao (emoji) a essa mensagem. Respostas sem utilizador (telemovel, bot,
+// automacao) fecham o "pendente" mas nao contam para ninguem.
+// Opcoes (guardadas no workspace): "recomecar contagem" (startAt) e horario
+// laboral (so conta o tempo dentro de [startHour, endHour], opcionalmente so
+// seg-sex), para que mensagens fora de horas nao penalizem ninguem.
+type BusinessHours = { enabled: boolean; startHour: number; endHour: number; weekdaysOnly: boolean };
+type ResponseConfig = { startAt: string | null; businessHours: BusinessHours };
 const RESPONSE_CAP_HOURS = 72;
+const DEFAULT_BH: BusinessHours = { enabled: false, startHour: 8, endHour: 17, weekdaysOnly: true };
+
+function readResponseConfig(raw: any): ResponseConfig {
+  const bh = raw?.businessHours || {};
+  const startHour = Number.isInteger(bh.startHour) ? Math.min(Math.max(bh.startHour, 0), 23) : DEFAULT_BH.startHour;
+  const endHour = Number.isInteger(bh.endHour) ? Math.min(Math.max(bh.endHour, 1), 24) : DEFAULT_BH.endHour;
+  const valid = startHour < endHour;
+  return {
+    startAt: typeof raw?.startAt === 'string' ? raw.startAt : null,
+    businessHours: {
+      enabled: !!bh.enabled,
+      startHour: valid ? startHour : DEFAULT_BH.startHour,
+      endHour: valid ? endHour : DEFAULT_BH.endHour,
+      weekdaysOnly: bh.weekdaysOnly !== false,
+    },
+  };
+}
+
+// Offset (ms) do fuso do workspace face a UTC (Maputo = +2h, sem DST).
+function tzOffsetMs(timeZone: string, at: Date): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(at);
+    const g = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+    const asUtc = Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second'));
+    return asUtc - Math.floor(at.getTime() / 1000) * 1000;
+  } catch { return 2 * 3600 * 1000; }
+}
+
+// Milissegundos de [a, b] que caem dentro do horario laboral (tempos em UTC ms).
+function businessMs(a: number, b: number, bh: BusinessHours, offset: number): number {
+  if (b <= a) return 0;
+  const DAY = 24 * 3600 * 1000;
+  const la = a + offset;
+  const lb = b + offset;
+  let total = 0;
+  for (let day = Math.floor(la / DAY) * DAY; day < lb; day += DAY) {
+    const dow = new Date(day).getUTCDay(); // 0 = domingo
+    if (bh.weekdaysOnly && (dow === 0 || dow === 6)) continue;
+    const winStart = day + bh.startHour * 3600 * 1000;
+    const winEnd = day + bh.endHour * 3600 * 1000;
+    const lo = Math.max(winStart, la);
+    const hi = Math.min(winEnd, lb);
+    if (hi > lo) total += hi - lo;
+  }
+  return total;
+}
+
 router.get('/response-times', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
-    const { from, to } = getDateRange(req);
+    const range = getDateRange(req);
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { timezone: true, responseMetricsConfig: true },
+    });
+    const cfg = readResponseConfig(ws?.responseMetricsConfig);
+    const tz = ws?.timezone || 'Africa/Maputo';
+    const offset = tzOffsetMs(tz, new Date());
+    const bh = cfg.businessHours;
+
+    // "Recomecar contagem": nunca conta nada anterior a startAt.
+    const startAt = cfg.startAt ? new Date(cfg.startAt) : null;
+    const from = startAt && startAt > range.from ? startAt : range.from;
+    const to = range.to;
 
     const messages = await prisma.message.findMany({
       where: {
@@ -333,29 +399,55 @@ router.get('/response-times', async (req: AuthRequest, res: Response, next) => {
         type: { not: 'SYSTEM' },
         createdAt: { gte: from, lte: to },
       },
-      select: { contactId: true, direction: true, sentById: true, createdAt: true },
-      orderBy: [{ contactId: 'asc' }, { createdAt: 'asc' }],
+      select: { contactId: true, direction: true, sentById: true, createdAt: true, reactionTimes: true },
       take: 100000,
     });
 
-    const capMs = RESPONSE_CAP_HOURS * 3600 * 1000;
-    const deltasByUser = new Map<string, number[]>();
-    let currentContact: string | null = null;
-    let pendingInboundAt: number | null = null;
-
+    type Ev = { t: number; kind: 'in' | 'out' | 'react'; userId: string | null };
+    const byContact = new Map<string, Ev[]>();
+    const push = (cid: string, ev: Ev) => {
+      const arr = byContact.get(cid) || [];
+      arr.push(ev);
+      byContact.set(cid, arr);
+    };
     for (const m of messages) {
-      if (m.contactId !== currentContact) { currentContact = m.contactId; pendingInboundAt = null; }
-      const t = m.createdAt.getTime();
-      if (m.direction === 'INBOUND') {
-        if (pendingInboundAt === null) pendingInboundAt = t;
-      } else if (pendingInboundAt !== null) {
-        const delta = t - pendingInboundAt;
-        pendingInboundAt = null;
-        if (m.sentById && delta >= 0 && delta <= capMs) {
-          const arr = deltasByUser.get(m.sentById) || [];
-          arr.push(delta);
-          deltasByUser.set(m.sentById, arr);
+      if (!m.contactId) continue;
+      push(m.contactId, { t: m.createdAt.getTime(), kind: m.direction === 'INBOUND' ? 'in' : 'out', userId: m.sentById });
+      if (m.direction === 'INBOUND' && m.reactionTimes && typeof m.reactionTimes === 'object') {
+        for (const [uid, iso] of Object.entries(m.reactionTimes as Record<string, string>)) {
+          const rt = new Date(iso).getTime();
+          if (Number.isFinite(rt) && rt >= from.getTime() && rt <= to.getTime()) {
+            push(m.contactId, { t: rt, kind: 'react', userId: uid });
+          }
         }
+      }
+    }
+
+    const capHours = bh.enabled ? 3 * (bh.endHour - bh.startHour) : RESPONSE_CAP_HOURS;
+    const capMs = capHours * 3600 * 1000;
+    const perUser = new Map<string, number[]>();
+    const perDay = new Map<string, { sum: number; n: number }>(); // `${date}|${userId}`
+
+    for (const evs of byContact.values()) {
+      evs.sort((a, b) => a.t - b.t);
+      let pending: number | null = null;
+      for (const ev of evs) {
+        if (ev.kind === 'in') { if (pending === null) pending = ev.t; continue; }
+        if (pending === null || ev.t < pending) continue;
+        const start = pending;
+        pending = null;
+        if (!ev.userId) continue; // resposta do telemovel/bot: fecha mas nao conta
+        const delta = bh.enabled ? businessMs(start, ev.t, bh, offset) : ev.t - start;
+        if (delta < 0 || delta > capMs) continue;
+        const arr = perUser.get(ev.userId) || [];
+        arr.push(delta);
+        perUser.set(ev.userId, arr);
+        const date = new Date(ev.t + offset).toISOString().slice(0, 10);
+        const key = `${date}|${ev.userId}`;
+        const d = perDay.get(key) || { sum: 0, n: 0 };
+        d.sum += delta;
+        d.n += 1;
+        perDay.set(key, d);
       }
     }
 
@@ -364,7 +456,7 @@ router.get('/response-times', async (req: AuthRequest, res: Response, next) => {
       select: { id: true, name: true, avatar: true },
     });
     const result = users.map((u) => {
-      const d = (deltasByUser.get(u.id) || []).sort((a, b) => a - b);
+      const d = (perUser.get(u.id) || []).sort((a, b) => a - b);
       const avg = d.length ? d.reduce((s, x) => s + x, 0) / d.length : 0;
       const median = d.length ? d[Math.floor(d.length / 2)] : 0;
       return {
@@ -378,7 +470,40 @@ router.get('/response-times', async (req: AuthRequest, res: Response, next) => {
       if (!a.replies !== !b.replies) return a.replies ? -1 : 1;
       return a.avgSeconds - b.avgSeconds;
     });
-    res.json({ capHours: RESPONSE_CAP_HOURS, users: result });
+
+    const daily = Array.from(perDay.entries()).map(([key, v]) => {
+      const [date, userId] = key.split('|');
+      return { date, userId, replies: v.n, avgSeconds: Math.round(v.sum / v.n / 1000) };
+    }).sort((a, b) => a.date.localeCompare(b.date));
+
+    res.json({ capHours, capIsBusiness: bh.enabled, config: cfg, users: result, daily });
+  } catch (e) { next(e); }
+});
+
+// PUT /api/analytics/response-times/config — horario laboral (OWNER/ADMIN)
+router.put('/response-times/config', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!['OWNER', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ message: 'Apenas OWNER/ADMIN' });
+    const workspaceId = req.user!.workspaceId;
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { responseMetricsConfig: true } });
+    const current = readResponseConfig(ws?.responseMetricsConfig);
+    const updated = readResponseConfig({ startAt: current.startAt, businessHours: req.body?.businessHours });
+    await prisma.workspace.update({ where: { id: workspaceId }, data: { responseMetricsConfig: updated as any } });
+    res.json(updated);
+  } catch (e) { next(e); }
+});
+
+// POST /api/analytics/response-times/reset — recomeca a contagem agora (OWNER/ADMIN).
+// body: { clear: true } remove o recomeco e volta a contar todo o periodo.
+router.post('/response-times/reset', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!['OWNER', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ message: 'Apenas OWNER/ADMIN' });
+    const workspaceId = req.user!.workspaceId;
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { responseMetricsConfig: true } });
+    const current = readResponseConfig(ws?.responseMetricsConfig);
+    const updated: ResponseConfig = { ...current, startAt: req.body?.clear ? null : new Date().toISOString() };
+    await prisma.workspace.update({ where: { id: workspaceId }, data: { responseMetricsConfig: updated as any } });
+    res.json(updated);
   } catch (e) { next(e); }
 });
 

@@ -7,6 +7,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, ComposedChart, PieChart, Pie, Cell, Legend,
 } from 'recharts';
+import toast from 'react-hot-toast';
+import { useAuthStore } from '../store';
 import api, { TeamMemberStats, LeadSourceStat, ConversionStats, RevenueData, DashboardData } from '../lib/api';
 
 type Period = 'today' | '7d' | '30d' | '3m' | '6m' | '1y';
@@ -15,6 +17,19 @@ const PERIOD_LABELS: Record<Period, string> = {
 };
 
 type ResponseTimeStat = { id: string; name: string; replies: number; avgSeconds: number; medianSeconds: number };
+type BusinessHoursCfg = { enabled: boolean; startHour: number; endHour: number; weekdaysOnly: boolean };
+type ResponseTimeData = {
+  capHours: number;
+  capIsBusiness: boolean;
+  config: { startAt: string | null; businessHours: BusinessHoursCfg };
+  users: ResponseTimeStat[];
+  daily: { date: string; userId: string; replies: number; avgSeconds: number }[];
+};
+const EMPTY_RT: ResponseTimeData = {
+  capHours: 72, capIsBusiness: false,
+  config: { startAt: null, businessHours: { enabled: false, startHour: 8, endHour: 17, weekdaysOnly: true } },
+  users: [], daily: [],
+};
 function formatDuration(sec: number): string {
   if (!sec) return '—';
   if (sec < 60) return `${sec}s`;
@@ -35,7 +50,57 @@ export default function AnalyticsPage() {
   const [team, setTeam] = useState<TeamMemberStats[]>([]);
   const [sources, setSources] = useState<LeadSourceStat[]>([]);
   const [conv, setConv] = useState<ConversionStats | null>(null);
-  const [responseTimes, setResponseTimes] = useState<{ capHours: number; users: ResponseTimeStat[] }>({ capHours: 72, users: [] });
+  const { user: me } = useAuthStore();
+  const canConfigureRt = me?.role === 'OWNER' || me?.role === 'ADMIN';
+  const [responseTimes, setResponseTimes] = useState<ResponseTimeData>(EMPTY_RT);
+  const [rtDraft, setRtDraft] = useState<BusinessHoursCfg>(EMPTY_RT.config.businessHours);
+  const [rtUser, setRtUser] = useState<string>('all');
+  const [rtBusy, setRtBusy] = useState(false);
+
+  const loadResponseTimes = async () => {
+    const { data } = await api.get(`/analytics/response-times?period=${period}`);
+    const next: ResponseTimeData = data?.users ? data : EMPTY_RT;
+    setResponseTimes(next);
+    setRtDraft(next.config.businessHours);
+  };
+  const saveBusinessHours = async () => {
+    setRtBusy(true);
+    try {
+      await api.put('/analytics/response-times/config', { businessHours: rtDraft });
+      await loadResponseTimes();
+      toast.success('Horário guardado');
+    } catch (e: any) { toast.error(e.response?.data?.message || 'Erro a guardar'); }
+    finally { setRtBusy(false); }
+  };
+  const resetCounting = async (clear: boolean) => {
+    if (!clear && !window.confirm('Recomeçar a contagem agora? Só as mensagens a partir deste momento entram nas médias.')) return;
+    setRtBusy(true);
+    try {
+      await api.post('/analytics/response-times/reset', { clear });
+      await loadResponseTimes();
+      toast.success(clear ? 'Contagem total restaurada' : 'Contagem recomeçada');
+    } catch (e: any) { toast.error(e.response?.data?.message || 'Erro'); }
+    finally { setRtBusy(false); }
+  };
+
+  // Média diária (ponderada pelo nº de respostas) para o colaborador escolhido.
+  const dailyChart = (() => {
+    const byDate = new Map<string, { sum: number; n: number }>();
+    for (const d of responseTimes.daily) {
+      if (rtUser !== 'all' && d.userId !== rtUser) continue;
+      const cur = byDate.get(d.date) || { sum: 0, n: 0 };
+      cur.sum += d.avgSeconds * d.replies;
+      cur.n += d.replies;
+      byDate.set(d.date, cur);
+    }
+    return Array.from(byDate.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, v]) => ({
+        date: date.slice(8, 10) + '/' + date.slice(5, 7),
+        minutos: Math.round((v.sum / v.n / 60) * 10) / 10,
+        respostas: v.n,
+      }));
+  })();
 
   useEffect(() => {
     setLoading(true);
@@ -52,7 +117,9 @@ export default function AnalyticsPage() {
       setTeam(Array.isArray(t.data) ? t.data : []);
       setSources(Array.isArray(s.data) ? s.data : []);
       setConv(c.data);
-      setResponseTimes(rt.data?.users ? rt.data : { capHours: 72, users: [] });
+      const rtData: ResponseTimeData = rt.data?.users ? rt.data : EMPTY_RT;
+      setResponseTimes(rtData);
+      setRtDraft(rtData.config.businessHours);
     }).catch(() => {}).finally(() => setLoading(false));
   }, [period]);
 
@@ -208,9 +275,76 @@ export default function AnalyticsPage() {
           {/* Tempo medio de resposta por colaborador */}
           <div className="card p-5">
             <h3 className="font-semibold mb-1 flex items-center gap-2"><Hourglass size={16} style={{ color: '#0EA5E9' }} /> Tempo de resposta por colaborador</h3>
-            <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-              Tempo desde a mensagem do cliente até à primeira resposta de cada colaborador pelo CRM (respostas após mais de {responseTimes.capHours}h ignoradas; respostas enviadas pelo telemóvel não contam).
+            <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+              Tempo desde a mensagem do cliente até à primeira resposta de cada colaborador pelo CRM, por mensagem ou por reacção (emoji). Respostas após mais de {responseTimes.capHours}h{responseTimes.capIsBusiness ? ' úteis' : ''} são ignoradas; respostas enviadas pelo telemóvel não contam.
             </p>
+
+            {/* Horário laboral + recomeçar contagem */}
+            <div className="flex flex-wrap items-center gap-3 mb-4 p-3 rounded" style={{ background: 'var(--surface-2)' }}>
+              <label className="flex items-center gap-1.5 text-xs font-medium cursor-pointer">
+                <input type="checkbox" disabled={!canConfigureRt} checked={rtDraft.enabled} onChange={(e) => setRtDraft({ ...rtDraft, enabled: e.target.checked })} />
+                Só contar horário laboral
+              </label>
+              <div className="flex items-center gap-1 text-xs">
+                <select disabled={!canConfigureRt || !rtDraft.enabled} value={rtDraft.startHour} onChange={(e) => setRtDraft({ ...rtDraft, startHour: Number(e.target.value) })} className="input-base" style={{ width: 70, padding: '2px 6px' }}>
+                  {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h}h</option>)}
+                </select>
+                às
+                <select disabled={!canConfigureRt || !rtDraft.enabled} value={rtDraft.endHour} onChange={(e) => setRtDraft({ ...rtDraft, endHour: Number(e.target.value) })} className="input-base" style={{ width: 70, padding: '2px 6px' }}>
+                  {Array.from({ length: 24 }, (_, h) => h + 1).map((h) => <option key={h} value={h}>{h}h</option>)}
+                </select>
+              </div>
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                <input type="checkbox" disabled={!canConfigureRt || !rtDraft.enabled} checked={rtDraft.weekdaysOnly} onChange={(e) => setRtDraft({ ...rtDraft, weekdaysOnly: e.target.checked })} />
+                Só seg–sex
+              </label>
+              {canConfigureRt && (
+                <button onClick={saveBusinessHours} disabled={rtBusy} className="text-xs px-2 py-1 rounded font-medium" style={{ background: 'var(--primary)', color: '#fff' }}>
+                  Guardar
+                </button>
+              )}
+              <div className="flex items-center gap-2 ml-auto text-xs" style={{ color: 'var(--text-muted)' }}>
+                {responseTimes.config.startAt
+                  ? <>Contagem desde {new Date(responseTimes.config.startAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}</>
+                  : <>Contagem desde o início do período</>}
+                {canConfigureRt && (
+                  <>
+                    <button onClick={() => resetCounting(false)} disabled={rtBusy} className="px-2 py-1 rounded font-medium" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
+                      Recomeçar agora
+                    </button>
+                    {responseTimes.config.startAt && (
+                      <button onClick={() => resetCounting(true)} disabled={rtBusy} className="px-2 py-1 rounded font-medium" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
+                        Remover recomeço
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Ilustração diária */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium">Média por dia (minutos)</p>
+                <select value={rtUser} onChange={(e) => setRtUser(e.target.value)} className="input-base" style={{ width: 'auto', padding: '2px 8px', fontSize: 12 }}>
+                  <option value="all">Equipa toda</option>
+                  {responseTimes.users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+              {dailyChart.length === 0 ? (
+                <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>Sem respostas neste período</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={dailyChart}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                    <Tooltip formatter={(v: any, name: any) => name === 'minutos' ? [`${v} min`, 'Média'] : [v, 'Respostas']} />
+                    <Bar dataKey="minutos" fill="#0EA5E9" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
