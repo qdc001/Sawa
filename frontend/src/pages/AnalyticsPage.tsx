@@ -72,13 +72,13 @@ export default function AnalyticsPage() {
     } catch (e: any) { toast.error(e.response?.data?.message || 'Erro a guardar'); }
     finally { setRtBusy(false); }
   };
-  const resetCounting = async (clear: boolean) => {
-    if (!clear && !window.confirm('Recomeçar a contagem agora? Só as mensagens a partir deste momento entram nas médias.')) return;
+  const resetCounting = async () => {
+    if (!window.confirm('Recomeçar a contagem agora? Só as mensagens a partir deste momento entram nas médias. Isto é DEFINITIVO e só pode ser feito uma vez.')) return;
     setRtBusy(true);
     try {
-      await api.post('/analytics/response-times/reset', { clear });
+      await api.post('/analytics/response-times/reset');
       await loadResponseTimes();
-      toast.success(clear ? 'Contagem total restaurada' : 'Contagem recomeçada');
+      toast.success('Contagem recomeçada');
     } catch (e: any) { toast.error(e.response?.data?.message || 'Erro'); }
     finally { setRtBusy(false); }
   };
@@ -305,19 +305,12 @@ export default function AnalyticsPage() {
               )}
               <div className="flex items-center gap-2 ml-auto text-xs" style={{ color: 'var(--text-muted)' }}>
                 {responseTimes.config.startAt
-                  ? <>Contagem desde {new Date(responseTimes.config.startAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}</>
+                  ? <>Contagem desde {new Date(responseTimes.config.startAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })} (definitivo)</>
                   : <>Contagem desde o início do período</>}
-                {canConfigureRt && (
-                  <>
-                    <button onClick={() => resetCounting(false)} disabled={rtBusy} className="px-2 py-1 rounded font-medium" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
-                      Recomeçar agora
-                    </button>
-                    {responseTimes.config.startAt && (
-                      <button onClick={() => resetCounting(true)} disabled={rtBusy} className="px-2 py-1 rounded font-medium" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
-                        Remover recomeço
-                      </button>
-                    )}
-                  </>
+                {canConfigureRt && !responseTimes.config.startAt && (
+                  <button onClick={resetCounting} disabled={rtBusy} className="px-2 py-1 rounded font-medium" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
+                    Recomeçar agora (só uma vez)
+                  </button>
                 )}
               </div>
             </div>

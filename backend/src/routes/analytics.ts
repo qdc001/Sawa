@@ -494,14 +494,15 @@ router.put('/response-times/config', async (req: AuthRequest, res: Response, nex
 });
 
 // POST /api/analytics/response-times/reset — recomeca a contagem agora (OWNER/ADMIN).
-// body: { clear: true } remove o recomeco e volta a contar todo o periodo.
+// Definitivo e so uma vez: depois de definido, startAt nao se refaz nem se remove.
 router.post('/response-times/reset', async (req: AuthRequest, res: Response, next) => {
   try {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ message: 'Apenas OWNER/ADMIN' });
     const workspaceId = req.user!.workspaceId;
     const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { responseMetricsConfig: true } });
     const current = readResponseConfig(ws?.responseMetricsConfig);
-    const updated: ResponseConfig = { ...current, startAt: req.body?.clear ? null : new Date().toISOString() };
+    if (current.startAt) return res.status(409).json({ message: 'A contagem já foi recomeçada e é definitiva.' });
+    const updated: ResponseConfig = { ...current, startAt: new Date().toISOString() };
     await prisma.workspace.update({ where: { id: workspaceId }, data: { responseMetricsConfig: updated as any } });
     res.json(updated);
   } catch (e) { next(e); }

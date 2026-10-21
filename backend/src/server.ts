@@ -64,6 +64,7 @@ import { runAppointmentReminders } from './lib/appointmentReminders';
 // follow-up pos-consulta mantidos activos.
 import { runReactivationJob, runPostConsultFollowupJob } from './lib/aiProactiveJobs';
 import knowledgeRoutes from './routes/knowledge';
+import { normalizeAssigneeCodes } from './lib/propagateAssignee';
 import patientProfileRoutes from './routes/patientProfile';
 
 const app = express();
@@ -216,6 +217,7 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV}`);
+  normalizeAssigneeCodes().catch(() => {});
 
   // Validação de config do WhatsApp/Evolution no arranque. Sem isto, um
   // EVOLUTION_API_URL mal formado ou PUBLIC_API_URL em falta só aparecia

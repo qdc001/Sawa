@@ -26,8 +26,9 @@
 import prisma from './prisma';
 export type AssigneeSource = 'contact' | 'conversation' | 'lead' | 'task';
 
-// Gera/limpa Contact.assigneeCode conforme o prefixo do responsavel actual.
-// Mantem o codigo se ja tem o mesmo prefixo (evita renumerar a cada sync).
+// Define/limpa Contact.assigneeCode: o codigo e o proprio prefixo do
+// responsavel actual (ex: "001"), igual para todos os contactos dele.
+// Sem responsavel, ou responsavel sem prefixo, o codigo fica vazio.
 export async function syncAssigneeCode(
   workspaceId: string,
   contactId: string,
@@ -39,36 +40,36 @@ export async function syncAssigneeCode(
   });
   if (!contact) return;
 
-  let prefix = '';
+  let code: string | null = null;
   if (assignedToId) {
     const user = await prisma.user.findFirst({
       where: { id: assignedToId, workspaceId },
       select: { contactCodePrefix: true },
     });
-    prefix = (user?.contactCodePrefix || '').trim().toUpperCase();
+    code = (user?.contactCodePrefix || '').trim().toUpperCase() || null;
   }
+  if (contact.assigneeCode !== code) {
+    await prisma.contact.update({ where: { id: contactId }, data: { assigneeCode: code } });
+  }
+}
 
-  if (!prefix) {
-    if (contact.assigneeCode) {
-      await prisma.contact.update({ where: { id: contactId }, data: { assigneeCode: null } });
-    }
-    return;
+// Converte codigos antigos "001-0001" em "001" (prefixo do responsavel actual).
+// Idempotente; corre no arranque.
+export async function normalizeAssigneeCodes(): Promise<void> {
+  try {
+    const n = await prisma.$executeRaw`
+      UPDATE "contacts" c
+      SET "assigneeCode" = UPPER(TRIM(u."contactCodePrefix"))
+      FROM "users" u
+      WHERE c."assignedToId" = u."id"
+        AND c."assigneeCode" IS NOT NULL
+        AND u."contactCodePrefix" IS NOT NULL
+        AND TRIM(u."contactCodePrefix") <> ''
+        AND c."assigneeCode" <> UPPER(TRIM(u."contactCodePrefix"))`;
+    if (n > 0) console.log(`[assigneeCode] normalizados ${n} codigo(s) para o prefixo`);
+  } catch (e: any) {
+    console.error('[assigneeCode] normalizacao falhou:', e.message);
   }
-  if (contact.assigneeCode?.startsWith(`${prefix}-`)) return;
-
-  const existing = await prisma.contact.findMany({
-    where: { workspaceId, assigneeCode: { startsWith: `${prefix}-` } },
-    select: { assigneeCode: true },
-  });
-  let max = 0;
-  for (const c of existing) {
-    const n = parseInt((c.assigneeCode || '').slice(prefix.length + 1), 10);
-    if (Number.isFinite(n) && n > max) max = n;
-  }
-  await prisma.contact.update({
-    where: { id: contactId },
-    data: { assigneeCode: `${prefix}-${String(max + 1).padStart(4, '0')}` },
-  });
 }
 
 export async function propagateAssignee(

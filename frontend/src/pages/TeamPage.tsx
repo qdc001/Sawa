@@ -207,16 +207,16 @@ function MemberDetailModal({ user, teams, onClose, onChanged }: {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Prefixo do código dos contactos</label>
+            <label className="block text-sm font-medium mb-1">Código dos contactos</label>
             <input
               value={contactCodePrefix}
               onChange={(e) => setContactCodePrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
               className="input-base"
-              placeholder="Ex: ABS"
+              placeholder="Ex: 001"
               maxLength={6}
             />
             <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-              Cada contacto atribuído a {user.name} recebe um código com este prefixo (ex: {contactCodePrefix || 'ABS'}-0001). Vazio = sem código. Ao mudar o prefixo, os contactos dele são renumerados.
+              Cada contacto atribuído a {user.name} recebe este código (ex: {contactCodePrefix || '001'}). Vazio = sem código. Ao mudar o código, os contactos dele são actualizados.
             </p>
           </div>
           <div>
