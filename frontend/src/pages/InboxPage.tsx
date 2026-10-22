@@ -1151,9 +1151,24 @@ export default function InboxPage() {
     else if (folderFilter === 'archive') arr = arr.filter((c) => getMeta(c)?.isArchived);
     else if (folderFilter === 'mine') arr = arr.filter((c) => getMeta(c)?.assignedToId === user?.id);
     else arr = arr.filter((c) => !getMeta(c)?.isArchived);
+    // "Não respondidas": o servidor so aplica este filtro quando a lista carrega.
+    // Reavaliamos aqui para uma conversa sair assim que alguem responde ou
+    // reage (mensagem enviada, reaccao da equipa), sem precisar de recarregar.
+    // Reaccao do proprio contacto ('contact') nao conta como resposta.
+    if (unansweredOnly) {
+      const cutoff = Date.now() - unansweredWindowHours * 3600 * 1000;
+      arr = arr.filter((c) => {
+        const last: any = c.lastMessage;
+        if (!last || last.direction !== 'INBOUND') return false;
+        if (new Date(last.createdAt).getTime() < cutoff) return false;
+        const reactedByTeam = Object.values((last.reactions as Record<string, string[]>) || {})
+          .some((ids) => Array.isArray(ids) && ids.some((id) => id !== 'contact'));
+        return !reactedByTeam;
+      });
+    }
     return arr;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, folderFilter, metas, user]);
+  }, [conversations, folderFilter, metas, user, unansweredOnly, unansweredWindowHours]);
 
   const selected = useMemo(() => conversations.find((c) => c.key === selectedKey), [conversations, selectedKey]);
 
