@@ -633,16 +633,35 @@ router.post('/evolution', async (req: Request, res: Response) => {
             if (targetId) {
               const target = await prisma.message.findFirst({ where: { externalId: targetId } });
               if (target) {
+                // Quem reagiu: o contacto ('contact') ou a equipa a partir do
+                // telemovel/WhatsApp Web ('phone', quando fromMe). Antes tudo
+                // era gravado como 'contact', e uma reaccao da equipa aparecia
+                // como se fosse do cliente.
+                const actor = fromMe ? 'phone' : 'contact';
                 const reactions: Record<string, string[]> = { ...(target.reactions as any || {}) };
+                // Eco: reaccao feita no Klaru e reflectida no WhatsApp volta
+                // aqui como fromMe; ja esta registada com o id do utilizador.
+                const isEcho = fromMe && !!emoji && (reactions[emoji] || []).some((id) => id !== 'contact' && id !== 'phone');
+                if (isEcho) continue;
                 for (const key of Object.keys(reactions)) {
-                  reactions[key] = reactions[key].filter((id) => id !== 'contact');
+                  reactions[key] = reactions[key].filter((id) => id !== actor);
                   if (reactions[key].length === 0) delete reactions[key];
                 }
-                if (emoji) reactions[emoji] = [...(reactions[emoji] || []), 'contact'];
+                if (emoji) reactions[emoji] = [...(reactions[emoji] || []), actor];
                 const hasReactions = Object.keys(reactions).length > 0;
+                // Hora da reaccao da equipa: conta como resposta nas metricas
+                // de tempo de resposta (ver lib/responseTimes.ts).
+                const reactionTimes: Record<string, string> = { ...(target.reactionTimes as any || {}) };
+                if (fromMe) {
+                  if (emoji) reactionTimes.phone = new Date().toISOString();
+                  else delete reactionTimes.phone;
+                }
                 const updated = await prisma.message.update({
                   where: { id: target.id },
-                  data: { reactions: (hasReactions ? reactions : null) as any },
+                  data: {
+                    reactions: (hasReactions ? reactions : null) as any,
+                    reactionTimes: (Object.keys(reactionTimes).length ? reactionTimes : null) as any,
+                  },
                 });
                 if (io) io.to(`workspace:${workspaceId}`).emit('message:updated', updated);
               }
