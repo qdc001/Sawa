@@ -24,6 +24,7 @@ type ResponseTimeData = {
   config: { startAt: string | null; businessHours: BusinessHoursCfg };
   users: ResponseTimeStat[];
   daily: { date: string; userId: string; replies: number; avgSeconds: number }[];
+  stats?: { answeredByCrm: number; answeredByPhone: number; overCap: number; ignoredAcks: number; stillWaiting: number };
 };
 const EMPTY_RT: ResponseTimeData = {
   capHours: 72, capIsBusiness: false,
@@ -274,9 +275,9 @@ export default function AnalyticsPage() {
 
           {/* Tempo medio de resposta por colaborador */}
           <div className="card p-5">
-            <h3 className="font-semibold mb-1 flex items-center gap-2"><Hourglass size={16} style={{ color: '#0EA5E9' }} /> Tempo de resposta por colaborador</h3>
+            <h3 className="font-semibold mb-1 flex items-center gap-2"><Hourglass size={16} style={{ color: '#0EA5E9' }} /> Tempo de resposta por responsável</h3>
             <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-              Tempo desde a mensagem do cliente até à primeira resposta de cada colaborador pelo CRM, por mensagem ou por reacção (emoji). Respostas após mais de {responseTimes.capHours}h{responseTimes.capIsBusiness ? ' úteis' : ''} são ignoradas; respostas enviadas pelo telemóvel não contam.
+              Quanto tempo, em média, os contactos de cada responsável demoram a ser respondidos — por quem for (o próprio, um colega ou o telemóvel), por mensagem ou reacção (emoji). Contactos sem responsável ficam em "Sem responsável". Respostas após mais de {responseTimes.capHours}h{responseTimes.capIsBusiness ? ' úteis' : ''} são ignoradas.
             </p>
 
             {/* Horário laboral + recomeçar contagem */}
@@ -315,6 +316,12 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
+            {responseTimes.stats && (
+              <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
+                No período: <b>{responseTimes.stats.answeredByCrm + responseTimes.stats.answeredByPhone}</b> respostas contadas ({responseTimes.stats.answeredByCrm} pelo CRM, {responseTimes.stats.answeredByPhone} pelo telemóvel) · {responseTimes.stats.overCap} acima do limite · {responseTimes.stats.ignoredAcks} "ok/obrigado" ignorados · {responseTimes.stats.stillWaiting} conversas ainda à espera de resposta.
+              </p>
+            )}
+
             {/* Ilustração diária */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
@@ -342,7 +349,7 @@ export default function AnalyticsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    <th className="text-left py-2 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>Membro</th>
+                    <th className="text-left py-2 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>Responsável</th>
                     <th className="text-right py-2 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>Respostas</th>
                     <th className="text-right py-2 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>Média</th>
                     <th className="text-right py-2 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>Mediana</th>

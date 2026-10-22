@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 
 import prisma from '../lib/prisma';
+import { computeResponseTimes, BusinessHours, UNASSIGNED } from '../lib/responseTimes';
 const router = Router();
 
 // Helpers para parsear filtros comuns
@@ -321,7 +322,6 @@ router.get('/team-performance', async (req: AuthRequest, res: Response, next) =>
 // Opcoes (guardadas no workspace): "recomecar contagem" (startAt) e horario
 // laboral (so conta o tempo dentro de [startHour, endHour], opcionalmente so
 // seg-sex), para que mensagens fora de horas nao penalizem ninguem.
-type BusinessHours = { enabled: boolean; startHour: number; endHour: number; weekdaysOnly: boolean };
 type ResponseConfig = { startAt: string | null; businessHours: BusinessHours };
 const RESPONSE_CAP_HOURS = 72;
 const DEFAULT_BH: BusinessHours = { enabled: false, startHour: 8, endHour: 17, weekdaysOnly: true };
@@ -355,25 +355,6 @@ function tzOffsetMs(timeZone: string, at: Date): number {
   } catch { return 2 * 3600 * 1000; }
 }
 
-// Milissegundos de [a, b] que caem dentro do horario laboral (tempos em UTC ms).
-function businessMs(a: number, b: number, bh: BusinessHours, offset: number): number {
-  if (b <= a) return 0;
-  const DAY = 24 * 3600 * 1000;
-  const la = a + offset;
-  const lb = b + offset;
-  let total = 0;
-  for (let day = Math.floor(la / DAY) * DAY; day < lb; day += DAY) {
-    const dow = new Date(day).getUTCDay(); // 0 = domingo
-    if (bh.weekdaysOnly && (dow === 0 || dow === 6)) continue;
-    const winStart = day + bh.startHour * 3600 * 1000;
-    const winEnd = day + bh.endHour * 3600 * 1000;
-    const lo = Math.max(winStart, la);
-    const hi = Math.min(winEnd, lb);
-    if (hi > lo) total += hi - lo;
-  }
-  return total;
-}
-
 router.get('/response-times', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
@@ -392,70 +373,37 @@ router.get('/response-times', async (req: AuthRequest, res: Response, next) => {
     const from = startAt && startAt > range.from ? startAt : range.from;
     const to = range.to;
 
+    // Grupos de WhatsApp ficam de fora: tem dezenas de mensagens de varias
+    // pessoas e ninguem "responde" a uma conversa de grupo como a um cliente.
     const messages = await prisma.message.findMany({
       where: {
-        contact: { workspaceId },
+        contact: {
+          workspaceId,
+          OR: [{ whatsapp: null }, { NOT: { whatsapp: { endsWith: '@g.us' } } }],
+        },
         isInternal: false,
         type: { not: 'SYSTEM' },
         createdAt: { gte: from, lte: to },
       },
-      select: { contactId: true, direction: true, sentById: true, createdAt: true, reactionTimes: true },
+      select: {
+        contactId: true, direction: true, sentById: true, createdAt: true, reactionTimes: true, content: true, type: true,
+        contact: { select: { assignedToId: true } },
+      },
       take: 100000,
     });
 
-    type Ev = { t: number; kind: 'in' | 'out' | 'react'; userId: string | null };
-    const byContact = new Map<string, Ev[]>();
-    const push = (cid: string, ev: Ev) => {
-      const arr = byContact.get(cid) || [];
-      arr.push(ev);
-      byContact.set(cid, arr);
-    };
-    for (const m of messages) {
-      if (!m.contactId) continue;
-      push(m.contactId, { t: m.createdAt.getTime(), kind: m.direction === 'INBOUND' ? 'in' : 'out', userId: m.sentById });
-      if (m.direction === 'INBOUND' && m.reactionTimes && typeof m.reactionTimes === 'object') {
-        for (const [uid, iso] of Object.entries(m.reactionTimes as Record<string, string>)) {
-          const rt = new Date(iso).getTime();
-          if (Number.isFinite(rt) && rt >= from.getTime() && rt <= to.getTime()) {
-            push(m.contactId, { t: rt, kind: 'react', userId: uid });
-          }
-        }
-      }
-    }
-
     const capHours = bh.enabled ? 3 * (bh.endHour - bh.startHour) : RESPONSE_CAP_HOURS;
-    const capMs = capHours * 3600 * 1000;
-    const perUser = new Map<string, number[]>();
-    const perDay = new Map<string, { sum: number; n: number }>(); // `${date}|${userId}`
-
-    for (const evs of byContact.values()) {
-      evs.sort((a, b) => a.t - b.t);
-      let pending: number | null = null;
-      for (const ev of evs) {
-        if (ev.kind === 'in') { if (pending === null) pending = ev.t; continue; }
-        if (pending === null || ev.t < pending) continue;
-        const start = pending;
-        pending = null;
-        if (!ev.userId) continue; // resposta do telemovel/bot: fecha mas nao conta
-        const delta = bh.enabled ? businessMs(start, ev.t, bh, offset) : ev.t - start;
-        if (delta < 0 || delta > capMs) continue;
-        const arr = perUser.get(ev.userId) || [];
-        arr.push(delta);
-        perUser.set(ev.userId, arr);
-        const date = new Date(ev.t + offset).toISOString().slice(0, 10);
-        const key = `${date}|${ev.userId}`;
-        const d = perDay.get(key) || { sum: 0, n: 0 };
-        d.sum += delta;
-        d.n += 1;
-        perDay.set(key, d);
-      }
-    }
+    const rows = messages.map((m) => ({ ...m, assigneeId: m.contact?.assignedToId ?? null }));
+    const { perUser, perDay, stats } = computeResponseTimes(rows as any, {
+      from, to, bh, offset, capMs: capHours * 3600 * 1000,
+    });
 
     const users = await prisma.user.findMany({
       where: { workspaceId },
       select: { id: true, name: true, avatar: true },
     });
-    const result = users.map((u) => {
+    const roster = [...users, { id: UNASSIGNED, name: 'Sem responsável', avatar: null as string | null }];
+    const result = roster.map((u) => {
       const d = (perUser.get(u.id) || []).sort((a, b) => a - b);
       const avg = d.length ? d.reduce((s, x) => s + x, 0) / d.length : 0;
       const median = d.length ? d[Math.floor(d.length / 2)] : 0;
@@ -466,7 +414,8 @@ router.get('/response-times', async (req: AuthRequest, res: Response, next) => {
         medianSeconds: Math.round(median / 1000),
       };
     });
-    result.sort((a, b) => {
+    const finalResult = result.filter((r) => r.id !== UNASSIGNED || r.replies > 0);
+    finalResult.sort((a, b) => {
       if (!a.replies !== !b.replies) return a.replies ? -1 : 1;
       return a.avgSeconds - b.avgSeconds;
     });
@@ -476,7 +425,7 @@ router.get('/response-times', async (req: AuthRequest, res: Response, next) => {
       return { date, userId, replies: v.n, avgSeconds: Math.round(v.sum / v.n / 1000) };
     }).sort((a, b) => a.date.localeCompare(b.date));
 
-    res.json({ capHours, capIsBusiness: bh.enabled, config: cfg, users: result, daily });
+    res.json({ capHours, capIsBusiness: bh.enabled, config: cfg, users: finalResult, daily, stats });
   } catch (e) { next(e); }
 });
 
