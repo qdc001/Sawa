@@ -220,8 +220,15 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
     if (unansweredOnly === 'true') {
       const windowHours = Math.min(Math.max(Number(unansweredWindowHours) || 48, 1), 24 * 30);
       const cutoff = Date.now() - windowHours * 60 * 60 * 1000;
+      // Uma reaccao da equipa (utilizador do CRM ou telemovel) na ultima
+      // mensagem do contacto conta como resposta; a reaccao do proprio
+      // contacto ('contact') nao.
+      const reactedByTeam = (m: any) =>
+        Object.values((m?.reactions as Record<string, string[]>) || {})
+          .some((ids) => Array.isArray(ids) && ids.some((id) => id !== 'contact'));
       conversations = conversations.filter((c: any) =>
         c.lastMessage?.direction === 'INBOUND' &&
+        !reactedByTeam(c.lastMessage) &&
         c.lastMessage?.createdAt && new Date(c.lastMessage.createdAt).getTime() >= cutoff,
       );
     }
