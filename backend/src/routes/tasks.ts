@@ -1,10 +1,21 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
 import { propagateAssignee } from '../lib/propagateAssignee';
 import prisma from '../lib/prisma';
 const router = Router();
+
+// Tarefas: todos podem ver e criar, mas so OWNER/ADMIN podem alterar
+// (editar, mudar estado/data/responsavel, mover) ou eliminar.
+// Os fluxos de entrega/criacao assistida (/auto-task) nao passam por aqui.
+const TASK_ADMIN_ROLES = ['OWNER', 'ADMIN'];
+function requireTaskAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user || !TASK_ADMIN_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ message: 'Só administradores podem alterar ou eliminar tarefas.' });
+  }
+  next();
+}
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, avatar: true } },
@@ -150,7 +161,7 @@ function nextDueDate(dueAt: Date, recurrence: string): Date {
   return d;
 }
 
-router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
+router.patch('/:id', requireTaskAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
     const { tags, ...rest } = req.body;
     const data: any = { ...rest };
@@ -244,7 +255,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
+router.delete('/:id', requireTaskAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
     // deleteMany permite filtrar por workspace na mesma query — garante que
     // nao se apaga uma tarefa de outra clinica so por saber o id.
@@ -257,7 +268,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
 });
 
 // Bulk operations
-router.post('/bulk-complete', async (req: AuthRequest, res: Response, next) => {
+router.post('/bulk-complete', requireTaskAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) throw new AppError('ids vazio', 400);
@@ -269,7 +280,7 @@ router.post('/bulk-complete', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/bulk-delete', async (req: AuthRequest, res: Response, next) => {
+router.post('/bulk-delete', requireTaskAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) throw new AppError('ids vazio', 400);
@@ -280,7 +291,7 @@ router.post('/bulk-delete', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/bulk-assign', async (req: AuthRequest, res: Response, next) => {
+router.post('/bulk-assign', requireTaskAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
     const { ids, assignedToId } = req.body;
     if (!Array.isArray(ids) || ids.length === 0 || !assignedToId) throw new AppError('ids e assignedToId obrigatórios', 400);
@@ -310,7 +321,7 @@ router.post('/bulk-assign', async (req: AuthRequest, res: Response, next) => {
 });
 
 // Tags
-router.post('/:id/tags', async (req: AuthRequest, res: Response, next) => {
+router.post('/:id/tags', requireTaskAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
     const { tagId } = req.body;
     if (!tagId) throw new AppError('tagId obrigatório', 400);
@@ -320,7 +331,7 @@ router.post('/:id/tags', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-router.delete('/:id/tags/:tagId', async (req: AuthRequest, res: Response, next) => {
+router.delete('/:id/tags/:tagId', requireTaskAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
     await prisma.tagOnTask.deleteMany({ where: { taskId: req.params.id, tagId: req.params.tagId } });
     res.json({ message: 'Tag removida' });

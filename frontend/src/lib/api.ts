@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { canEditTasks, currentRoleFromStorage, denyTaskEdit, isTaskMutation, TASKS_ADMIN_ONLY_MSG } from './taskPermissions';
 
 const api = axios.create({
   baseURL: (import.meta.env.VITE_API_URL || '') + '/api',
@@ -8,6 +9,12 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (isTaskMutation(config.method, config.url) && !canEditTasks(currentRoleFromStorage())) {
+    denyTaskEdit();
+    return Promise.reject(Object.assign(new Error(TASKS_ADMIN_ONLY_MSG), {
+      response: { status: 403, data: { message: TASKS_ADMIN_ONLY_MSG } },
+    }));
+  }
   return config;
 });
 

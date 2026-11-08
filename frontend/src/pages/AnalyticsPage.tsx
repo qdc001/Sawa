@@ -9,6 +9,7 @@ import {
 } from 'recharts';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store';
+import ChatAnalysisPanel from '../components/ChatAnalysisPanel';
 import api, { TeamMemberStats, LeadSourceStat, ConversionStats, RevenueData, DashboardData } from '../lib/api';
 
 type Period = 'today' | '7d' | '30d' | '3m' | '6m' | '1y';
@@ -43,7 +44,7 @@ function formatDuration(sec: number): string {
 
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState<Period>('30d');
-  const [section, setSection] = useState<'trends' | 'team' | 'sources' | 'pipeline'>('trends');
+  const [section, setSection] = useState<'trends' | 'team' | 'sources' | 'pipeline' | 'chats'>('trends');
   const [loading, setLoading] = useState(true);
 
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -133,6 +134,9 @@ export default function AnalyticsPage() {
     { v: 'team' as const, label: 'Equipa', icon: Trophy },
     { v: 'sources' as const, label: 'Origens', icon: GitBranch },
     { v: 'pipeline' as const, label: 'Pipeline', icon: Target },
+    ...(me?.role === 'OWNER' || me?.role === 'ADMIN' || me?.role === 'MANAGER'
+      ? [{ v: 'chats' as const, label: 'Conversas', icon: MessageCircle }]
+      : []),
   ];
 
   // Transformar revenue para LineChart com mais dados
@@ -457,6 +461,9 @@ export default function AnalyticsPage() {
           </div>
         </div>
       )}
+
+      {/* Análise de conversas */}
+      {section === 'chats' && <ChatAnalysisPanel />}
 
       {/* Pipeline */}
       {section === 'pipeline' && dashboard && (

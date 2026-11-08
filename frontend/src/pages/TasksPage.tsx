@@ -18,6 +18,7 @@ import api, {
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 import { useAuthStore } from '../store';
+import { canEditTasks, denyTaskEdit } from '../lib/taskPermissions';
 import { useTaskOptions } from '../lib/taskOptions';
 import { toDateTimeLocal, toDateKey, fromDateTimeLocal } from '../lib/dateInput';
 import { useDragScroll, useScrollButton } from '../lib/useDragScroll';
@@ -1383,6 +1384,7 @@ export default function TasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
   const { user: currentUser } = useAuthStore();
+  const canEdit = canEditTasks(currentUser?.role);
   const taskOpts = useTaskOptions();
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -1475,6 +1477,7 @@ export default function TasksPage() {
   }, [tasks, dateFilter, onlyMine, currentUser]);
 
   const handleToggleComplete = async (t: Task) => {
+    if (!canEdit) return denyTaskEdit();
     try {
       const newStatus = t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED';
       const { data } = await api.patch(`/tasks/${t.id}`, { status: newStatus });
@@ -1487,6 +1490,7 @@ export default function TasksPage() {
   };
 
   const handleDelete = async (t: Task) => {
+    if (!canEdit) return denyTaskEdit();
     if (!confirm(`Eliminar a tarefa "${t.title}"?`)) return;
     try {
       await api.delete(`/tasks/${t.id}`);
@@ -1570,6 +1574,7 @@ export default function TasksPage() {
 
   // Drag-and-drop no calendário muda data
   const handleTaskMoved = async (taskId: string, newDateKey: string) => {
+    if (!canEdit) return denyTaskEdit();
     const t = tasks.find((x) => x.id === taskId);
     if (!t) return;
     const oldDate = t.dueAt ? new Date(t.dueAt) : new Date();
@@ -1586,6 +1591,7 @@ export default function TasksPage() {
 
   // Mover tarefa para coluna da agenda (atrasada/hoje/amanha/etc)
   const handleAgendaMove = async (taskId: string, newDate: Date) => {
+    if (!canEdit) return denyTaskEdit();
     const t = tasks.find((x) => x.id === taskId);
     if (!t) return;
     const oldDueAt = t.dueAt;
@@ -1601,6 +1607,7 @@ export default function TasksPage() {
 
   // Mudar etapa do lead associado a uma tarefa
   const handleChangeLeadStage = async (taskId: string, stageId: string) => {
+    if (!canEdit) return denyTaskEdit();
     const t = tasks.find((x) => x.id === taskId);
     if (!t || !t.lead) return;
     try {
@@ -1614,6 +1621,7 @@ export default function TasksPage() {
   };
 
   const handleChangeStatus = async (taskId: string, status: string) => {
+    if (!canEdit) return denyTaskEdit();
     try {
       const { data } = await api.patch(`/tasks/${taskId}`, { status });
       setTasks((p) => p.map((x) => (x.id === taskId ? data : x)));
@@ -1739,7 +1747,7 @@ export default function TasksPage() {
       )}
 
       {/* Bulk actions bar */}
-      {selectedArray.length > 0 && view === 'list' && (
+      {canEdit && selectedArray.length > 0 && view === 'list' && (
         <div className="px-3 py-2 flex items-center gap-2 flex-wrap" style={{ background: 'var(--primary-light)', borderBottom: '1px solid var(--border)' }}>
           <span className="text-sm font-medium" style={{ color: 'var(--primary)' }}>{selectedArray.length} seleccionada(s)</span>
           <button onClick={() => setSelectedIds(new Set())} className="text-xs hover:underline" style={{ color: 'var(--primary)' }}>Limpar</button>
@@ -1898,8 +1906,8 @@ export default function TasksPage() {
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => setEditing(t)} className="p-1.5 rounded hover:bg-slate-100"><Edit3 size={14} style={{ color: 'var(--text-secondary)' }} /></button>
-                        <button onClick={() => handleDelete(t)} className="p-1.5 rounded hover:bg-red-50"><Trash2 size={14} style={{ color: '#EF4444' }} /></button>
+                        {canEdit && <button onClick={() => setEditing(t)} className="p-1.5 rounded hover:bg-slate-100"><Edit3 size={14} style={{ color: 'var(--text-secondary)' }} /></button>}
+                        {canEdit && <button onClick={() => handleDelete(t)} className="p-1.5 rounded hover:bg-red-50"><Trash2 size={14} style={{ color: '#EF4444' }} /></button>}
                       </div>
                     </td>
                   </tr>
