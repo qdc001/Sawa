@@ -7,6 +7,7 @@ import { AppError } from '../middleware/errorHandler';
 import prisma from '../lib/prisma';
 import { computeFlow, computeMonths, FinanceConfig, FixedSalary, normalizeWallet, WALLETS } from '../lib/financeCalc';
 import { ParsedWorkbook, parseFinanceWorkbook, reconcile } from '../lib/financeImport';
+import { buildXlsx, XlsxSheet } from '../lib/xlsxWriter';
 
 const router = Router();
 
@@ -90,11 +91,11 @@ async function loadSummary(workspaceId: string) {
       select: { period: true, revenue: true, expense: true, potentialRevenue: true, commission: true, associateId: true, paymentMethod: true },
     }),
     prisma.financePayroll.findMany({ where: { workspaceId } }),
-    prisma.financeStudent.findMany({ where: { workspaceId }, select: { entryDate: true } }),
+    prisma.financeStudent.findMany({ where: { workspaceId }, select: { entryDate: true, sellerCredit: true } }),
     prisma.financeInvestment.findMany({ where: { workspaceId }, select: { date: true, investment: true, returnAmount: true, paymentMethod: true, fund: true } }),
     prisma.financeAssociate.findMany({ where: { workspaceId }, orderBy: { code: 'asc' } }),
   ]);
-  const months = computeMonths(entries, payrolls, students.map((s) => s.entryDate), cfg);
+  const months = computeMonths(entries, payrolls, students.map((s) => ((s.sellerCredit ?? !!s.entryDate) ? s.entryDate : null)), cfg);
   return { settings, months, flow: computeFlow(months, investments, cfg), associates };
 }
 
@@ -295,6 +296,7 @@ function studentFields(b: any) {
   const d: any = {};
   for (const k of ['gender', 'whatsapp', 'faculty', 'course', 'theme', 'notes', 'project', 'origin']) if (b[k] !== undefined) d[k] = text(b[k]);
   if (b.entryDate !== undefined) d.entryDate = optDate(b.entryDate, 'Data de entrada');
+  if (b.sellerCredit !== undefined) d.sellerCredit = !!b.sellerCredit;
   if (b.lastActivityAt !== undefined) d.lastActivityAt = optDate(b.lastActivityAt, 'Última actividade');
   if (b.nextDueDate !== undefined) d.nextDueDate = optDate(b.nextDueDate, 'Próxima parcela');
   if (b.totalValue !== undefined) d.totalValue = money(b.totalValue, 'Valor total');
@@ -317,14 +319,16 @@ router.post('/students', adminOnly, async (req: AuthRequest, res: Response, next
     const b = req.body || {};
     const name = text(b.name);
     if (!name) throw new AppError('Indica o nome', 400);
+    const fields = studentFields(b);
     const codes = await prisma.financeStudent.findMany({ where: { workspaceId }, select: { code: true } });
     const max = codes.reduce((a, c) => Math.max(a, parseInt(c.code.slice(1), 10) || 0), 0);
     const created = await prisma.financeStudent.create({
       data: {
         workspaceId, code: `E${String(max + 1).padStart(3, '0')}`, name,
         associateId: await checkAssociate(workspaceId, b.associateId),
-        entryDate: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`),
-        ...studentFields(b),
+        ...fields,
+        // Sem data de entrada o estudante nao contava para a comissao por estudante novo.
+        entryDate: fields.entryDate ?? new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`),
       },
       include: { associate: { select: { id: true, code: true, name: true } } },
     });
@@ -347,6 +351,9 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
     if (b.status !== undefined) {
       if (!['Pago', 'Em aberto'].includes(b.status)) throw new AppError('Estado inválido', 400);
       data.status = b.status;
+    }
+    if ((data.sellerCredit ?? cur.sellerCredit) && !(data.entryDate !== undefined ? data.entryDate : cur.entryDate)) {
+      throw new AppError('Indica a data de entrada para contar a venda.', 400);
     }
     if (b.paidAmount !== undefined) data.paidAmount = money(b.paidAmount, 'Valor pago');
     if (b.installmentsPaid !== undefined) data.installmentsPaid = Math.floor(money(b.installmentsPaid, 'Parcelas pagas'));
@@ -655,6 +662,64 @@ router.put('/settings', adminOnly, async (req: AuthRequest, res: Response, next)
       });
     }
     res.json(await prisma.financeSettings.update({ where: { workspaceId }, data }));
+  } catch (e) { next(e); }
+});
+
+// ---------- Exportacao ----------
+router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const [{ settings, months, flow, associates }, entries, students, investments, coupons] = await Promise.all([
+      loadSummary(workspaceId),
+      prisma.financeEntry.findMany({ where: { workspaceId }, include: { associate: { select: { name: true } }, student: { select: { code: true } } }, orderBy: [{ period: 'desc' }, { date: 'desc' }] }),
+      prisma.financeStudent.findMany({ where: { workspaceId }, include: { associate: { select: { code: true, name: true } } }, orderBy: { code: 'desc' } }),
+      prisma.financeInvestment.findMany({ where: { workspaceId }, orderBy: { date: 'desc' } }),
+      prisma.financeCoupon.findMany({ where: { workspaceId }, orderBy: { createdAt: 'desc' } }),
+    ]);
+    const credit = settings.perNewStudentName;
+    const sheets: XlsxSheet[] = [
+      { name: 'Resumo mensal', rows: [
+        ['Mês', 'DRE', 'Receita', 'Despesa', 'Saldo', 'Comissões', `Vendas ${credit}`, 'Salários fixos', 'Total salários', 'Pró-labore', 'Reinvestimento', 'Imprevistos', 'Lucro líquido', '% Lucro', 'Situação'],
+        ...months.map((m) => [m.period, m.dre, m.revenue, m.expense, m.balance, m.commissionTotal, m.newStudentFee, m.fixedSalaries, m.salary, m.proLabore, m.reinvestment, m.reserve, m.profit, m.profitPct, m.status]),
+      ] },
+      { name: 'Fluxo anual', rows: [
+        ['Ano', 'DRE', 'Receita', 'Despesa', 'Saldo', 'Salários', 'Pró-labore', 'Lucro líquido', '% Lucro', ...WALLETS, 'Total carteiras'],
+        ...flow.years.map((y) => [y.year, y.totals.dre, y.totals.revenue, y.totals.expense, y.totals.balance, y.totals.salary, y.totals.proLabore, y.totals.profit, y.profitPct, ...WALLETS.map((w) => y.wallets[w]), y.walletTotal]),
+      ] },
+      { name: 'SEAL', rows: [
+        ['Fundo', '%', 'Parte', 'Já levantado', 'Disponível'],
+        ...Object.entries(flow.funds).map(([k, f]) => [k, f.pct, f.share, f.withdrawn, f.available]),
+        [], ['Dinheiro existente', flow.total], ['Capital de giro', flow.workingCapitalFilled], ['Valor a distribuir', flow.distributable],
+      ] },
+      { name: 'Carteiras por mês', rows: [
+        ['Mês', ...WALLETS, 'Total'], ...months.map((m) => [m.period, ...WALLETS.map((w) => m.wallets[w].net), m.walletTotal]),
+      ] },
+      { name: 'Comissões', rows: [
+        ['Mês', credit, ...associates.map((a) => a.name), 'Total'],
+        ...months.map((m) => [m.period, m.newStudentFee, ...associates.map((a) => m.commissions[a.id] || 0), m.commissionTotal + m.newStudentFee]),
+      ] },
+      { name: 'Lançamentos', rows: [
+        ['Mês', 'Data', 'Descrição', 'Tipo', 'Categoria', 'Receita potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma de pagamento', 'Observações', 'Estudante'],
+        ...entries.map((e) => [e.period, e.date, e.description, e.type, e.category, e.potentialRevenue, e.expense, e.revenue, e.associate?.name || e.commissionistRaw, e.commission, e.paymentMethod, e.notes, e.student?.code]),
+      ] },
+      { name: 'Estudantes', rows: [
+        ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas'],
+        ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes]),
+      ] },
+      { name: 'Associados', rows: [['Código', 'Nome', 'WhatsApp'], ...associates.map((a) => [a.code, a.name, a.whatsapp])] },
+      { name: 'Investimentos', rows: [
+        ['Data', 'Descrição', 'Investimento', 'Retorno', 'Retorno potencial', 'Forma de pagamento', 'Fundo', 'Observação'],
+        ...investments.map((i) => [i.date, i.description, i.investment, i.returnAmount, i.potentialReturn, i.paymentMethod, i.fund, i.notes]),
+      ] },
+      { name: 'Cupões', rows: [
+        ['Código', 'Desconto', 'Válido até', 'Máx.', 'Usos', 'Cliente', 'Data de uso', 'Estado'],
+        ...coupons.map((c) => [c.code, c.discount, c.validUntil, c.maxUses, c.usedCount, c.clientName, c.usedAt, couponStatus(c)]),
+      ] },
+    ];
+    const file = await buildXlsx(sheets);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="financas-meta-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.send(file);
   } catch (e) { next(e); }
 });
 

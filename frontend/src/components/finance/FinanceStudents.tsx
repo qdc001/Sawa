@@ -12,21 +12,22 @@ const PAGE = 50;
 
 export type Student = {
   id: string; code: string; name: string; gender: string | null; whatsapp: string | null; faculty: string | null; course: string | null;
-  theme: string | null; entryDate: string | null; currentPhase: number | null; lastActivityAt: string | null;
+  theme: string | null; entryDate: string | null; sellerCredit: boolean | null; currentPhase: number | null; lastActivityAt: string | null;
   phases: Record<string, { status?: string; date?: string }>; notes: string | null; project: string | null; origin: string | null;
   totalValue: number; installments: number | null; paidAmount: number; installmentsPaid: number; nextDueDate: string | null;
   status: string; balance: number; associate: { id: string; code: string; name: string } | null; contactId: string | null;
 };
 
-function StudentModal({ student, associates, onClose, onSaved }: { student: Student | null; associates: Associate[]; onClose: () => void; onSaved: () => void }) {
+function StudentModal({ student, associates, creditName, creditValue, onClose, onSaved }: { student: Student | null; associates: Associate[]; creditName: string; creditValue: number; onClose: () => void; onSaved: () => void }) {
   const s = student;
   const [f, setF] = useState({
     name: s?.name || '', gender: s?.gender || '', whatsapp: s?.whatsapp || '', associateId: s?.associate?.id || '',
-    faculty: s?.faculty || '', course: s?.course || '', theme: s?.theme || '', entryDate: s?.entryDate?.slice(0, 10) || '',
+    faculty: s?.faculty || '', course: s?.course || '', theme: s?.theme || '', entryDate: s ? s.entryDate?.slice(0, 10) || '' : today(),
     currentPhase: s?.currentPhase ? String(s.currentPhase) : '', lastActivityAt: s?.lastActivityAt?.slice(0, 10) || '', notes: s?.notes || '',
     project: s?.project || '', origin: s?.origin || '', totalValue: s ? String(s.totalValue) : '', installments: s?.installments ? String(s.installments) : '',
     nextDueDate: s?.nextDueDate?.slice(0, 10) || '',
   });
+  const [sellerCredit, setCredit] = useState(s ? (s.sellerCredit ?? !!s.entryDate) : false);
   const [phases, setPhases] = useState<Student['phases']>(s?.phases || {});
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
@@ -42,7 +43,7 @@ function StudentModal({ student, associates, onClose, onSaved }: { student: Stud
     if (!f.name.trim()) { toast.error('Indica o nome'); return; }
     setBusy(true);
     try {
-      const body = { ...f, associateId: f.associateId || null, phases };
+      const body = { ...f, associateId: f.associateId || null, phases, sellerCredit };
       if (s) await api.patch(`/finance/students/${s.id}`, body);
       else await api.post('/finance/students', body);
       toast.success('Guardado');
@@ -67,6 +68,10 @@ function StudentModal({ student, associates, onClose, onSaved }: { student: Stud
           <Field label="Curso">{input('course')}</Field>
           <Field label="Última actividade">{input('lastActivityAt', 'date')}</Field>
           <div className="sm:col-span-3"><Field label="Tema do TCC">{input('theme')}</Field></div>
+          <label className="sm:col-span-3 flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={sellerCredit} onChange={(e) => setCredit(e.target.checked)} />
+            Venda de {creditName} (recebe {mzn(creditValue)} no mês de entrada)
+          </label>
         </div>
         <div>
           <h4 className="text-sm font-semibold mb-2">Parcelamento</h4>
@@ -169,8 +174,8 @@ function statusBadge(s: Student) {
   return s.status === 'Pago' ? <Badge text="Pago" tone="green" /> : <Badge text="Em aberto" tone="amber" />;
 }
 
-export default function FinanceStudents({ mode, associates, rate, canEdit, onChanged }: {
-  mode: 'students' | 'installments'; associates: Associate[]; rate: number; canEdit: boolean; onChanged: () => void;
+export default function FinanceStudents({ mode, associates, rate, canEdit, onChanged, creditName, creditValue }: {
+  mode: 'students' | 'installments'; associates: Associate[]; rate: number; canEdit: boolean; onChanged: () => void; creditName: string; creditValue: number;
 }) {
   const [rows, setRows] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -278,7 +283,7 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
           <button className="btn" disabled={page === pages} onClick={() => setPage(page + 1)}>Seguinte</button>
         </div>
       )}
-      {edit && <StudentModal student={edit.student} associates={associates} onClose={() => setEdit(null)} onSaved={changed} />}
+      {edit && <StudentModal student={edit.student} associates={associates} creditName={creditName} creditValue={creditValue} onClose={() => setEdit(null)} onSaved={changed} />}
       {pay && <PaymentModal student={pay} associates={associates} rate={rate} onClose={() => setPay(null)} onSaved={changed} />}
     </div>
   );

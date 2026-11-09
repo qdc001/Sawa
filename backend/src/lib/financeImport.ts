@@ -7,7 +7,7 @@ import { WALLETS, Wallet, normalizeWallet, computeMonths, computeFlow, FinanceCo
 export type ParsedAssociate = { code: string; name: string; whatsapp: string | null };
 export type ParsedStudent = {
   code: string; name: string; gender: string | null; whatsapp: string | null; associateCode: string | null;
-  faculty: string | null; course: string | null; theme: string | null; entryDate: Date | null;
+  faculty: string | null; course: string | null; theme: string | null; entryDate: Date | null; sellerCredit: boolean;
   currentPhase: number | null; lastActivityAt: Date | null; phases: Record<string, { status?: string; date?: string }>;
   notes: string | null; project: string | null; origin: string | null; totalValue: number;
   installments: number | null; paidAmount: number; installmentsPaid: number; nextDueDate: Date | null; status: string;
@@ -237,6 +237,8 @@ export async function parseFinanceWorkbook(
       associateCode: str(raw(est.getCell(r, 5))), faculty: str(raw(est.getCell(r, 6))), course: str(raw(est.getCell(r, 7))),
       theme: str(raw(est.getCell(r, 8))),
       entryDate: controlEntry.get(id) || date(raw(est.getCell(r, 9))),
+      // Na planilha, a data preenchida e o que marca a venda da Lucilia.
+      sellerCredit: !!(controlEntry.get(id) || date(raw(est.getCell(r, 9)))),
       currentPhase: phase >= 1 && phase <= 7 ? phase : null,
       lastActivityAt: date(raw(est.getCell(r, 11))), phases, notes: str(raw(est.getCell(r, 27))),
       project: cleanProject(raw(est.getCell(r, 28))), origin: str(raw(est.getCell(r, 29))),
@@ -361,7 +363,7 @@ export function reconcile(p: ParsedWorkbook, cfg: FinanceConfig): { differences:
   const months = computeMonths(
     p.entries.map((e) => ({ ...e, associateId: e.associateCode })),
     p.payrolls,
-    p.students.map((s) => s.entryDate),
+    p.students.map((s) => (s.sellerCredit ? s.entryDate : null)),
     cfg,
   );
   const flow = computeFlow(months, p.investments, cfg);

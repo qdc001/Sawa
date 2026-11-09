@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Loader2, Wallet } from 'lucide-react';
+import { Download, Loader2, Wallet } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store';
 import { isMetaWorkspace } from '../lib/useFinanceAccess';
@@ -48,6 +48,20 @@ export default function FinancePage() {
   }, [isAdmin]);
   useEffect(load, [load]);
 
+  const [exporting, setExporting] = useState(false);
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      const { data: blob } = await api.get('/finance/export', { responseType: 'blob', timeout: 120000 });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `financas-meta-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast.error('Não foi possível baixar os dados'); } finally { setExporting(false); }
+  };
+
   const empty = useMemo(() => isAdmin && !!data && data.months.length === 0, [isAdmin, data]);
 
   if (!isMetaWorkspace(workspace?.name)) return <Navigate to="/" replace />;
@@ -55,9 +69,16 @@ export default function FinancePage() {
   const needsData = !['students', 'program', 'mine'].includes(tab);
   return (
     <div className="p-4 lg:p-6 space-y-4">
-      <div>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
         <h1 className="text-xl font-bold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}><Wallet size={20} /> Finanças</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Lançamentos, parcelamento, comissões e a saúde financeira do M.E.T.A.</p>
+        </div>
+        {isAdmin && (
+          <button className="btn" disabled={exporting} onClick={exportData}>
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Baixar dados (Excel)
+          </button>
+        )}
       </div>
       <div className="flex gap-1 flex-wrap">
         {tabs.map((t) => (
@@ -81,7 +102,8 @@ export default function FinancePage() {
           {tab === 'months' && data && <FinanceMonths data={data} reload={load} />}
           {tab === 'ledger' && data && <FinanceLedger data={data} reload={load} />}
           {(tab === 'students' || tab === 'installments') && (
-            <FinanceStudents mode={tab} associates={data?.associates || []} rate={data?.settings.commissionRate ?? 0.25} canEdit={isAdmin} onChanged={load} />
+            <FinanceStudents mode={tab} associates={data?.associates || []} rate={data?.settings.commissionRate ?? 0.25} canEdit={isAdmin} onChanged={load}
+              creditName={data?.settings.perNewStudentName ?? 'Lucília'} creditValue={data?.settings.perNewStudent ?? 250} />
           )}
           {tab === 'program' && <FinanceProgram canEdit={isAdmin} onChanged={load} />}
           {tab === 'commissions' && data && <FinanceCommissions data={data} />}

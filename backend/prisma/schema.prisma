@@ -1583,6 +1583,8 @@ model FinanceStudent {
   course           String?
   theme            String?
   entryDate        DateTime?
+  // Venda da Lucilia (recebe o valor fixo). null = dados antigos: conta se tiver data de entrada.
+  sellerCredit     Boolean?
   currentPhase     Int?
   lastActivityAt   DateTime?
   // { "1": { "status": "Entregue", "date": "2026-07-01" }, ... }
