@@ -1,31 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Loader2, Search, AlertTriangle, Sparkles, MessageCircle } from 'lucide-react';
+import { Loader2, Sparkles, MessageCircle, Cpu, Clock } from 'lucide-react';
 import api from '../lib/api';
 
-type Issue = { type: string; severity: 1 | 2 | 3; label: string; detail: string };
-type AiSummary = { resumo: string; risco: 'baixo' | 'medio' | 'alto'; problemas: string[]; accao_sugerida: string };
-type FlaggedChat = {
+type Item = {
   contactId: string; name: string; code: string | null; owner: string | null;
-  score: number; level: 'alto' | 'medio' | 'baixo'; waitingHours: number | null;
-  issues: Issue[]; lastMessage: { direction: string; content: string; at: string } | null;
-  ai?: AiSummary | null;
+  level: 'alto' | 'medio' | 'baixo'; waitingHours: number | null;
+  categories: string[]; summary: string; action: string; source: 'ia' | 'regras';
+  lastMessage: { direction: string; content: string; at: string } | null;
 };
 type Result = {
-  days: number; analysed: number; truncated: boolean; flaggedCount: number; aiNote: string | null;
-  conversations: FlaggedChat[];
+  days: number; eligible: number; analysed: number; aiAnalysed: number; fallback: number;
+  okCount: number; truncated: boolean; conversations: Item[];
 };
 
 const LEVEL_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
-  alto: { bg: '#FEE2E2', fg: '#991B1B', label: 'Alto' },
-  medio: { bg: '#FEF3C7', fg: '#92400E', label: 'Médio' },
-  baixo: { bg: '#E0F2FE', fg: '#075985', label: 'Baixo' },
-};
-const SEV_COLOR: Record<number, { bg: string; fg: string }> = {
-  1: { bg: '#E0F2FE', fg: '#075985' },
-  2: { bg: '#FEF3C7', fg: '#92400E' },
-  3: { bg: '#FEE2E2', fg: '#991B1B' },
+  alto: { bg: '#FEE2E2', fg: '#991B1B', label: 'Alta' },
+  medio: { bg: '#FEF3C7', fg: '#92400E', label: 'Média' },
+  baixo: { bg: '#E0F2FE', fg: '#075985', label: 'Baixa' },
 };
 const RANGES = [
   { v: 1, label: 'Últimas 24h' },
@@ -35,53 +28,90 @@ const RANGES = [
   { v: 30, label: 'Últimos 30 dias' },
 ];
 
+function fmtWait(h: number): string {
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+  if (h < 48) return `${Math.round(h)}h`;
+  return `${Math.round(h / 24)} dias`;
+}
+
 export default function ChatAnalysisPanel() {
   const navigate = useNavigate();
   const [days, setDays] = useState(2);
-  const [useAi, setUseAi] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [result, setResult] = useState<Result | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
+
+  const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } setRunning(false); };
 
   const analyse = async () => {
-    setLoading(true);
+    setRunning(true);
+    setResult(null);
+    setProgress({ done: 0, total: 0 });
     try {
-      const { data } = await api.get(`/chat-analysis?days=${days}${useAi ? '&ai=true' : ''}`);
-      setResult(data);
-      if (data.aiNote) toast(data.aiNote, { icon: '⚠️', duration: 6000 });
+      const { data } = await api.post('/chat-analysis/start', { days });
+      const jobId = data.jobId as string;
+      timer.current = setInterval(async () => {
+        try {
+          const { data: j } = await api.get(`/chat-analysis/job/${jobId}`);
+          setProgress({ done: j.done, total: j.total });
+          if (j.status === 'done') {
+            stop();
+            setResult(j.result);
+            if (j.aiNote) toast(j.aiNote, { icon: '⚠️', duration: 7000 });
+          } else if (j.status === 'error') {
+            stop();
+            toast.error(j.error || 'Erro a analisar as conversas');
+          }
+        } catch (e: any) {
+          stop();
+          toast.error(e.response?.data?.message || 'Erro a ler o progresso da análise');
+        }
+      }, 2000);
     } catch (e: any) {
-      toast.error(e.response?.data?.message || 'Erro a analisar as conversas');
-    } finally { setLoading(false); }
+      stop();
+      toast.error(e.response?.data?.message || 'Erro a iniciar a análise');
+    }
   };
+
+  const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
     <div className="space-y-4">
       <div className="card p-5">
-        <h3 className="font-semibold mb-1 flex items-center gap-2"><AlertTriangle size={16} style={{ color: '#F59E0B' }} /> Análise de conversas</h3>
+        <h3 className="font-semibold mb-1 flex items-center gap-2"><Sparkles size={16} style={{ color: '#8B5CF6' }} /> Análise de conversas por IA</h3>
         <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-          Procura sinais de problema nas conversas com actividade no período: clientes sem resposta, a insistir, com reclamações, promessas por cumprir e respostas lentas. Grupos de WhatsApp ficam de fora.
+          A IA lê as conversas com actividade no período (até 40, primeiro as com mais sinais de problema, sem grupos de WhatsApp) e aponta as que precisam de atenção: clientes sem resposta, a insistir ou insatisfeitos, promessas por cumprir, falhas da equipa e oportunidades em risco. Envia o fim de cada conversa ao serviço de IA e gasta tokens.
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="input-base" style={{ width: 'auto', padding: '4px 8px', fontSize: 13 }}>
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} disabled={running} className="input-base" style={{ width: 'auto', padding: '4px 8px', fontSize: 13 }}>
             {RANGES.map((r) => <option key={r.v} value={r.v}>{r.label}</option>)}
           </select>
-          <label className="flex items-center gap-1.5 text-xs cursor-pointer" title="Envia o fim das conversas mais graves ao serviço de IA para um resumo e uma acção sugerida. Gasta tokens de IA.">
-            <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} />
-            <Sparkles size={12} /> Resumo com IA (até 8 conversas)
-          </label>
-          <button onClick={analyse} disabled={loading} className="text-sm px-3 py-1.5 rounded font-medium flex items-center gap-1.5" style={{ background: 'var(--primary)', color: '#fff' }}>
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />} Analisar
+          <button onClick={analyse} disabled={running} className="text-sm px-3 py-1.5 rounded font-medium flex items-center gap-1.5" style={{ background: 'var(--primary)', color: '#fff', opacity: running ? 0.7 : 1 }}>
+            {running ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} {running ? 'A analisar...' : 'Analisar com IA'}
           </button>
+          {running && progress.total > 0 && (
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+              <div style={{ width: 140, height: 6, borderRadius: 3, background: 'var(--surface-3)' }}>
+                <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: 'var(--primary)', transition: 'width .3s' }} />
+              </div>
+              {progress.done}/{progress.total} conversas
+            </div>
+          )}
         </div>
       </div>
 
       {result && (
         <>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <b>{result.analysed}</b> conversas analisadas · <b style={{ color: result.flaggedCount ? '#B45309' : '#047857' }}>{result.flaggedCount}</b> com possíveis problemas
-            {result.truncated && ' (período muito grande: só foram lidas as mensagens mais antigas)'}
+            <b>{result.analysed}</b> conversas analisadas{result.eligible > result.analysed && ` (de ${result.eligible} com actividade; primeiro as com mais sinais de problema)`} ·{' '}
+            <b style={{ color: result.conversations.length ? '#B45309' : '#047857' }}>{result.conversations.length}</b> precisam de atenção · {result.okCount} sem problemas
+            {result.fallback > 0 && ` · ${result.fallback} analisadas por regras (a IA falhou)`}
           </p>
           {result.conversations.length === 0 && (
-            <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Nenhum problema detectado neste período.</div>
+            <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>A IA não encontrou problemas neste período.</div>
           )}
           {result.conversations.map((c) => {
             const lv = LEVEL_STYLE[c.level];
@@ -93,36 +123,36 @@ export default function ChatAnalysisPanel() {
                       <span className="font-semibold">{c.name}</span>
                       {c.code && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>{c.code}</span>}
                       <span className="text-[11px] px-2 py-0.5 rounded font-medium" style={{ background: lv.bg, color: lv.fg }}>Gravidade {lv.label}</span>
+                      {c.source === 'regras' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1" style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }} title="A IA não conseguiu analisar esta conversa; é uma análise automática por regras.">
+                          <Cpu size={10} /> regras
+                        </span>
+                      )}
                     </div>
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Responsável: {c.owner || 'sem responsável'}</p>
+                    <p className="text-xs mt-0.5 flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                      <span>Responsável: {c.owner || 'sem responsável'}</span>
+                      {c.waitingHours !== null && c.waitingHours >= 1 && <span className="flex items-center gap-0.5"><Clock size={11} /> cliente à espera há {fmtWait(c.waitingHours)}</span>}
+                    </p>
                   </div>
                   <button onClick={() => navigate(`/inbox?contactId=${c.contactId}`)} className="text-xs px-2 py-1 rounded font-medium flex items-center gap-1" style={{ background: 'var(--surface-3)', color: 'var(--text-secondary)' }}>
                     <MessageCircle size={12} /> Abrir conversa
                   </button>
                 </div>
 
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {c.issues.map((i, idx) => (
-                    <span key={idx} className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: SEV_COLOR[i.severity].bg, color: SEV_COLOR[i.severity].fg }} title={i.detail}>{i.label}</span>
-                  ))}
-                </div>
-                <ul className="mt-2 space-y-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  {c.issues.map((i, idx) => <li key={idx}>• {i.detail}</li>)}
-                </ul>
+                {c.categories.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {c.categories.map((k, idx) => (
+                      <span key={idx} className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: lv.bg, color: lv.fg }}>{k}</span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-sm mt-2">{c.summary}</p>
+                {c.action && <p className="text-xs mt-1.5 p-2 rounded" style={{ background: 'var(--surface-2)' }}><b>Sugestão:</b> {c.action}</p>}
 
                 {c.lastMessage && (
                   <p className="text-xs mt-2 truncate" style={{ color: 'var(--text-muted)' }}>
                     Última mensagem ({c.lastMessage.direction === 'INBOUND' ? 'cliente' : 'nós'}, {new Date(c.lastMessage.at).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}): "{c.lastMessage.content}"
                   </p>
-                )}
-
-                {c.ai && (
-                  <div className="mt-3 p-3 rounded text-xs space-y-1" style={{ background: 'var(--surface-2)' }}>
-                    <p className="font-semibold flex items-center gap-1"><Sparkles size={12} /> IA · risco {c.ai.risco}</p>
-                    <p>{c.ai.resumo}</p>
-                    {c.ai.problemas?.length > 0 && <p><b>Problemas:</b> {c.ai.problemas.join('; ')}</p>}
-                    <p><b>Sugestão:</b> {c.ai.accao_sugerida}</p>
-                  </div>
                 )}
               </div>
             );

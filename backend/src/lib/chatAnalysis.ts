@@ -31,17 +31,20 @@ export type Analysis = {
 
 const H = 3600 * 1000;
 
-const COMPLAINT_RE = new RegExp(
-  [
-    'reclam', 'pessim', 'p[ée]ssim', 'horr[ií]vel', 'inaceit', 'absurd', 'vergonh', 'queixa', 'insatisf',
-    'atrasad', 'atraso', 'demor', 'ningu[ée]m (responde|atende)', 'n[ãa]o (me )?(responde|respondem|atende|atendem)',
-    'n[ãa]o recebi', 'ainda n[ãa]o (recebi|chegou)', 'n[ãa]o chegou', 'n[ãa]o funciona', 'n[ãa]o consigo',
-    'reembols', 'devolu', 'cancel', 'enganad', 'burl', 'mentira', 'prometeram', 'prometeu', 'j[áa] pagu',
-    'estou (a espera|à espera|esperando)', 'at[ée] quando', 'm[áa] qualidade', 'erro', 'problema',
-  ].join('|'),
-  'i',
-);
-const STRONG_COMPLAINT_RE = /reclam|pessim|p[ée]ssim|horr[ií]vel|inaceit|absurd|vergonh|queixa|reembols|enganad|burl|mentira|cancel/i;
+// Reclamacao FORTE: palavras claras de insatisfacao.
+const STRONG_COMPLAINT_RE = /reclam|pessim|p[ée]ssim|horr[ií]vel|inaceit|absurd|vergonh|queixa|insatisf|reembols|enganad|burl|mentira|m[áa] qualidade|nunca mais/i;
+// Reclamacao MEDIA: sinais de atraso/falha, menos conclusivos sozinhos.
+// Palavras genericas ("problema", "erro", "estou a espera") ficam de fora:
+// apareciam em frases normais como "sem problemas" ou "estou a espera da data".
+const MEDIUM_COMPLAINT_RE = /atrasad|atraso|ningu[ée]m (responde|atende)|n[ãa]o (me )?(responde|respondem|atende|atendem)|n[ãa]o recebi|ainda n[ãa]o (recebi|chegou|tenho)|n[ãa]o chegou|n[ãa]o funciona|j[áa] pagu|prometeram|prometeu|at[ée] quando/i;
+// "sem problema(s)" / "sem erro" e o contrario de uma reclamacao.
+const NEGATED_RE = /sem (qualquer )?(problema|erro|reclama)s?/gi;
+function complaintLevel(text: string): 0 | 2 | 3 {
+  const t = text.replace(NEGATED_RE, '');
+  if (STRONG_COMPLAINT_RE.test(t)) return 3;
+  if (MEDIUM_COMPLAINT_RE.test(t)) return 2;
+  return 0;
+}
 const CHASER_RE = /(\?\?+|\bal[oô]+\b|est[ãa]o a[ií]|estas a[ií]|est[áa] a[ií]|\bol[áa]\?|ningu[ée]m|bom dia\?|boa tarde\?|boa noite\?|\bresposta\b)/i;
 const PROMISE_RE = /em breve|amanh[ãa]|vou (enviar|mandar|ver|verificar|responder)|irei|ir[áa] receber|envio (hoje|amanh)|j[áa] (envio|mando)|logo que|assim que|aguarde|retorno|daqui a (pouco|instantes)|at[ée] (hoje|amanh|ao fim)/i;
 
@@ -88,21 +91,35 @@ export function analyzeConversation(
     }
     // Insistencia
     const chasers = realRun.filter((m) => CHASER_RE.test(norm(m.content)));
-    if (realRun.length >= 3 || chasers.length > 0) {
+    // Mensagens enviadas em poucos minutos (ex.: varios ficheiros de uma vez)
+    // contam como UMA rajada; insistir e voltar a escrever mais tarde.
+    let bursts = 0;
+    let prevT = -Infinity;
+    for (const m of realRun) {
+      const t = m.createdAt.getTime();
+      if (t - prevT >= 30 * 60 * 1000) bursts++;
+      prevT = t;
+    }
+    if (bursts >= 3 || chasers.length > 0) {
       issues.push({
-        type: 'insistence', severity: realRun.length >= 4 || chasers.length >= 2 ? 3 : 2,
+        type: 'insistence', severity: bursts >= 4 || chasers.length >= 2 ? 3 : 2,
         label: 'Cliente a insistir',
-        detail: `${realRun.length} mensagens seguidas sem resposta${chasers.length ? ` (ex.: "${norm(chasers[0].content).slice(0, 40)}")` : ''}.`,
+        detail: chasers.length
+          ? `Voltou a escrever sem resposta (ex.: "${norm(chasers[0].content).slice(0, 40)}").`
+          : `Escreveu ${bursts} vezes em momentos diferentes sem resposta.`,
       });
     }
   }
 
   // --- Reclamacoes: ultimas 72h de mensagens do cliente ---
   const recentCut = now.getTime() - 72 * H;
-  const complaints = msgs.filter((m) => m.direction === 'INBOUND' && m.createdAt.getTime() >= recentCut && COMPLAINT_RE.test(norm(m.content)));
+  const complaints = msgs
+    .filter((m) => m.direction === 'INBOUND' && m.createdAt.getTime() >= recentCut)
+    .map((m) => ({ m, level: complaintLevel(norm(m.content)) }))
+    .filter((x) => x.level > 0);
   if (complaints.length > 0) {
-    const strong = complaints.some((m) => STRONG_COMPLAINT_RE.test(norm(m.content)));
-    const sample = norm(complaints[complaints.length - 1].content).replace(/\s+/g, ' ').slice(0, 70);
+    const strong = complaints.some((x) => x.level === 3);
+    const sample = norm(complaints[complaints.length - 1].m.content).replace(/\s+/g, ' ').slice(0, 70);
     issues.push({
       type: 'complaint', severity: strong || complaints.length >= 3 ? 3 : 2,
       label: 'Possível reclamação',
