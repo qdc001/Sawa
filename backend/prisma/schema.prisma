@@ -129,6 +129,13 @@ model Workspace {
   // Metricas de tempo de resposta: { startAt?: ISO, businessHours?: { enabled, startHour, endHour, weekdaysOnly } }
   // startAt = "recomecar contagem" (ignora mensagens anteriores).
   responseMetricsConfig         Json      @default("{}")
+  financeSettings               FinanceSettings?
+  financeAssociates             FinanceAssociate[]
+  financeStudents               FinanceStudent[]
+  financeEntries                FinanceEntry[]
+  financeInvestments            FinanceInvestment[]
+  financeCoupons                FinanceCoupon[]
+  financePayrolls               FinancePayroll[]
   // Opcoes customizaveis para tarefas (arrays JSON; vazio = usar defaults)
   // Formato cada item: { value: string, label: string, color?: string }
   taskTypes                     Json      @default("[]")
@@ -1513,4 +1520,185 @@ model KnowledgeChunk {
   @@index([workspaceId])
   @@index([documentId])
   @@map("knowledge_chunks")
+}
+
+// ==================== FINANCAS (M.E.T.A.) ====================
+// Substitui a planilha M.E.T.A._FINANCAS. O mes (period) de um lancamento e o
+// mes em que o dinheiro entrou: e nele que contam os 25% de comissao.
+
+model FinanceSettings {
+  workspaceId        String   @id
+  commissionRate     Float    @default(0.25)
+  perNewStudent      Float    @default(250)
+  perNewStudentName  String   @default("Lucília")
+  perNewStudentFrom  String   @default("2026-01")
+  workingCapital     Float    @default(1200000)
+  sealPrevidencia    Float    @default(0.3)
+  sealOportunidade   Float    @default(0.1)
+  sealDono           Float    @default(0.2)
+  sealExpansao       Float    @default(0.4)
+  // [{ name, amount, startPeriod, endPeriod? }]
+  fixedSalaries      Json     @default("[]")
+  proLabore          Float    @default(50000)
+  proLaboreFrom      String   @default("2025-11")
+  couponValidityDays Int      @default(30)
+  couponDiscount     Float    @default(500)
+  updatedAt          DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("finance_settings")
+}
+
+model FinanceAssociate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  code        String
+  name        String
+  whatsapp    String?
+  userId      String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  students  FinanceStudent[]
+  entries   FinanceEntry[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, userId])
+  @@map("finance_associates")
+}
+
+model FinanceStudent {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  code             String
+  name             String
+  gender           String?
+  whatsapp         String?
+  associateId      String?
+  contactId        String?
+  faculty          String?
+  course           String?
+  theme            String?
+  entryDate        DateTime?
+  currentPhase     Int?
+  lastActivityAt   DateTime?
+  // { "1": { "status": "Entregue", "date": "2026-07-01" }, ... }
+  phases           Json      @default("{}")
+  notes            String?
+  project          String?
+  origin           String?
+  totalValue       Float     @default(0)
+  installments     Int?
+  paidAmount       Float     @default(0)
+  installmentsPaid Int       @default(0)
+  nextDueDate      DateTime?
+  status           String    @default("Em aberto")
+  source           String    @default("crm")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  associate FinanceAssociate? @relation(fields: [associateId], references: [id], onDelete: SetNull)
+  entries   FinanceEntry[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, associateId])
+  @@map("finance_students")
+}
+
+model FinanceEntry {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  period           String
+  date             DateTime?
+  description      String?
+  type             String
+  category         String?
+  potentialRevenue Float     @default(0)
+  expense          Float     @default(0)
+  revenue          Float     @default(0)
+  commission       Float     @default(0)
+  associateId      String?
+  // Texto original quando o comissionista nao corresponde a um associado.
+  commissionistRaw String?
+  paymentMethod    String?
+  notes            String?
+  studentId        String?
+  source           String    @default("crm")
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  associate FinanceAssociate? @relation(fields: [associateId], references: [id], onDelete: SetNull)
+  student   FinanceStudent?   @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, period])
+  @@index([studentId])
+  @@map("finance_entries")
+}
+
+model FinanceInvestment {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  date            DateTime?
+  description     String?
+  investment      Float     @default(0)
+  returnAmount    Float     @default(0)
+  potentialReturn Float     @default(0)
+  paymentMethod   String?
+  notes           String?
+  fund            String?
+  source          String    @default("crm")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, date])
+  @@map("finance_investments")
+}
+
+model FinanceCoupon {
+  id          String    @id @default(cuid())
+  workspaceId String
+  code        String
+  discount    Float     @default(500)
+  validUntil  DateTime?
+  maxUses     Int       @default(1)
+  usedCount   Int       @default(0)
+  clientName  String?
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, code])
+  @@map("finance_coupons")
+}
+
+// Uma linha por mes: define que o mes "existe" no resumo e guarda o que se
+// escreve a mao (pro-labore, reinvestimento, imprevistos, pagamento de salarios).
+model FinancePayroll {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  period       String
+  proLabore    Float    @default(0)
+  reinvestment Float    @default(0)
+  reserve      Float    @default(0)
+  status       String   @default("Por pagar")
+  paidMpesa    Float    @default(0)
+  paidEmola    Float    @default(0)
+  paidBim      Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, period])
+  @@map("finance_payroll")
 }

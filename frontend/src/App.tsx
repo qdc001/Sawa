@@ -13,6 +13,7 @@ import PipelinePage from './pages/PipelinePage';
 import LeadsPage from './pages/LeadsPage';
 import ContactsPage from './pages/ContactsPage';
 import InboxPage from './pages/InboxPage';
+import FinancePage from './pages/FinancePage';
 import TasksPage from './pages/TasksPage';
 import AutomationsPage from './pages/AutomationsPage';
 import ChatbotsPage from './pages/ChatbotsPage';
@@ -147,6 +148,7 @@ export default function App() {
           <Route path="plano" element={<BillingPage />} />
           <Route path="sales-agent" element={<SalesAgentPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
+          <Route path="finance" element={<FinancePage />} />
           <Route path="templates" element={<TemplatesPage />} />
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="team" element={<TeamPage />} />

@@ -27,6 +27,7 @@ import integrationRoutes from './routes/integrations';
 import webhookRoutes from './routes/webhooks';
 import analyticsRoutes from './routes/analytics';
 import chatAnalysisRoutes from './routes/chatAnalysis';
+import financeRoutes from './routes/finance';
 import notificationRoutes from './routes/notifications';
 import customFieldRoutes from './routes/customFields';
 import fileRoutes from './routes/files';
@@ -187,6 +188,7 @@ app.use('/api/templates', authMiddleware, templateRoutes);
 app.use('/api/integrations', authMiddleware, integrationRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/chat-analysis', authMiddleware, chatAnalysisRoutes);
+app.use('/api/finance', authMiddleware, financeRoutes);
 app.use('/api/notifications', authMiddleware, notificationRoutes);
 app.use('/api/custom-fields', authMiddleware, customFieldRoutes);
 // expensiveLimiter em uploads e endpoints LLM: 30/min por IP evita

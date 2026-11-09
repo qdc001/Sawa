@@ -4,7 +4,7 @@ import {
   LayoutDashboard, GitBranch, Users, MessageSquare, CheckSquare,
   Zap, Bot, BarChart3, FileText, Plug, Settings, LogOut,
   Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2, Check, Phone,
-  ScrollText, Sparkles
+  ScrollText, Sparkles, Wallet
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
 import { useTerminology } from '../../lib/terminology';
@@ -33,6 +33,7 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean; deskto
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
   { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
+  { path: '/finance', icon: Wallet, key: 'nav.finance', legacyOnly: true },
 ];
 
 // Itens de menu para o dropdown do avatar (canto superior direito).
