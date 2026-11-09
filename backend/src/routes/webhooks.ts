@@ -500,6 +500,7 @@ router.post('/tiktok', async (req: Request, res: Response) => {
 
 // ============= Evolution API webhook =============
 // O servidor Evolution chama este endpoint com eventos: MESSAGES_UPSERT, CONNECTION_UPDATE, etc.
+let lidLogCount = 0;
 router.post('/evolution', async (req: Request, res: Response) => {
   try {
     // Validacao de origem OPT-IN (via EVOLUTION_WEBHOOK_STRICT=true). Se
@@ -615,7 +616,22 @@ router.post('/evolution', async (req: Request, res: Response) => {
       for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
         const m = messages[msgIdx];
         try {
-        const remoteJid: string = m.key?.remoteJid || '';
+        // WhatsApp passou a identificar muitos contactos por LID ("...@lid"),
+        // que nao e um numero de telefone. Quando o Baileys sabe o numero real
+        // envia-o em key.remoteJidAlt (ou senderPn); usamo-lo para a mensagem
+        // cair na conversa do contacto que ja existe, em vez de criar um novo
+        // contacto com o LID como "numero".
+        const rawRemoteJid: string = m.key?.remoteJid || '';
+        let remoteJid: string = rawRemoteJid;
+        if (rawRemoteJid.endsWith('@lid')) {
+          const alt = [m.key?.remoteJidAlt, m.key?.senderPn, m.senderPn]
+            .find((x) => typeof x === 'string' && x.endsWith('@s.whatsapp.net')) as string | undefined;
+          if (alt) remoteJid = alt;
+          if (lidLogCount < 20) {
+            lidLogCount++;
+            console.log(`[evo] msg de LID ${rawRemoteJid.slice(0, 18)} -> ${alt ? 'numero real ' + alt.slice(0, 18) : 'SEM numero real'} | key=${JSON.stringify(m.key)}`);
+          }
+        }
         if (!remoteJid) continue;
         if (remoteJid.endsWith('@broadcast')) continue; // ignorar broadcast lists
         const isGroup = remoteJid.endsWith('@g.us');
