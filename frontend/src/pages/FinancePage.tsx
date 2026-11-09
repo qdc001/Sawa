@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { Loader2, Wallet } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store';
+import { isMetaWorkspace } from '../lib/useFinanceAccess';
 import { errMsg, Summary } from '../components/finance/shared';
 import { FinanceCommissions, FinanceMonths, FinanceOverview } from '../components/finance/FinanceOverview';
 import FinanceLedger from '../components/finance/FinanceLedger';
@@ -33,8 +34,6 @@ const MEMBER_TABS: { v: Tab; label: string }[] = [
 
 export default function FinancePage() {
   const { user, workspace } = useAuthStore();
-  // uiMode chega depois do login: so se sai quando se sabe que nao e legacy.
-  const uiMode = (workspace as any)?.uiMode;
   const isAdmin = user?.role === 'OWNER' || user?.role === 'ADMIN';
   const tabs = isAdmin ? ADMIN_TABS : MEMBER_TABS;
   const [tab, setTab] = useState<Tab>(tabs[0].v);
@@ -51,7 +50,7 @@ export default function FinancePage() {
 
   const empty = useMemo(() => isAdmin && !!data && data.months.length === 0, [isAdmin, data]);
 
-  if (uiMode === 'clinical') return <Navigate to="/" replace />;
+  if (!isMetaWorkspace(workspace?.name)) return <Navigate to="/" replace />;
 
   const needsData = !['students', 'program', 'mine'].includes(tab);
   return (

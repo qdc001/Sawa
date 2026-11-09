@@ -177,7 +177,12 @@ function cleanProject(v: any): string | null {
 
 // fixSpaces: em 2025 ha nomes com espacos a mais ("Absalao ", "m-pesa ") que o
 // Excel nao soma. Por defeito o CRM faz o mesmo, para bater com o Excel.
-export async function parseFinanceWorkbook(buffer: Buffer, opts: { fixSpaces?: boolean } = {}): Promise<ParsedWorkbook> {
+// extraAssociates: associados criados no CRM que a planilha nao tem. Mantem-se
+// e os lancamentos com o nome deles ficam ligados.
+export async function parseFinanceWorkbook(
+  buffer: Buffer,
+  opts: { fixSpaces?: boolean; extraAssociates?: ParsedAssociate[] } = {},
+): Promise<ParsedWorkbook> {
   const wb = await loadWorkbook(buffer);
   const warnings: string[] = [];
   const need = (n: string) => {
@@ -193,6 +198,9 @@ export async function parseFinanceWorkbook(buffer: Buffer, opts: { fixSpaces?: b
     const code = str(raw(assocSheet.getCell(r, 1)));
     const name = str(raw(assocSheet.getCell(r, 2)));
     if (code && /^A\d+$/.test(code) && name) associates.push({ code, name, whatsapp: str(raw(assocSheet.getCell(r, 8))) });
+  }
+  for (const extra of opts.extraAssociates || []) {
+    if (!associates.some((a) => a.code === extra.code || key(a.name) === key(extra.name))) associates.push(extra);
   }
   associates.sort((a, b) => a.code.localeCompare(b.code));
   const byName = new Map(associates.map((a) => [key(a.name), a.code]));

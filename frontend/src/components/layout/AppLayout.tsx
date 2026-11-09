@@ -9,6 +9,7 @@ import {
 import { useAuthStore, useUIStore } from '../../store';
 import { useTerminology } from '../../lib/terminology';
 import { useIsLegacy } from '../../lib/useUiMode';
+import { isMetaWorkspace } from '../../lib/useFinanceAccess';
 import { KlaruMark } from '../KlaruLogo';
 import CopilotPanel from '../ai/CopilotPanel';
 import DesktopNotifications from '../DesktopNotifications';
@@ -25,7 +26,7 @@ import { useIsMobile } from '../../lib/useIsMobile';
 // Sidebar operacional. `legacyOnly: true` faz o item so aparecer em
 // workspaces em modo legacy (UI antiga). Novos workspaces (clinical)
 // veem menu enxuto sem Pipeline.
-const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean; legacyOnly?: boolean }[] = [
+const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean; legacyOnly?: boolean; metaOnly?: boolean }[] = [
   { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
@@ -33,7 +34,7 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean; deskto
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
   { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
-  { path: '/finance', icon: Wallet, key: 'nav.finance', legacyOnly: true },
+  { path: '/finance', icon: Wallet, key: 'nav.finance', metaOnly: true },
 ];
 
 // Itens de menu para o dropdown do avatar (canto superior direito).
@@ -86,6 +87,7 @@ export default function AppLayout() {
   const navItems = navConfig
     .filter((n) => !(isMobile && n.desktopOnly))
     .filter((n) => !(n.legacyOnly && !isLegacy))
+    .filter((n) => !n.metaOnly || isMetaWorkspace(workspace?.name))
     .map((n) => {
       // Labels dinamicas por UI mode.
       let label = t(n.key);

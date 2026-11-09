@@ -5,7 +5,6 @@ import crypto from 'crypto';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import prisma from '../lib/prisma';
-import { isLegacyWorkspace } from '../lib/legacyWorkspaces';
 import { computeFlow, computeMonths, FinanceConfig, FixedSalary, normalizeWallet, WALLETS } from '../lib/financeCalc';
 import { ParsedWorkbook, parseFinanceWorkbook, reconcile } from '../lib/financeImport';
 
@@ -24,7 +23,8 @@ const ORDINALS = ['Primeira', 'Segunda', 'Terceira', 'Quarta', 'Quinta', 'Sexta'
 // So existe no workspace M.E.T.A.
 router.use(async (req: AuthRequest, _res: Response, next: NextFunction) => {
   try {
-    if (!(await isLegacyWorkspace(req.user!.workspaceId))) throw new AppError('Não encontrado', 404);
+    const ws = await prisma.workspace.findUnique({ where: { id: req.user!.workspaceId }, select: { name: true } });
+    if (ws?.name.replace(/[^a-z0-9]/gi, '').toLowerCase() !== 'meta') throw new AppError('Não encontrado', 404);
     next();
   } catch (e) { next(e); }
 });
@@ -675,7 +675,8 @@ router.post('/import/preview', adminOnly, upload.single('file'), async (req: Aut
     const workspaceId = req.user!.workspaceId;
     let parsed: ParsedWorkbook;
     try {
-      parsed = await parseFinanceWorkbook(req.file.buffer, { fixSpaces: req.body?.fixSpaces === 'true' });
+      const extraAssociates = await prisma.financeAssociate.findMany({ where: { workspaceId }, select: { code: true, name: true, whatsapp: true } });
+      parsed = await parseFinanceWorkbook(req.file.buffer, { fixSpaces: req.body?.fixSpaces === 'true', extraAssociates });
     } catch (e: any) {
       throw new AppError(e?.message || 'Não foi possível ler o ficheiro', 400);
     }
