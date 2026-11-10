@@ -71,7 +71,7 @@ const MONTHS: Record<string, number> = {
   janeiro: 1, fevereiro: 2, marco: 3, abril: 4, maio: 5, junho: 6, julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12, desembro: 12,
 };
 // Mesmas pessoas com nomes diferentes ao longo do tempo.
-const ALIASES: Record<string, string> = { dario: 'eugenio', yuran: 'bacar', bruno: 'dilauro', kaleb: 'caleb' };
+const ALIASES: Record<string, string> = { dario: 'eugenio', yuran: 'bacar', bruno: 'dilauro', kaleb: 'caleb', marven: 'marvin' };
 
 const strip = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
 const key = (s: string) => strip(s).toLowerCase().replace(/\s+/g, ' ').trim();
@@ -605,6 +605,16 @@ export function reconcile(p: ParsedWorkbook, cfg: FinanceConfig): { differences:
     if (left.length) {
       const v = left.reduce((a, x) => a + x.value, 0);
       parts.push(`o total do Excel não soma a comissão de ${left.map((x) => x.name).join(' e ')} (${fmt(v)}), que foi recebida`);
+      rest -= v;
+    }
+    // Associados sem coluna no "Desempenho do lote" (ex.: criados depois no CRM):
+    // o Excel nao soma a comissao deles, o CRM sim.
+    const firstKey = (s: string) => key(s).split(' ')[0];
+    const loteKeys = new Set(lote.persons.map((x) => firstKey(x.name)).flatMap((k) => [k, ALIASES[k]].filter(Boolean)));
+    const noColumn = p.associates.filter((as) => !loteKeys.has(firstKey(as.name)) && !near(m.commissions[as.code] || 0, 0));
+    if (noColumn.length) {
+      const v = noColumn.reduce((s, as) => s + (m.commissions[as.code] || 0), 0);
+      parts.push(`comissão de ${noColumn.map((as) => as.name).join(' e ')} (${fmt(v)}), que não tem coluna no "Desempenho do lote" do Excel`);
       rest -= v;
     }
     const fee = lote.persons.find((x) => isCredit(x.name) && x.inTotal);
