@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { Pencil } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Bar, BarChart } from 'recharts';
 import api from '../../lib/api';
 import {
-  CHART_GRID, CHART_TICK, errMsg, Field, FundKey, Kpi, Modal, Month, monthLabel, monthShort, mzn, num, pct, Summary,
-  Td, Th, tooltipStyle, WALLETS, YearSelect,
+  CHART_GRID, CHART_TICK, dateLabel, errMsg, Field, FundKey, inputSm, Kpi, Modal, Month, monthLabel, monthShort, mzn, num, pct,
+  statusColor, Summary, Td, Th, today, tooltipStyle, WALLETS, YearSelect,
 } from './shared';
 
 const FUND_LABELS: Record<FundKey, string> = {
@@ -113,49 +113,167 @@ export function FinanceOverview({ data }: { data: Summary }) {
   );
 }
 
-function PayrollModal({ month, onClose, onSaved }: { month: Month; onClose: () => void; onSaved: () => void }) {
+const nameKey = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const walletLabel = (w: string) => (w === 'Fisico' ? 'Físico' : w);
+
+type Due = { payee: string; associateId: string | null; due: number; role: string };
+
+// Quem recebe neste mes: associados (comissao), vendas de novos estudantes,
+// salarios fixos e pro-labore.
+function duesFor(month: Month, data: Summary): Due[] {
+  const out: Due[] = [];
+  for (const a of data.associates) {
+    const v = month.commissions[a.id] || 0;
+    if (v > 0) out.push({ payee: a.name, associateId: a.id, due: v, role: 'Comissão' });
+  }
+  if (month.newStudentFee > 0) out.push({ payee: data.settings.perNewStudentName, associateId: null, due: month.newStudentFee, role: `${month.newStudents} novos estudantes` });
+  for (const s of data.settings.fixedSalaries) {
+    if (month.period >= s.startPeriod && (!s.endPeriod || month.period <= s.endPeriod)) out.push({ payee: s.name, associateId: null, due: s.amount, role: 'Salário fixo' });
+  }
+  if (month.proLabore > 0) out.push({ payee: 'Pró-labore', associateId: null, due: month.proLabore, role: 'Pró-labore' });
+  return out;
+}
+
+function PayrollModal({ period, data, onClose, onSaved }: { period: string; data: Summary; onClose: () => void; onSaved: () => void }) {
+  const month = data.months.find((m) => m.period === period)!;
+  const payments = data.salaryPayments.filter((p) => p.period === period);
   const [proLabore, setProLabore] = useState(String(month.proLabore));
   const [reinvestment, setReinvestment] = useState(String(month.reinvestment));
   const [reserve, setReserve] = useState(String(month.reserve));
-  const [status, setStatus] = useState(month.status);
-  const [mpesa, setMpesa] = useState(String(month.wallets['M-pesa'].salaries));
-  const [emola, setEmola] = useState(String(month.wallets['E-mola'].salaries));
-  const [bim, setBim] = useState(String(month.wallets.BIM.salaries));
   const [busy, setBusy] = useState(false);
-  const toPay = month.salary + (Number(proLabore) || 0);
-  const paid = (Number(mpesa) || 0) + (Number(emola) || 0) + (Number(bim) || 0);
-  const save = async () => {
+  const [form, setForm] = useState<{ payee: string; associateId: string | null; amount: string; wallet: string; date: string; notes: string } | null>(null);
+
+  // Totais antigos por carteira (planilha ate Maio), sem detalhe por pessoa.
+  const legacy = WALLETS.filter((w) => w !== 'Fisico').map((w) => ({
+    w, v: month.wallets[w].salaries - payments.filter((p) => p.wallet === w).reduce((a, p) => a + p.amount, 0),
+  }));
+  const legacyTotal = legacy.reduce((a, x) => a + x.v, 0);
+  const dues = duesFor(month, data);
+  const paidFor = (d: Due) => payments
+    .filter((p) => (d.associateId && p.associateId === d.associateId) || nameKey(p.payee) === nameKey(d.payee))
+    .reduce((a, p) => a + p.amount, 0);
+  const missing = Math.max(0, month.toPay - month.paid);
+
+  const run = async (fn: () => Promise<unknown>, ok = 'Guardado') => {
     setBusy(true);
-    try {
-      await api.patch(`/finance/payroll/${month.period}`, { proLabore, reinvestment, reserve, status, paidMpesa: mpesa, paidEmola: emola, paidBim: bim });
-      toast.success('Guardado');
-      onSaved();
-      onClose();
-    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
+    try { await fn(); toast.success(ok); onSaved(); return true; } catch (e) { toast.error(errMsg(e)); return false; } finally { setBusy(false); }
   };
+  const saveMonth = () => run(() => api.patch(`/finance/payroll/${period}`, { proLabore, reinvestment, reserve }));
+  const clearLegacy = () => {
+    if (!window.confirm('Apagar os totais antigos por carteira deste mês? Os pagamentos por pessoa ficam.')) return;
+    run(() => api.patch(`/finance/payroll/${period}`, { status: 'Por pagar' }), 'Totais antigos apagados');
+  };
+  const savePayment = async () => {
+    if (!form) return;
+    const done = await run(() => api.post('/finance/salary-payments', { ...form, period }), 'Pagamento registado');
+    if (done) setForm(null);
+  };
+  const changeWallet = (id: string, wallet: string) => run(() => api.patch(`/finance/salary-payments/${id}`, { wallet }), 'Carteira alterada');
+  const remove = (id: string) => {
+    if (!window.confirm('Apagar este pagamento?')) return;
+    run(() => api.delete(`/finance/salary-payments/${id}`), 'Pagamento apagado');
+  };
+  const startPayment = (d?: Due) => setForm({
+    payee: d?.payee || '', associateId: d?.associateId || null,
+    amount: d ? String(Math.max(0, Math.round((d.due - paidFor(d)) * 100) / 100) || '') : '',
+    wallet: 'M-pesa', date: today(), notes: '',
+  });
+
   return (
-    <Modal title={`Salários de ${monthLabel(month.period)}`} onClose={onClose}>
-      <div className="space-y-3">
+    <Modal title={`Salários de ${monthLabel(period)}`} onClose={onClose} wide>
+      <div className="space-y-4">
         <p className="text-sm">Comissões {mzn(month.commissionTotal)} + novos estudantes {mzn(month.newStudentFee)} + salários fixos {mzn(month.fixedSalaries)} = <b>{mzn(month.salary)}</b></p>
         <div className="grid grid-cols-3 gap-2">
           <Field label="Pró-labore"><input className="input-base" type="number" min={0} value={proLabore} onChange={(e) => setProLabore(e.target.value)} /></Field>
           <Field label="Reinvestimento"><input className="input-base" type="number" min={0} value={reinvestment} onChange={(e) => setReinvestment(e.target.value)} /></Field>
           <Field label="Imprevistos"><input className="input-base" type="number" min={0} value={reserve} onChange={(e) => setReserve(e.target.value)} /></Field>
         </div>
-        <Field label="Situação">
-          <select className="input-base" value={status} onChange={(e) => setStatus(e.target.value)}><option>Por pagar</option><option>Pago</option></select>
-        </Field>
-        {status === 'Pago' && (
-          <>
-            <div className="grid grid-cols-3 gap-2">
-              <Field label="Pago por M-pesa"><input className="input-base" type="number" min={0} value={mpesa} onChange={(e) => setMpesa(e.target.value)} /></Field>
-              <Field label="Pago por E-mola"><input className="input-base" type="number" min={0} value={emola} onChange={(e) => setEmola(e.target.value)} /></Field>
-              <Field label="Pago por BIM"><input className="input-base" type="number" min={0} value={bim} onChange={(e) => setBim(e.target.value)} /></Field>
+        <button className="btn btn-outline" disabled={busy} onClick={saveMonth}>Guardar valores do mês</button>
+
+        <div className="p-3 rounded text-sm flex flex-wrap gap-x-4 gap-y-1" style={{ background: 'var(--surface-2)' }}>
+          <span>A pagar: <b>{mzn(month.toPay)}</b></span>
+          <span>Pago: <b>{mzn(month.paid)}</b></span>
+          <span>Falta: <b style={{ color: missing > 0.5 ? '#F59E0B' : '#10B981' }}>{mzn(missing)}</b></span>
+          <span style={{ color: statusColor(month.status), fontWeight: 600 }}>{month.status}</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <h4 className="font-semibold text-sm mb-1">Quem recebe</h4>
+          <table className="w-full">
+            <thead><tr><Th>Pessoa</Th><Th>De quê</Th><Th right>A receber</Th><Th right>Pago</Th><Th right>Falta</Th><Th /></tr></thead>
+            <tbody>{dues.map((d, i) => {
+              const paid = paidFor(d);
+              const left = d.due - paid;
+              return (
+                <tr key={i}>
+                  <Td bold>{d.payee}</Td><Td>{d.role}</Td><Td right>{num(d.due)}</Td><Td right>{num(paid)}</Td>
+                  {/* Diferencas de centimos (arredondamento da transferencia) contam como pago. */}
+                  <Td right color={left >= 1 ? '#F59E0B' : left <= -1 ? '#0EA5E9' : '#10B981'}>{left >= 1 ? num(left) : left <= -1 ? `+${num(-left)} a mais` : '0'}</Td>
+                  <Td>{left >= 1 && <button className="text-xs underline" onClick={() => startPayment(d)}>Registar pagamento</button>}</Td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+          <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Se alguém recebeu tudo numa só transferência (ex.: comissão + salário fixo), o pagamento aparece numa linha e a outra fica por pagar; o total do mês é o que conta.</p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="font-semibold text-sm">Pagamentos feitos</h4>
+            <button className="text-xs flex items-center gap-1 underline" onClick={() => startPayment()}><Plus size={12} /> Outro pagamento</button>
+          </div>
+          {payments.length === 0 && legacyTotal <= 0.005 && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Nenhum pagamento registado neste mês.</p>}
+          {payments.length > 0 && (
+            <table className="w-full">
+              <thead><tr><Th>Data</Th><Th>Pessoa</Th><Th>Carteira</Th><Th right>Valor</Th><Th>Observação</Th><Th /></tr></thead>
+              <tbody>{payments.map((p) => (
+                <tr key={p.id}>
+                  <Td>{dateLabel(p.date)}</Td><Td bold>{p.payee}</Td>
+                  <Td>
+                    <select className="input-base" style={inputSm} value={p.wallet} disabled={busy} aria-label={`Carteira do pagamento a ${p.payee}`} onChange={(e) => changeWallet(p.id, e.target.value)}>
+                      {WALLETS.map((w) => <option key={w} value={w}>{walletLabel(w)}</option>)}
+                    </select>
+                  </Td>
+                  <Td right bold>{num(p.amount)}</Td><Td>{p.notes}</Td>
+                  <Td><button onClick={() => remove(p.id)} aria-label={`Apagar pagamento a ${p.payee}`} disabled={busy}><Trash2 size={13} /></button></Td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+          {legacyTotal > 0.005 && (
+            <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+              Totais antigos da planilha, sem detalhe por pessoa: {legacy.filter((x) => x.v > 0.005).map((x) => `${walletLabel(x.w)} ${num(x.v)}`).join(' · ')}.{' '}
+              <button className="underline" onClick={clearLegacy} disabled={busy}>Apagar estes totais</button>
+            </p>
+          )}
+        </div>
+
+        {form && (
+          <div className="p-3 rounded space-y-2" style={{ border: '1px solid var(--border)' }}>
+            <h4 className="font-semibold text-sm">Registar pagamento</h4>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Pessoa">
+                <input className="input-base" list="finance-payees" value={form.payee} onChange={(e) => {
+                  const a = data.associates.find((x) => nameKey(x.name) === nameKey(e.target.value));
+                  setForm({ ...form, payee: e.target.value, associateId: a?.id || null });
+                }} />
+              </Field>
+              <Field label="Valor"><input className="input-base" type="number" min={0} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
+              <Field label="Carteira">
+                <select className="input-base" value={form.wallet} onChange={(e) => setForm({ ...form, wallet: e.target.value })}>
+                  {WALLETS.map((w) => <option key={w} value={w}>{walletLabel(w)}</option>)}
+                </select>
+              </Field>
+              <Field label="Data"><input className="input-base" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
             </div>
-            <p className="text-xs" style={{ color: Math.abs(paid - toPay) > 0.01 ? '#F59E0B' : 'var(--text-muted)' }}>A pagar: {mzn(toPay)} · Indicado: {mzn(paid)}</p>
-          </>
+            <Field label="Observação"><input className="input-base" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+            <datalist id="finance-payees">{[...new Set(dues.map((d) => d.payee))].map((n) => <option key={n} value={n} />)}</datalist>
+            <div className="flex gap-2">
+              <button className="btn btn-primary" disabled={busy || !form.payee.trim() || !(Number(form.amount) > 0)} onClick={savePayment}>Guardar pagamento</button>
+              <button className="btn btn-outline" onClick={() => setForm(null)}>Cancelar</button>
+            </div>
+          </div>
         )}
-        <button className="btn btn-primary w-full justify-center" disabled={busy} onClick={save}>Guardar</button>
       </div>
     </Modal>
   );
@@ -164,7 +282,7 @@ function PayrollModal({ month, onClose, onSaved }: { month: Month; onClose: () =
 export function FinanceMonths({ data, reload }: { data: Summary; reload: () => void }) {
   const years = data.flow.years.map((y) => y.year);
   const [year, setYear] = useState(years[years.length - 1] || String(new Date().getFullYear()));
-  const [editing, setEditing] = useState<Month | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const months = data.months.filter((m) => m.period.startsWith(year));
   const series = months.map((m) => ({ label: monthShort(m.period), receita: m.revenue, despesa: m.expense, dre: m.dre, lucro: m.profit, pct: m.profitPct === null ? null : Math.round(m.profitPct * 1000) / 10 }));
   return (
@@ -180,8 +298,8 @@ export function FinanceMonths({ data, reload }: { data: Summary; reload: () => v
                 <Td bold>{monthLabel(m.period).split(' ')[0]}</Td><Td right>{num(m.dre)}</Td><Td right>{num(m.revenue)}</Td><Td right>{num(m.expense)}</Td><Td right>{num(m.balance)}</Td>
                 <Td right>{num(m.salary)}</Td><Td right>{num(m.proLabore)}</Td><Td right>{num(m.reinvestment)}</Td><Td right>{num(m.reserve)}</Td>
                 <Td right bold color={m.profit >= 0 ? '#10B981' : '#EF4444'}>{num(m.profit)}</Td><Td right>{pct(m.profitPct)}</Td>
-                <Td><span style={{ color: m.status === 'Pago' ? '#10B981' : '#F59E0B', fontSize: 12, fontWeight: 600 }}>{m.status}</span></Td>
-                <Td><button onClick={() => setEditing(m)} aria-label="Editar salários"><Pencil size={13} /></button></Td>
+                <Td><span style={{ color: statusColor(m.status), fontSize: 12, fontWeight: 600 }}>{m.status}</span></Td>
+                <Td><button onClick={() => setEditing(m.period)} aria-label={`Salários de ${monthLabel(m.period)}`}><Pencil size={13} /></button></Td>
               </tr>
             ))}
           </tbody>
@@ -200,7 +318,7 @@ export function FinanceMonths({ data, reload }: { data: Summary; reload: () => v
         <Chart title="Lucro líquido" data={series} lines={[{ key: 'lucro', name: 'Lucro', color: '#0EA5E9' }]} />
         <Chart title="Percentual de lucro" data={series.filter((s) => s.pct !== null)} lines={[{ key: 'pct', name: '% Lucro', color: '#F59E0B' }]} suffix="%" />
       </div>
-      {editing && <PayrollModal month={editing} onClose={() => setEditing(null)} onSaved={reload} />}
+      {editing && data.months.some((m) => m.period === editing) && <PayrollModal period={editing} data={data} onClose={() => setEditing(null)} onSaved={reload} />}
     </div>
   );
 }

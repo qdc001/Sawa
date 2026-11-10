@@ -397,8 +397,9 @@ export function FinanceMine() {
 
 // ---------- Definicoes e importacao ----------
 type Preview = {
-  token: string; checked: number; lostEntries: number; warnings: string[];
-  differences: { area: string; item: string; excel: number; crm: number; diff: number }[];
+  token: string; checked: number; lostEntries: number; lostPayments: number; warnings: string[];
+  differences: { area: string; item: string; excel: number; crm: number; diff: number; explained: boolean; reason: string | null }[];
+  salaryPayments: { index: number; period: string; payee: string; amount: number; wallet: string; date: string | null; description: string | null; expected: number[]; suggested: boolean }[];
   counts: Record<string, number>;
 };
 
@@ -407,6 +408,8 @@ function ImportBox({ onDone }: { onDone: () => void }) {
   const [fixSpaces, setFix] = useState(false);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [chosen, setChosen] = useState<Set<number>>(new Set());
+  const [showAll, setShowAll] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
 
   const analyse = async (f: File, fix: boolean) => {
@@ -416,18 +419,23 @@ function ImportBox({ onDone }: { onDone: () => void }) {
       const fd = new FormData();
       fd.append('file', f);
       fd.append('fixSpaces', String(fix));
-      const { data } = await api.post('/finance/import/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
+      const { data } = await api.post<Preview>('/finance/import/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
       setPreview(data);
+      setChosen(new Set(data.salaryPayments.filter((s) => s.suggested).map((s) => s.index)));
     } catch (e) { toast.error(errMsg(e, 'Não foi possível ler o ficheiro')); } finally { setBusy(false); }
   };
   const commit = async () => {
     if (!preview) return;
-    const warn = preview.lostEntries ? `\n\nATENÇÃO: ${preview.lostEntries} lançamentos feitos no CRM vão ser apagados.` : '';
+    const lost = [
+      preview.lostEntries ? `${preview.lostEntries} lançamentos` : '',
+      preview.lostPayments ? `${preview.lostPayments} pagamentos de salário` : '',
+    ].filter(Boolean).join(' e ');
+    const warn = lost ? `\n\nATENÇÃO: ${lost} feitos no CRM vão ser apagados.` : '';
     if (!window.confirm(`Substituir todos os dados de Finanças pelos desta planilha?${warn}\n\nIsto não se pode desfazer.`)) return;
     setBusy(true);
     try {
-      const { data } = await api.post('/finance/import/commit', { token: preview.token }, { timeout: 180000 });
-      toast.success(`Importado: ${data.students} estudantes (${data.linkedContacts} ligados a contactos)`);
+      const { data } = await api.post('/finance/import/commit', { token: preview.token, salaryPayments: [...chosen] }, { timeout: 180000 });
+      toast.success(`Importado: ${data.students} estudantes (${data.linkedContacts} ligados a contactos) e ${data.salaryPayments} pagamentos de salário`);
       setPreview(null); setFile(null);
       if (ref.current) ref.current.value = '';
       onDone();
@@ -455,14 +463,60 @@ function ImportBox({ onDone }: { onDone: () => void }) {
           <p className="text-sm">
             {preview.counts.students} estudantes · {preview.counts.entries} lançamentos · {preview.counts.investments} investimentos · {preview.counts.coupons} cupões · {preview.counts.associates} associados · {preview.counts.months} meses
           </p>
-          <p className="text-sm"><b>{preview.checked - preview.differences.length}</b> de {preview.checked} valores iguais ao Excel.</p>
+          {(() => {
+            const explained = preview.differences.filter((d) => d.explained).length;
+            const open = preview.differences.length - explained;
+            return (
+              <p className="text-sm">
+                {preview.checked} valores comparados com o Excel: <b>{preview.checked - preview.differences.length}</b> iguais
+                {explained > 0 && <> · <b>{explained}</b> diferentes por erros conhecidos do Excel (o CRM está certo)</>}
+                {' · '}<b style={{ color: open ? '#EF4444' : '#10B981' }}>{open}</b> por explicar
+              </p>
+            );
+          })()}
           {preview.warnings.map((w, i) => <p key={i} className="text-xs" style={{ color: '#F59E0B' }}>{w}</p>)}
           {preview.differences.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead><tr><Th>Onde</Th><Th>Valor</Th><Th right>Excel</Th><Th right>CRM</Th><Th right>Diferença</Th></tr></thead>
-                <tbody>{preview.differences.map((d, i) => <tr key={i}><Td>{d.area}</Td><Td>{d.item}</Td><Td right>{num(d.excel)}</Td><Td right>{num(d.crm)}</Td><Td right bold>{num(d.diff)}</Td></tr>)}</tbody>
+                <thead><tr><Th>Onde</Th><Th>Valor</Th><Th right>Excel</Th><Th right>CRM</Th><Th right>Diferença</Th><Th>Motivo</Th></tr></thead>
+                <tbody>{preview.differences.map((d, i) => (
+                  <tr key={i}>
+                    <Td>{d.area}</Td><Td>{d.item}</Td><Td right>{num(d.excel)}</Td><Td right>{num(d.crm)}</Td><Td right bold>{num(d.diff)}</Td>
+                    <td className="py-1.5 px-2 text-xs" style={{ borderBottom: '1px solid var(--border)', minWidth: 260, color: d.explained ? 'var(--text-muted)' : '#EF4444' }}>
+                      {d.explained ? d.reason : 'Por explicar: confirma este valor antes de importar.'}
+                    </td>
+                  </tr>
+                ))}</tbody>
               </table>
+            </div>
+          )}
+          {preview.salaryPayments.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="font-semibold text-sm">Pagamentos de salário nos investimentos</h4>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Desde Junho os salários foram lançados nos investimentos. Os marcados passam para os salários do mês, com a pessoa e a carteira; os outros ficam nos investimentos.
+                Já vêm marcados os que batem com o que a pessoa tinha a receber. Confirma os restantes.
+              </p>
+              <p className="text-xs"><b>{chosen.size}</b> de {preview.salaryPayments.length} marcados ·{' '}
+                <button className="underline" onClick={() => setShowAll((v) => !v)}>{showAll ? 'mostrar só os por confirmar' : 'mostrar todos'}</button>
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead><tr><Th /><Th>Data</Th><Th>Descrição</Th><Th>Pessoa</Th><Th>Salário de</Th><Th right>Valor</Th><Th>Carteira</Th><Th right>Tinha a receber</Th></tr></thead>
+                  <tbody>{preview.salaryPayments.filter((s) => showAll || !s.suggested).map((s) => (
+                    <tr key={s.index}>
+                      <Td><input type="checkbox" aria-label={`Passar ${s.description || s.payee} para salários`} checked={chosen.has(s.index)} onChange={(e) => {
+                        const next = new Set(chosen);
+                        if (e.target.checked) next.add(s.index); else next.delete(s.index);
+                        setChosen(next);
+                      }} /></Td>
+                      <Td>{dateLabel(s.date)}</Td><Td>{s.description}</Td><Td>{s.payee}</Td><Td>{monthLabel(s.period)}</Td>
+                      <Td right bold>{num(s.amount)}</Td><Td>{s.wallet}</Td>
+                      <Td right>{s.expected.length ? s.expected.map((v) => num(v)).join(' ou ') : '—'}</Td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
             </div>
           )}
           <button className="btn btn-primary" disabled={busy} onClick={commit}><Upload size={14} /> Importar estes dados</button>

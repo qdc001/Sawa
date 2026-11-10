@@ -10,7 +10,7 @@ export type Month = {
   period: string; dre: number; revenue: number; expense: number; balance: number;
   commissions: Record<string, number>; commissionTotal: number; newStudents: number; newStudentFee: number;
   fixedSalaries: number; salary: number; proLabore: number; reinvestment: number; reserve: number;
-  profit: number; profitPct: number | null; toPay: number; status: string;
+  profit: number; profitPct: number | null; toPay: number; paid: number; status: string;
   wallets: Record<Wallet, WalletLine>; walletTotal: number; hasActivity: boolean;
 };
 export type Year = {
@@ -32,7 +32,12 @@ export type Settings = {
   workingCapital: number; sealPrevidencia: number; sealOportunidade: number; sealDono: number; sealExpansao: number;
   fixedSalaries: FixedSalary[]; proLabore: number; proLaboreFrom: string; couponValidityDays: number; couponDiscount: number;
 };
-export type Summary = { settings: Settings; months: Month[]; flow: Flow; associates: Associate[] };
+export type SalaryPayment = {
+  id: string; period: string; payee: string; associateId: string | null; amount: number; wallet: string;
+  date: string | null; notes: string | null; source: string;
+};
+export type Summary = { settings: Settings; months: Month[]; flow: Flow; associates: Associate[]; salaryPayments: SalaryPayment[] };
+export const statusColor = (s: string) => (s === 'Pago' ? '#10B981' : s === 'Pago em parte' ? '#0EA5E9' : '#F59E0B');
 
 export const num = (n: number | null | undefined) =>
   n === null || n === undefined ? '—' : new Intl.NumberFormat('pt-PT', { maximumFractionDigits: 2 }).format(Math.abs(n) < 0.005 ? 0 : n);

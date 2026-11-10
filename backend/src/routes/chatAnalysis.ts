@@ -11,6 +11,7 @@ const MAX_CHATS = 40;        // conversas enviadas a IA por analise (mais recent
 const BATCH_SIZE = 4;        // conversas por chamada a IA
 const MAX_MESSAGES = 50000;
 const JOB_TTL_MS = 30 * 60 * 1000;
+const HISTORY_LIMIT = 200;   // analises mostradas na lista do historico
 
 const CATEGORY_LABELS: Record<string, string> = {
   sem_resposta: 'Sem resposta',
@@ -36,6 +37,7 @@ type Job = {
   id: string; workspaceId: string; status: 'running' | 'done' | 'error';
   total: number; done: number; startedAt: number;
   aiNote: string | null; error: string | null;
+  createdByName: string | null; runId: string | null;
   payload?: {
     days: number; eligible: number; analysed: number; aiAnalysed: number; fallback: number;
     okCount: number; truncated: boolean; conversations: Result[];
@@ -232,6 +234,22 @@ async function runJob(job: Job, days: number) {
       days, eligible: eligible.length, analysed: chosen.length, aiAnalysed, fallback, okCount,
       truncated: rows.length >= MAX_MESSAGES, conversations: results,
     };
+    // Guarda aqui e nao no browser: assim fica no historico mesmo que quem
+    // lancou a analise saia da pagina antes de ela acabar.
+    try {
+      const run = await prisma.chatAnalysisRun.create({
+        data: {
+          workspaceId, days, analysed: chosen.length, attention: results.length,
+          createdByName: job.createdByName,
+          result: JSON.parse(JSON.stringify(job.payload)),
+        },
+        select: { id: true },
+      });
+      job.runId = run.id;
+    } catch (e: any) {
+      console.error('[chat-analysis] falha a guardar no historico:', e?.message || e);
+      job.aiNote = [job.aiNote, 'Não consegui guardar esta análise no histórico.'].filter(Boolean).join(' ');
+    }
     job.status = 'done';
   } catch (e: any) {
     console.error('[chat-analysis] erro:', e);
@@ -261,9 +279,11 @@ router.post('/start', async (req: AuthRequest, res: Response, next) => {
     const running = [...jobs.values()].find((j) => j.workspaceId === workspaceId && j.status === 'running');
     if (running) return res.json({ jobId: running.id });
 
+    const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { name: true } });
     const job: Job = {
       id: `${workspaceId.slice(-6)}-${nowMs.toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
       workspaceId, status: 'running', total: 0, done: 0, startedAt: nowMs, aiNote: null, error: null,
+      createdByName: me?.name || null, runId: null,
     };
     jobs.set(job.id, job);
     runJob(job, days).catch(() => {});
@@ -281,8 +301,44 @@ router.get('/job/:id', async (req: AuthRequest, res: Response, next) => {
     }
     res.json({
       status: job.status, total: job.total, done: job.done,
-      aiNote: job.aiNote, error: job.error, result: job.status === 'done' ? job.payload : undefined,
+      aiNote: job.aiNote, error: job.error, runId: job.runId,
+      result: job.status === 'done' ? job.payload : undefined,
     });
+  } catch (e) { next(e); }
+});
+
+// GET /api/chat-analysis/running — analise ainda a correr, para retomar ao voltar a pagina.
+router.get('/running', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!guard(req, res)) return;
+    const running = [...jobs.values()].find((j) => j.workspaceId === req.user!.workspaceId && j.status === 'running');
+    res.json({ jobId: running?.id || null });
+  } catch (e) { next(e); }
+});
+
+// GET /api/chat-analysis/history — lista das analises guardadas (sem o conteudo).
+router.get('/history', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!guard(req, res)) return;
+    const runs = await prisma.chatAnalysisRun.findMany({
+      where: { workspaceId: req.user!.workspaceId },
+      select: { id: true, days: true, analysed: true, attention: true, createdByName: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: HISTORY_LIMIT,
+    });
+    res.json(runs);
+  } catch (e) { next(e); }
+});
+
+// GET /api/chat-analysis/history/:id — uma analise guardada, completa.
+router.get('/history/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!guard(req, res)) return;
+    const run = await prisma.chatAnalysisRun.findFirst({
+      where: { id: req.params.id, workspaceId: req.user!.workspaceId },
+    });
+    if (!run) return res.status(404).json({ message: 'Análise não encontrada.' });
+    res.json({ id: run.id, days: run.days, createdByName: run.createdByName, createdAt: run.createdAt, result: run.result });
   } catch (e) { next(e); }
 });
 

@@ -32,6 +32,8 @@ export type CalcPayroll = {
   period: string; proLabore: number; reinvestment: number; reserve: number; status: string;
   paidMpesa: number; paidEmola: number; paidBim: number;
 };
+// Pagamento de salario a uma pessoa; sai da carteira indicada no mes do salario.
+export type CalcSalaryPayment = { period: string; amount: number; wallet: string | null };
 export type CalcInvestment = {
   date: Date | null; investment: number; returnAmount: number; paymentMethod: string | null; fund: string | null;
 };
@@ -45,7 +47,7 @@ export type MonthSummary = {
   newStudents: number; newStudentFee: number; fixedSalaries: number;
   salary: number; proLabore: number; reinvestment: number; reserve: number;
   profit: number; profitPct: number | null;
-  toPay: number; status: string;
+  toPay: number; paid: number; status: string;
   wallets: Record<Wallet, WalletLine>; walletTotal: number;
   hasActivity: boolean;
 };
@@ -86,8 +88,14 @@ export function computeMonths(
   payrolls: CalcPayroll[],
   studentEntryDates: Array<Date | null>,
   cfg: FinanceConfig,
+  salaryPayments: CalcSalaryPayment[] = [],
 ): MonthSummary[] {
   const payrollBy = new Map(payrolls.map((p) => [p.period, p]));
+  const paymentsBy = new Map<string, CalcSalaryPayment[]>();
+  for (const sp of salaryPayments) {
+    const a = paymentsBy.get(sp.period);
+    if (a) a.push(sp); else paymentsBy.set(sp.period, [sp]);
+  }
   const entriesBy = new Map<string, CalcEntry[]>();
   for (const e of entries) {
     const a = entriesBy.get(e.period);
@@ -100,7 +108,7 @@ export function computeMonths(
     newBy.set(p, (newBy.get(p) || 0) + 1);
   }
 
-  const periods = [...new Set([...payrollBy.keys(), ...entriesBy.keys()])].sort();
+  const periods = [...new Set([...payrollBy.keys(), ...entriesBy.keys(), ...paymentsBy.keys()])].sort();
   return periods.map((period) => {
     const list = entriesBy.get(period) || [];
     const wallets = emptyWallets();
@@ -126,9 +134,17 @@ export function computeMonths(
     const balance = revenue - expense;
     const profit = balance - (salary + reinvestment + reserve + proLabore);
 
+    // Totais antigos por carteira (planilha ate Maio) + pagamentos por pessoa.
     wallets['M-pesa'].salaries = row?.paidMpesa || 0;
     wallets['E-mola'].salaries = row?.paidEmola || 0;
     wallets.BIM.salaries = row?.paidBim || 0;
+    for (const sp of paymentsBy.get(period) || []) {
+      const w = normalizeWallet(sp.wallet);
+      if (w) wallets[w].salaries += sp.amount;
+    }
+    const paid = WALLETS.reduce((a, w) => a + wallets[w].salaries, 0);
+    const toPay = salary + proLabore;
+    const status = row?.status === 'Pago' || (toPay > 0 && paid >= toPay - 1) ? 'Pago' : paid > 0 ? 'Pago em parte' : 'Por pagar';
     let walletTotal = 0;
     for (const w of WALLETS) {
       wallets[w].net = wallets[w].in - wallets[w].out - wallets[w].salaries;
@@ -137,7 +153,7 @@ export function computeMonths(
     return {
       period, dre, revenue, expense, balance, commissions, commissionTotal, newStudents, newStudentFee, fixedSalaries,
       salary, proLabore, reinvestment, reserve, profit, profitPct: revenue ? profit / revenue : null,
-      toPay: salary + proLabore, status: row?.status || 'Por pagar', wallets, walletTotal,
+      toPay, paid, status, wallets, walletTotal,
       hasActivity: revenue !== 0 || expense !== 0,
     };
   });

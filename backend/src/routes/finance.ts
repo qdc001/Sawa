@@ -6,7 +6,7 @@ import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import prisma from '../lib/prisma';
 import { computeFlow, computeMonths, FinanceConfig, FixedSalary, normalizeWallet, WALLETS } from '../lib/financeCalc';
-import { ParsedWorkbook, parseFinanceWorkbook, reconcile } from '../lib/financeImport';
+import { ParsedWorkbook, parseFinanceWorkbook, reconcile, SalaryPaymentCandidate, suggestSalaryPayments } from '../lib/financeImport';
 import { buildXlsx, XlsxSheet } from '../lib/xlsxWriter';
 
 const router = Router();
@@ -85,7 +85,7 @@ async function ensureMonth(workspaceId: string, p: string, tx: any = prisma) {
 async function loadSummary(workspaceId: string) {
   const settings = await getSettings(workspaceId);
   const cfg = toConfig(settings);
-  const [entries, payrolls, students, investments, associates] = await Promise.all([
+  const [entries, payrolls, students, investments, associates, salaryPayments] = await Promise.all([
     prisma.financeEntry.findMany({
       where: { workspaceId },
       select: { period: true, revenue: true, expense: true, potentialRevenue: true, commission: true, associateId: true, paymentMethod: true },
@@ -94,9 +94,13 @@ async function loadSummary(workspaceId: string) {
     prisma.financeStudent.findMany({ where: { workspaceId }, select: { entryDate: true, sellerCredit: true } }),
     prisma.financeInvestment.findMany({ where: { workspaceId }, select: { date: true, investment: true, returnAmount: true, paymentMethod: true, fund: true } }),
     prisma.financeAssociate.findMany({ where: { workspaceId }, orderBy: { code: 'asc' } }),
+    prisma.financeSalaryPayment.findMany({ where: { workspaceId }, orderBy: [{ period: 'desc' }, { date: 'desc' }, { createdAt: 'desc' }] }),
   ]);
-  const months = computeMonths(entries, payrolls, students.map((s) => ((s.sellerCredit ?? !!s.entryDate) ? s.entryDate : null)), cfg);
-  return { settings, months, flow: computeFlow(months, investments, cfg), associates };
+  const months = computeMonths(
+    entries, payrolls, students.map((s) => ((s.sellerCredit ?? !!s.entryDate) ? s.entryDate : null)), cfg,
+    salaryPayments,
+  );
+  return { settings, months, flow: computeFlow(months, investments, cfg), associates, salaryPayments };
 }
 
 // ---------- Resumo ----------
@@ -132,6 +136,60 @@ router.patch('/payroll/:period', adminOnly, async (req: AuthRequest, res: Respon
     await getSettings(workspaceId);
     await ensureMonth(workspaceId, p);
     res.json(await prisma.financePayroll.update({ where: { workspaceId_period: { workspaceId, period: p } }, data }));
+  } catch (e) { next(e); }
+});
+
+// ---------- Pagamentos de salario (por pessoa e por carteira) ----------
+async function salaryPaymentFields(workspaceId: string, b: any, partial: boolean) {
+  const d: any = {};
+  if (b.period !== undefined || !partial) d.period = period(b.period);
+  if (b.payee !== undefined || !partial) {
+    d.payee = text(b.payee);
+    if (!d.payee) throw new AppError('Indica a pessoa', 400);
+    if (d.payee.length > 120) throw new AppError('Nome demasiado longo', 400);
+  }
+  if (b.associateId !== undefined) {
+    d.associateId = text(b.associateId);
+    if (d.associateId && !(await prisma.financeAssociate.findFirst({ where: { id: d.associateId, workspaceId } }))) {
+      throw new AppError('Associado não encontrado', 400);
+    }
+  }
+  if (b.amount !== undefined || !partial) {
+    d.amount = money(b.amount, 'Valor');
+    if (!d.amount) throw new AppError('Indica o valor', 400);
+  }
+  if (b.wallet !== undefined || !partial) d.wallet = wallet(b.wallet);
+  if (b.date !== undefined) d.date = optDate(b.date);
+  if (b.notes !== undefined) d.notes = text(b.notes);
+  return d;
+}
+
+router.post('/salary-payments', adminOnly, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const d = await salaryPaymentFields(workspaceId, req.body || {}, false);
+    await getSettings(workspaceId);
+    await ensureMonth(workspaceId, d.period);
+    res.status(201).json(await prisma.financeSalaryPayment.create({ data: { ...d, workspaceId, source: 'crm' } }));
+  } catch (e) { next(e); }
+});
+
+router.patch('/salary-payments/:id', adminOnly, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const d = await salaryPaymentFields(workspaceId, req.body || {}, true);
+    if (d.period) await ensureMonth(workspaceId, d.period);
+    const r = await prisma.financeSalaryPayment.updateMany({ where: { id: req.params.id, workspaceId }, data: d });
+    if (!r.count) throw new AppError('Pagamento não encontrado', 404);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.delete('/salary-payments/:id', adminOnly, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const r = await prisma.financeSalaryPayment.deleteMany({ where: { id: req.params.id, workspaceId: req.user!.workspaceId } });
+    if (!r.count) throw new AppError('Pagamento não encontrado', 404);
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
@@ -669,7 +727,7 @@ router.put('/settings', adminOnly, async (req: AuthRequest, res: Response, next)
 router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
-    const [{ settings, months, flow, associates }, entries, students, investments, coupons] = await Promise.all([
+    const [{ settings, months, flow, associates, salaryPayments }, entries, students, investments, coupons] = await Promise.all([
       loadSummary(workspaceId),
       prisma.financeEntry.findMany({ where: { workspaceId }, include: { associate: { select: { name: true } }, student: { select: { code: true } } }, orderBy: [{ period: 'desc' }, { date: 'desc' }] }),
       prisma.financeStudent.findMany({ where: { workspaceId }, include: { associate: { select: { code: true, name: true } } }, orderBy: { code: 'desc' } }),
@@ -679,8 +737,8 @@ router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) =
     const credit = settings.perNewStudentName;
     const sheets: XlsxSheet[] = [
       { name: 'Resumo mensal', rows: [
-        ['Mês', 'DRE', 'Receita', 'Despesa', 'Saldo', 'Comissões', `Vendas ${credit}`, 'Salários fixos', 'Total salários', 'Pró-labore', 'Reinvestimento', 'Imprevistos', 'Lucro líquido', '% Lucro', 'Situação'],
-        ...months.map((m) => [m.period, m.dre, m.revenue, m.expense, m.balance, m.commissionTotal, m.newStudentFee, m.fixedSalaries, m.salary, m.proLabore, m.reinvestment, m.reserve, m.profit, m.profitPct, m.status]),
+        ['Mês', 'DRE', 'Receita', 'Despesa', 'Saldo', 'Comissões', `Vendas ${credit}`, 'Salários fixos', 'Total salários', 'Pró-labore', 'Reinvestimento', 'Imprevistos', 'Lucro líquido', '% Lucro', 'Situação', 'Pago'],
+        ...months.map((m) => [m.period, m.dre, m.revenue, m.expense, m.balance, m.commissionTotal, m.newStudentFee, m.fixedSalaries, m.salary, m.proLabore, m.reinvestment, m.reserve, m.profit, m.profitPct, m.status, m.paid]),
       ] },
       { name: 'Fluxo anual', rows: [
         ['Ano', 'DRE', 'Receita', 'Despesa', 'Saldo', 'Salários', 'Pró-labore', 'Lucro líquido', '% Lucro', ...WALLETS, 'Total carteiras'],
@@ -705,6 +763,10 @@ router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) =
       { name: 'Estudantes', rows: [
         ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas'],
         ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes]),
+      ] },
+      { name: 'Pagamentos de salários', rows: [
+        ['Mês do salário', 'Pessoa', 'Valor', 'Carteira', 'Data', 'Observação'],
+        ...salaryPayments.map((s) => [s.period, s.payee, s.amount, s.wallet, s.date, s.notes]),
       ] },
       { name: 'Associados', rows: [['Código', 'Nome', 'WhatsApp'], ...associates.map((a) => [a.code, a.name, a.whatsapp])] },
       { name: 'Investimentos', rows: [
@@ -732,28 +794,39 @@ const upload = multer({
     else cb(new AppError('Envia o ficheiro Excel (.xlsm ou .xlsx)', 400) as any);
   },
 });
-const pendingImports = new Map<string, { workspaceId: string; parsed: ParsedWorkbook; expires: number }>();
+const pendingImports = new Map<string, { workspaceId: string; parsed: ParsedWorkbook; candidates: SalaryPaymentCandidate[]; expires: number }>();
 
 router.post('/import/preview', adminOnly, upload.single('file'), async (req: AuthRequest, res: Response, next) => {
   try {
     if (!req.file) throw new AppError('Escolhe o ficheiro', 400);
     const workspaceId = req.user!.workspaceId;
+    const settings = await getSettings(workspaceId);
     let parsed: ParsedWorkbook;
     try {
       const extraAssociates = await prisma.financeAssociate.findMany({ where: { workspaceId }, select: { code: true, name: true, whatsapp: true } });
-      parsed = await parseFinanceWorkbook(req.file.buffer, { fixSpaces: req.body?.fixSpaces === 'true', extraAssociates });
+      parsed = await parseFinanceWorkbook(req.file.buffer, {
+        fixSpaces: req.body?.fixSpaces === 'true', extraAssociates, creditName: settings.perNewStudentName,
+      });
     } catch (e: any) {
       throw new AppError(e?.message || 'Não foi possível ler o ficheiro', 400);
     }
-    const settings = await getSettings(workspaceId);
-    const { differences, checked } = reconcile(parsed, toConfig(settings));
+    const cfg = toConfig(settings);
+    const { differences, checked, months } = reconcile(parsed, cfg);
+    const candidates = suggestSalaryPayments(parsed, months, cfg);
     const now = Date.now();
     for (const [k, v] of pendingImports) if (v.expires < now) pendingImports.delete(k);
     const token = crypto.randomBytes(16).toString('hex');
-    pendingImports.set(token, { workspaceId, parsed, expires: now + 30 * 60 * 1000 });
-    const lostEntries = await prisma.financeEntry.count({ where: { workspaceId, source: 'crm' } });
+    pendingImports.set(token, { workspaceId, parsed, candidates, expires: now + 30 * 60 * 1000 });
+    const [lostEntries, lostPayments] = await Promise.all([
+      prisma.financeEntry.count({ where: { workspaceId, source: 'crm' } }),
+      prisma.financeSalaryPayment.count({ where: { workspaceId, source: 'crm' } }),
+    ]);
     res.json({
-      token, checked, differences, warnings: parsed.warnings, lostEntries,
+      token, checked, differences, warnings: parsed.warnings, lostEntries, lostPayments,
+      salaryPayments: candidates.map((c) => ({
+        index: c.investmentIndex, period: c.period, payee: c.payee, amount: c.amount, wallet: c.wallet,
+        date: c.date, description: c.notes, expected: c.expected, suggested: c.suggested,
+      })),
       counts: {
         associates: parsed.associates.length, students: parsed.students.length, entries: parsed.entries.length,
         investments: parsed.investments.length, coupons: parsed.coupons.length, months: parsed.payrolls.length,
@@ -773,6 +846,12 @@ router.post('/import/commit', adminOnly, async (req: AuthRequest, res: Response,
     }
     const p = pending.parsed;
     await getSettings(workspaceId);
+    // Pagamentos de salario escolhidos na pre-visualizacao: saem dos investimentos.
+    const chosenIdx = new Set<number>(Array.isArray(req.body?.salaryPayments)
+      ? req.body.salaryPayments.map(Number).filter((n: number) => Number.isInteger(n))
+      : pending.candidates.filter((c) => c.suggested).map((c) => c.investmentIndex));
+    const chosen = pending.candidates.filter((c) => chosenIdx.has(c.investmentIndex));
+    const convertedIdx = new Set(chosen.map((c) => c.investmentIndex));
 
     // Mantem as ligacoes associado-utilizador ja feitas; nas novas tenta pelo primeiro nome.
     const [oldAssociates, users, contacts] = await Promise.all([
@@ -809,6 +888,7 @@ router.post('/import/commit', adminOnly, async (req: AuthRequest, res: Response,
       await tx.financeInvestment.deleteMany({ where: { workspaceId } });
       await tx.financeCoupon.deleteMany({ where: { workspaceId } });
       await tx.financePayroll.deleteMany({ where: { workspaceId } });
+      await tx.financeSalaryPayment.deleteMany({ where: { workspaceId } });
       await tx.financeAssociate.createMany({
         data: p.associates.map((a) => ({
           id: associateIds.get(a.code)!, workspaceId, code: a.code, name: a.name, whatsapp: a.whatsapp,
@@ -821,13 +901,33 @@ router.post('/import/commit', adminOnly, async (req: AuthRequest, res: Response,
           ...e, workspaceId, source: 'excel', associateId: associateCode ? associateIds.get(associateCode) || null : null,
         })),
       });
-      await tx.financeInvestment.createMany({ data: p.investments.map((i) => ({ ...i, workspaceId, source: 'excel' })) });
+      await tx.financeInvestment.createMany({
+        data: p.investments.filter((_, i) => !convertedIdx.has(i)).map((i) => ({ ...i, workspaceId, source: 'excel' })),
+      });
       await tx.financeCoupon.createMany({ data: p.coupons.map((c) => ({ ...c, workspaceId })), skipDuplicates: true });
       await tx.financePayroll.createMany({ data: p.payrolls.map((m) => ({ ...m, workspaceId })) });
+      // Um pagamento pode ser de um mes sem linha no resumo (ex.: so investimentos).
+      const havePeriods = new Set(p.payrolls.map((m) => m.period));
+      const settings = await tx.financeSettings.findUnique({ where: { workspaceId } });
+      const missing = [...new Set(chosen.map((c) => c.period))].filter((x) => !havePeriods.has(x));
+      if (missing.length) {
+        await tx.financePayroll.createMany({
+          data: missing.map((x) => ({ workspaceId, period: x, proLabore: settings && x >= settings.proLaboreFrom ? settings.proLabore : 0 })),
+        });
+      }
+      await tx.financeSalaryPayment.createMany({
+        data: chosen.map((c) => ({
+          workspaceId, period: c.period, payee: c.payee, amount: c.amount, wallet: c.wallet, date: c.date,
+          notes: c.notes, source: 'excel', associateId: c.associateCode ? associateIds.get(c.associateCode) || null : null,
+        })),
+      });
     }, { timeout: 120000, maxWait: 20000 });
 
     pendingImports.delete(String(req.body.token));
-    res.json({ ok: true, students: studentRows.length, linkedContacts: studentRows.filter((s) => s.contactId).length });
+    res.json({
+      ok: true, students: studentRows.length, linkedContacts: studentRows.filter((s) => s.contactId).length,
+      salaryPayments: chosen.length,
+    });
   } catch (e) { next(e); }
 });
 

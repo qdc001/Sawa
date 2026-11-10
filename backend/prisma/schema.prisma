@@ -136,6 +136,8 @@ model Workspace {
   financeInvestments            FinanceInvestment[]
   financeCoupons                FinanceCoupon[]
   financePayrolls               FinancePayroll[]
+  financeSalaryPayments         FinanceSalaryPayment[]
+  chatAnalysisRuns              ChatAnalysisRun[]
   // Opcoes customizaveis para tarefas (arrays JSON; vazio = usar defaults)
   // Formato cada item: { value: string, label: string, color?: string }
   taskTypes                     Json      @default("[]")
@@ -1564,6 +1566,7 @@ model FinanceAssociate {
   workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   students  FinanceStudent[]
   entries   FinanceEntry[]
+  salaryPayments FinanceSalaryPayment[]
 
   @@unique([workspaceId, code])
   @@index([workspaceId, userId])
@@ -1664,6 +1667,24 @@ model FinanceInvestment {
   @@map("finance_investments")
 }
 
+// Historico das analises de conversas por IA. Guarda o resultado tal como saiu,
+// para se poder rever depois sem gastar tokens de novo.
+model ChatAnalysisRun {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  days          Int
+  analysed      Int
+  attention     Int
+  createdByName String?
+  result        Json
+  createdAt     DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@map("chat_analysis_runs")
+}
+
 model FinanceCoupon {
   id          String    @id @default(cuid())
   workspaceId String
@@ -1703,4 +1724,27 @@ model FinancePayroll {
 
   @@unique([workspaceId, period])
   @@map("finance_payroll")
+}
+
+// Um pagamento de salario a uma pessoa, com a carteira por onde saiu.
+// "period" e o mes do salario (nao o dia em que foi pago).
+model FinanceSalaryPayment {
+  id          String    @id @default(cuid())
+  workspaceId String
+  period      String
+  payee       String
+  associateId String?
+  amount      Float
+  wallet      String
+  date        DateTime?
+  notes       String?
+  source      String    @default("crm")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  associate FinanceAssociate? @relation(fields: [associateId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, period])
+  @@map("finance_salary_payments")
 }
