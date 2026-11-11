@@ -407,6 +407,13 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
       if (!data.name) throw new AppError('Indica o nome', 400);
     }
     if (b.associateId !== undefined) data.associateId = await checkAssociate(workspaceId, b.associateId);
+    // A fase tambem muda no quadro: nao escreve por cima de uma mudanca feita entretanto.
+    if (data.currentPhase !== undefined && b.currentPhaseFrom !== undefined) {
+      const from = b.currentPhaseFrom === '' || b.currentPhaseFrom === null ? null : Number(b.currentPhaseFrom);
+      if (cur.currentPhase !== from && cur.currentPhase !== data.currentPhase) {
+        throw new AppError(`A fase deste estudante foi mudada noutro lugar para ${cur.currentPhase ? `F${cur.currentPhase}` : 'Sem fase'}. Fecha e abre de novo.`, 409);
+      }
+    }
     if (b.status !== undefined) {
       if (!['Pago', 'Em aberto'].includes(b.status)) throw new AppError('Estado inválido', 400);
       data.status = b.status;
@@ -430,6 +437,32 @@ router.delete('/students/:id', adminOnly, async (req: AuthRequest, res: Response
     if (!cur) throw new AppError('Estudante não encontrado', 404);
     await prisma.financeStudent.delete({ where: { id: cur.id } });
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// Quadro de fases: muda so a fase actual, e so se ainda estiver na fase de onde saiu.
+router.patch('/students/:id/phase', adminOnly, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const parse = (v: any) => {
+      const f = v === '' || v === null || v === undefined ? null : Number(v);
+      if (f !== null && !(Number.isInteger(f) && f >= 1 && f <= 7)) throw new AppError('Fase inválida', 400);
+      return f;
+    };
+    const to = parse(req.body?.phase);
+    const from = parse(req.body?.from);
+    const { count } = await prisma.financeStudent.updateMany({
+      where: { id: req.params.id, workspaceId, currentPhase: from },
+      data: { currentPhase: to },
+    });
+    const st = await prisma.financeStudent.findFirst({
+      where: { id: req.params.id, workspaceId }, include: { associate: { select: { id: true, code: true, name: true } } },
+    });
+    if (!st) throw new AppError('Estudante não encontrado', 404);
+    if (!count && st.currentPhase !== to) {
+      throw new AppError(`${st.name} já tinha sido mudado para ${st.currentPhase ? `F${st.currentPhase}` : 'Sem fase'} noutro lugar. O quadro foi actualizado.`, 409);
+    }
+    res.json(studentDto(st));
   } catch (e) { next(e); }
 });
 
@@ -929,9 +962,14 @@ router.post('/import/commit', adminOnly, async (req: AuthRequest, res: Response,
       associateId: associateCode ? associateIds.get(associateCode) || null : null,
     }));
     // Os pagamentos dizem a quem pertence cada estudante; a coluna Associado da planilha esta incompleta.
-    const linkPlan = planStudentLinks(studentRows, entryRows);
-    for (const e of entryRows) e.studentId = linkPlan.links.get(e.id) || null;
-    for (const s of studentRows) s.associateId = linkPlan.associates.get(s.id) ?? s.associateId;
+    // Duas passagens: os associados acertados na primeira desempatam nomes repetidos na segunda.
+    let linked = 0;
+    const entryById = new Map<string, (typeof entryRows)[number]>(entryRows.map((e) => [e.id, e]));
+    for (let pass = 0; pass < 2; pass++) {
+      const plan = planStudentLinks(studentRows, entryRows);
+      for (const [eid, sid] of plan.links) { entryById.get(eid)!.studentId = sid; linked++; }
+      for (const s of studentRows) s.associateId = plan.associates.get(s.id) ?? s.associateId;
+    }
 
     await prisma.$transaction(async (tx) => {
       await tx.financeEntry.deleteMany({ where: { workspaceId } });
@@ -974,7 +1012,7 @@ router.post('/import/commit', adminOnly, async (req: AuthRequest, res: Response,
     pendingImports.delete(String(req.body.token));
     res.json({
       ok: true, students: studentRows.length, linkedContacts: studentRows.filter((s) => s.contactId).length,
-      salaryPayments: chosen.length, linkedPayments: linkPlan.links.size,
+      salaryPayments: chosen.length, linkedPayments: linked,
     });
   } catch (e) { next(e); }
 });

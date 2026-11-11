@@ -9,9 +9,10 @@ import { errMsg, Summary } from '../components/finance/shared';
 import { FinanceCommissions, FinanceMonths, FinanceOverview } from '../components/finance/FinanceOverview';
 import FinanceLedger from '../components/finance/FinanceLedger';
 import FinanceStudents from '../components/finance/FinanceStudents';
+import FinancePhaseBoard from '../components/finance/FinancePhaseBoard';
 import { FinanceCoupons, FinanceDistribution, FinanceInvestments, FinanceMine, FinanceProgram, FinanceSettings } from '../components/finance/FinanceOther';
 
-type Tab = 'overview' | 'months' | 'ledger' | 'students' | 'installments' | 'program' | 'commissions' | 'investments' | 'distribution' | 'coupons' | 'settings' | 'mine';
+type Tab = 'overview' | 'months' | 'ledger' | 'students' | 'installments' | 'phases' | 'program' | 'commissions' | 'investments' | 'distribution' | 'coupons' | 'settings' | 'mine';
 
 const ADMIN_TABS: { v: Tab; label: string }[] = [
   { v: 'overview', label: 'Fluxo de caixa' },
@@ -19,6 +20,7 @@ const ADMIN_TABS: { v: Tab; label: string }[] = [
   { v: 'ledger', label: 'Lançamentos' },
   { v: 'students', label: 'Estudantes' },
   { v: 'installments', label: 'Parcelamento' },
+  { v: 'phases', label: 'Quadro de fases' },
   { v: 'program', label: 'Painel e Associados' },
   { v: 'commissions', label: 'Desempenho do lote' },
   { v: 'investments', label: 'Investimentos' },
@@ -29,6 +31,7 @@ const ADMIN_TABS: { v: Tab; label: string }[] = [
 const MEMBER_TABS: { v: Tab; label: string }[] = [
   { v: 'mine', label: 'A minha comissão' },
   { v: 'students', label: 'Os meus estudantes' },
+  { v: 'phases', label: 'Quadro de fases' },
   { v: 'program', label: 'Painel' },
 ];
 
@@ -66,7 +69,7 @@ export default function FinancePage() {
 
   if (!isMetaWorkspace(workspace?.name)) return <Navigate to="/" replace />;
 
-  const needsData = !['students', 'program', 'mine'].includes(tab);
+  const needsData = !['students', 'phases', 'program', 'mine'].includes(tab);
   return (
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -105,6 +108,7 @@ export default function FinancePage() {
             <FinanceStudents mode={tab} associates={data?.associates || []} rate={data?.settings.commissionRate ?? 0.25} canEdit={isAdmin} onChanged={load}
               creditName={data?.settings.perNewStudentName ?? 'Lucília'} creditValue={data?.settings.perNewStudent ?? 250} />
           )}
+          {tab === 'phases' && <FinancePhaseBoard associates={data?.associates || []} canEdit={isAdmin} />}
           {tab === 'program' && <FinanceProgram canEdit={isAdmin} onChanged={load} />}
           {tab === 'commissions' && data && <FinanceCommissions data={data} />}
           {tab === 'investments' && <FinanceInvestments reload={load} />}

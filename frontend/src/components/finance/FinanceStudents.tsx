@@ -43,7 +43,11 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
     if (!f.name.trim()) { toast.error('Indica o nome'); return; }
     setBusy(true);
     try {
-      const body = { ...f, associateId: f.associateId || null, phases, sellerCredit };
+      // A fase so vai se mudou aqui, com a de origem: assim nao apaga uma mudanca feita no quadro.
+      const { currentPhase, ...rest } = f;
+      const origPhase = s?.currentPhase ? String(s.currentPhase) : '';
+      const phaseBody = !s ? { currentPhase } : currentPhase !== origPhase ? { currentPhase, currentPhaseFrom: origPhase } : {};
+      const body = { ...rest, ...phaseBody, associateId: f.associateId || null, phases, sellerCredit };
       if (s) await api.patch(`/finance/students/${s.id}`, body);
       else await api.post('/finance/students', body);
       toast.success('Guardado');
