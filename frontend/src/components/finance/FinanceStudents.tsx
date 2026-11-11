@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Banknote, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Banknote, Link2, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import api from '../../lib/api';
 import { Associate, Badge, dateLabel, errMsg, Field, Modal, monthLabel, mzn, num, Td, Th, today, WALLETS, inputSm } from './shared';
 
@@ -170,6 +170,82 @@ function PaymentModal({ student, associates, rate, onClose, onSaved }: { student
   );
 }
 
+type LinkResult = {
+  applied: boolean; payments: number; alreadyLinked: number; newLinks: number;
+  associateChanges: { code: string; name: string; from: string | null; to: string | null }[];
+  unmatched: { id: string; period: string; description: string | null; revenue: number; commissionist: string | null }[];
+  ambiguous: { id: string; period: string; description: string | null; revenue: number; commissionist: string | null; candidates: string[] }[];
+};
+
+function LinkModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [r, setR] = useState<LinkResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<'changes' | 'unmatched' | 'ambiguous'>('changes');
+  useEffect(() => {
+    api.post('/finance/students/link', { apply: false }).then(({ data }) => setR(data))
+      .catch((e) => { toast.error(errMsg(e)); onClose(); });
+  }, [onClose]);
+  const apply = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post('/finance/students/link', { apply: true });
+      toast.success(`${data.newLinks} pagamentos ligados · ${data.associateChanges.length} associados acertados`);
+      onSaved();
+      onClose();
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
+  };
+  const tabs: [typeof tab, string, number][] = r ? [
+    ['changes', 'Associados que mudam', r.associateChanges.length],
+    ['unmatched', 'Pagamentos sem estudante', r.unmatched.length],
+    ['ambiguous', 'Nomes repetidos', r.ambiguous.length],
+  ] : [];
+  return (
+    <Modal title="Ligar estudantes aos lançamentos" onClose={onClose} wide>
+      {!r ? <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div> : (
+        <div className="space-y-3">
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Procura o nome do estudante em cada pagamento ("Pagamento - Nome") e liga-o à ficha. O associado do estudante passa a ser o comissionista do pagamento mais recente.
+          </p>
+          <p className="text-sm">
+            {r.payments} pagamentos · {r.alreadyLinked} já ligados · <b>{r.newLinks} novas ligações</b> · <b>{r.associateChanges.length} associados a acertar</b>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {tabs.map(([k, label, n]) => (
+              <button key={k} className={`btn ${tab === k ? 'btn-primary' : 'btn-outline'}`} style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setTab(k)}>{label} ({n})</button>
+            ))}
+          </div>
+          <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+            {tab === 'changes' ? (
+              <table className="w-full">
+                <thead><tr>{['ID', 'Estudante', 'Antes', 'Depois'].map((h) => <Th key={h}>{h}</Th>)}</tr></thead>
+                <tbody>{r.associateChanges.map((c) => <tr key={c.code}><Td>{c.code}</Td><Td bold>{c.name}</Td><Td>{c.from || '—'}</Td><Td>{c.to || '—'}</Td></tr>)}</tbody>
+              </table>
+            ) : (
+              <table className="w-full">
+                <thead><tr>{['Mês', 'Descrição', 'Valor', 'Comissionista', ...(tab === 'ambiguous' ? ['Possíveis'] : [])].map((h, i) => <Th key={h} right={i === 2}>{h}</Th>)}</tr></thead>
+                <tbody>{(tab === 'unmatched' ? r.unmatched : r.ambiguous).map((e) => (
+                  <tr key={e.id}>
+                    <Td>{monthLabel(e.period)}</Td><Td>{e.description || '—'}</Td><Td right>{num(e.revenue)}</Td><Td>{e.commissionist || '—'}</Td>
+                    {'candidates' in e && <Td>{(e as LinkResult['ambiguous'][number]).candidates.join(', ')}</Td>}
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+          {tab !== 'changes' && (
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Estes ficam por ligar. Normalmente o estudante não está registado ou o nome está escrito de outra forma. Corrija o nome na ficha do estudante ou na descrição do lançamento e volte a carregar em "Ligar aos lançamentos".
+            </p>
+          )}
+          <button className="btn btn-primary w-full justify-center" disabled={busy || (!r.newLinks && !r.associateChanges.length)} onClick={apply}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Link2 size={14} />} Aplicar
+          </button>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function statusBadge(s: Student) {
   return s.status === 'Pago' ? <Badge text="Pago" tone="green" /> : <Badge text="Em aberto" tone="amber" />;
 }
@@ -185,6 +261,8 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
   const [page, setPage] = useState(1);
   const [edit, setEdit] = useState<{ student: Student | null } | null>(null);
   const [pay, setPay] = useState<Student | null>(null);
+  const [linking, setLinking] = useState(false);
+  const closeLink = useCallback(() => setLinking(false), []);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -242,7 +320,8 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
         <select className="input-base" style={{ ...inputSm, width: 'auto' }} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">Todos os estados</option><option>Em aberto</option><option>Pago</option><option value="overdue">Parcela em atraso</option>
         </select>
-        {canEdit && <button className="btn btn-primary ml-auto" onClick={() => setEdit({ student: null })}><Plus size={14} /> Novo estudante</button>}
+        {canEdit && mode === 'students' && <button className="btn btn-outline ml-auto" onClick={() => setLinking(true)}><Link2 size={14} /> Ligar aos lançamentos</button>}
+        {canEdit && <button className={`btn btn-primary ${mode === 'students' ? '' : 'ml-auto'}`} onClick={() => setEdit({ student: null })}><Plus size={14} /> Novo estudante</button>}
       </div>
       <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
         {filtered.length} estudantes · Contratado {mzn(totals.total)} · Pago {mzn(totals.paid)} · <b>Por receber {mzn(totals.balance)}</b>
@@ -284,6 +363,7 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
         </div>
       )}
       {edit && <StudentModal student={edit.student} associates={associates} creditName={creditName} creditValue={creditValue} onClose={() => setEdit(null)} onSaved={changed} />}
+      {linking && <LinkModal onClose={closeLink} onSaved={changed} />}
       {pay && <PaymentModal student={pay} associates={associates} rate={rate} onClose={() => setPay(null)} onSaved={changed} />}
     </div>
   );

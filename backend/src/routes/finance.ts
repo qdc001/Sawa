@@ -8,6 +8,7 @@ import prisma from '../lib/prisma';
 import { computeFlow, computeMonths, FinanceConfig, FixedSalary, normalizeWallet, WALLETS } from '../lib/financeCalc';
 import { ParsedWorkbook, parseFinanceWorkbook, reconcile, SalaryPaymentCandidate, suggestSalaryPayments } from '../lib/financeImport';
 import { buildXlsx, XlsxSheet } from '../lib/xlsxWriter';
+import { planStudentLinks } from '../lib/financeLink';
 
 const router = Router();
 
@@ -429,6 +430,49 @@ router.delete('/students/:id', adminOnly, async (req: AuthRequest, res: Response
     if (!cur) throw new AppError('Estudante não encontrado', 404);
     await prisma.financeStudent.delete({ where: { id: cur.id } });
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// Liga os lancamentos aos estudantes e acerta o associado pelo comissionista. apply=false so mostra.
+router.post('/students/link', adminOnly, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const [students, entries, associates] = await Promise.all([
+      prisma.financeStudent.findMany({ where: { workspaceId }, select: { id: true, code: true, name: true, associateId: true } }),
+      prisma.financeEntry.findMany({
+        where: { workspaceId },
+        select: { id: true, description: true, revenue: true, associateId: true, studentId: true, period: true, date: true, commissionistRaw: true },
+        orderBy: [{ period: 'asc' }, { date: 'asc' }, { createdAt: 'asc' }],
+      }),
+      prisma.financeAssociate.findMany({ where: { workspaceId }, select: { id: true, name: true } }),
+    ]);
+    const plan = planStudentLinks(students, entries);
+    const aName = new Map(associates.map((a) => [a.id, a.name]));
+    const st = new Map(students.map((s) => [s.id, s]));
+    const entryDto = (e: (typeof entries)[number]) => ({
+      id: e.id, period: e.period, date: e.date, description: e.description, revenue: e.revenue,
+      commissionist: e.associateId ? aName.get(e.associateId) || null : e.commissionistRaw,
+    });
+    if (req.body?.apply === true) {
+      const byStudent = new Map<string, string[]>();
+      for (const [eid, sid] of plan.links) byStudent.set(sid, [...(byStudent.get(sid) || []), eid]);
+      await prisma.$transaction(async (tx) => {
+        for (const [sid, ids] of byStudent) await tx.financeEntry.updateMany({ where: { id: { in: ids }, workspaceId }, data: { studentId: sid } });
+        for (const [sid, aid] of plan.associates) await tx.financeStudent.update({ where: { id: sid }, data: { associateId: aid } });
+      }, { timeout: 120000, maxWait: 20000 });
+    }
+    res.json({
+      applied: req.body?.apply === true,
+      payments: entries.filter((e) => e.revenue > 0).length,
+      alreadyLinked: entries.filter((e) => e.studentId).length,
+      newLinks: plan.links.size,
+      associateChanges: [...plan.associates].map(([sid, aid]) => {
+        const s = st.get(sid)!;
+        return { code: s.code, name: s.name, from: s.associateId ? aName.get(s.associateId) || null : null, to: aName.get(aid) || null };
+      }).sort((a, b) => b.code.localeCompare(a.code, undefined, { numeric: true })),
+      unmatched: plan.unmatched.map(entryDto).reverse(),
+      ambiguous: plan.ambiguous.map((a) => ({ ...entryDto(a.entry as any), candidates: a.candidates.map((c) => `${st.get(c.id)?.code} ${c.name}`) })).reverse(),
+    });
   } catch (e) { next(e); }
 });
 
@@ -871,7 +915,7 @@ router.post('/import/commit', adminOnly, async (req: AuthRequest, res: Response,
       contactBy.set(k, contactBy.has(k) ? null : c.id);
     }
 
-    const associateIds = new Map(p.associates.map((a) => [a.code, crypto.randomUUID()]));
+    const associateIds = new Map<string, string>(p.associates.map((a) => [a.code, crypto.randomUUID()]));
     const studentRows = p.students.map((s) => {
       const { associateCode, ...rest } = s;
       return {
@@ -880,6 +924,14 @@ router.post('/import/commit', adminOnly, async (req: AuthRequest, res: Response,
         contactId: contactBy.get(nameKey(s.name)) || null,
       };
     });
+    const entryRows = p.entries.map(({ associateCode, ...e }) => ({
+      ...e, id: crypto.randomUUID(), workspaceId, source: 'excel', studentId: null as string | null,
+      associateId: associateCode ? associateIds.get(associateCode) || null : null,
+    }));
+    // Os pagamentos dizem a quem pertence cada estudante; a coluna Associado da planilha esta incompleta.
+    const linkPlan = planStudentLinks(studentRows, entryRows);
+    for (const e of entryRows) e.studentId = linkPlan.links.get(e.id) || null;
+    for (const s of studentRows) s.associateId = linkPlan.associates.get(s.id) ?? s.associateId;
 
     await prisma.$transaction(async (tx) => {
       await tx.financeEntry.deleteMany({ where: { workspaceId } });
@@ -896,11 +948,7 @@ router.post('/import/commit', adminOnly, async (req: AuthRequest, res: Response,
         })),
       });
       await tx.financeStudent.createMany({ data: studentRows });
-      await tx.financeEntry.createMany({
-        data: p.entries.map(({ associateCode, ...e }) => ({
-          ...e, workspaceId, source: 'excel', associateId: associateCode ? associateIds.get(associateCode) || null : null,
-        })),
-      });
+      await tx.financeEntry.createMany({ data: entryRows });
       await tx.financeInvestment.createMany({
         data: p.investments.filter((_, i) => !convertedIdx.has(i)).map((i) => ({ ...i, workspaceId, source: 'excel' })),
       });
@@ -926,7 +974,7 @@ router.post('/import/commit', adminOnly, async (req: AuthRequest, res: Response,
     pendingImports.delete(String(req.body.token));
     res.json({
       ok: true, students: studentRows.length, linkedContacts: studentRows.filter((s) => s.contactId).length,
-      salaryPayments: chosen.length,
+      salaryPayments: chosen.length, linkedPayments: linkPlan.links.size,
     });
   } catch (e) { next(e); }
 });
