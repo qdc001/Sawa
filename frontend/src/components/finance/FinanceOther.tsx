@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import api from '../../lib/api';
 import {
   Badge, CHART_GRID, CHART_TICK, dateLabel, errMsg, Field, FixedSalary, inputSm, Kpi, Modal, monthLabel, monthShort, mzn, num,
-  Settings, Summary, Td, Th, today, tooltipStyle, WALLETS,
+  Phase, reloadPhases, setPhasesCache, Settings, Summary, Td, Th, today, tooltipStyle, usePhases, WALLETS,
 } from './shared';
-import { PHASES, PHASE_STATES } from './FinanceStudents';
+import { PHASE_STATES } from './FinanceStudents';
 
 // ---------- Programa (Painel + Associados + Estatisticas) ----------
 type Academic = {
   total: number; averagePhase: number; deliveredF7: number; active: number; alerts: number; phaseCounts: number[];
+  groups?: { early: string; middle: string; final: string };
   states: Record<string, number>;
   byAssociate: { id: string; code: string; name: string; whatsapp: string | null; userId: string | null; total: number; early: number; middle: number; final: number; alerts: number; completed: number }[];
   byProject: { name: string; count: number; value: number }[]; byOrigin: { name: string; count: number; value: number }[];
@@ -79,13 +80,15 @@ function AssociateModal({ associate, users, onClose, onSaved }: { associate: Aca
 
 export function FinanceProgram({ canEdit, onChanged }: { canEdit: boolean; onChanged: () => void }) {
   const { data, load } = useAcademic();
+  const phases = usePhases();
   const [users, setUsers] = useState<AppUser[]>([]);
   const [edit, setEdit] = useState<{ a: Academic['byAssociate'][number] | null } | null>(null);
   useEffect(() => {
     if (canEdit) api.get('/users').then(({ data: d }) => setUsers(Array.isArray(d) ? d : d.users || [])).catch(() => {});
   }, [canEdit]);
-  if (!data) return <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div>;
-  const phaseData = PHASES.map((p, i) => ({ name: `F${i + 1}`, full: p, estudantes: data.phaseCounts[i] }));
+  if (!data || !phases) return <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div>;
+  const phaseData = phases.map((p, i) => ({ name: `F${i + 1}`, full: p.name, estudantes: data.phaseCounts[i] ?? 0 }));
+  const g = data.groups || { early: 'F1-F3', middle: 'F4-F6', final: 'F7' };
   const totalStates = Object.values(data.states).reduce((a, b) => a + b, 0);
   const changed = () => { load(); onChanged(); };
   const remove = async (id: string) => {
@@ -101,7 +104,7 @@ export function FinanceProgram({ canEdit, onChanged }: { canEdit: boolean; onCha
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Kpi label="Total de estudantes" value={num(data.total)} />
         <Kpi label="Fase média" value={num(data.averagePhase)} />
-        <Kpi label="Entregues na F7" value={num(data.deliveredF7)} />
+        <Kpi label={`Entregues na ${g.final}`} value={num(data.deliveredF7)} />
         <Kpi label="Activos" value={num(data.active)} />
         <Kpi label="Alertas (+14 dias)" value={num(data.alerts)} color={data.alerts ? '#EF4444' : undefined} />
       </div>
@@ -111,7 +114,7 @@ export function FinanceProgram({ canEdit, onChanged }: { canEdit: boolean; onCha
           {canEdit && <button className="btn btn-primary" onClick={() => setEdit({ a: null })}><Plus size={14} /> Novo associado</button>}
         </div>
         <table className="w-full">
-          <thead><tr>{['Código', 'Nome', 'Estudantes', 'Fase ≤3', 'Fase 4-6', 'Fase 7', 'Concluídos', 'Alertas', 'WhatsApp', ''].map((h, i) => <Th key={i} right={i >= 2 && i <= 7}>{h}</Th>)}</tr></thead>
+          <thead><tr>{['Código', 'Nome', 'Estudantes', g.early, g.middle, g.final, 'Concluídos', 'Alertas', 'WhatsApp', ''].map((h, i) => <Th key={i} right={i >= 2 && i <= 7}>{h}</Th>)}</tr></thead>
           <tbody>
             {data.byAssociate.map((a) => (
               <tr key={a.id}>
@@ -133,7 +136,7 @@ export function FinanceProgram({ canEdit, onChanged }: { canEdit: boolean; onCha
         <div className="card p-4 space-y-3">
           <div>
             <h3 className="font-semibold text-sm mb-2">Fases do programa</h3>
-            <table className="w-full"><tbody>{PHASES.map((p, i) => <tr key={p}><Td>F{i + 1} · {p}</Td><Td right>{data.phaseCounts[i]}</Td></tr>)}</tbody></table>
+            <table className="w-full"><tbody>{phases.map((p, i) => <tr key={p.id}><Td>F{i + 1} · {p.name}</Td><Td right>{data.phaseCounts[i] ?? 0}</Td></tr>)}</tbody></table>
           </div>
           <div>
             <h3 className="font-semibold text-sm mb-2">Distribuição de estados</h3>
@@ -597,7 +600,119 @@ export function FinanceSettings({ data, reload }: { data: Summary; reload: () =>
         </div>
         <button className="btn btn-primary" disabled={busy} onClick={save}>Guardar definições</button>
       </div>
+      <PhaseSettings />
       <ImportBox onDone={reload} />
+    </div>
+  );
+}
+
+// ---------- Fases do metodo ----------
+type PhaseRow = { key: string; id?: number; name: string };
+type NeedMove = { id: number; name: string; count: number };
+
+function PhaseSettings() {
+  const phases = usePhases();
+  const [rows, setRows] = useState<PhaseRow[] | null>(null);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [need, setNeed] = useState<NeedMove[]>([]);
+  const [moves, setMoves] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const seq = useRef(0);
+
+  const reset = useCallback((list: Phase[]) => {
+    setRows(list.map((p) => ({ key: `p${p.id}`, id: p.id, name: p.name })));
+    setNeed([]);
+    setMoves({});
+  }, []);
+  const loadCounts = useCallback(() => {
+    api.get<{ counts: Record<string, number> }>('/finance/phases').then(({ data }) => setCounts(data.counts)).catch(() => {});
+  }, []);
+  useEffect(() => { if (phases && !rows) reset(phases); }, [phases, rows, reset]);
+  useEffect(loadCounts, [loadCounts]);
+
+  if (!rows || !phases) return <div className="card p-4 flex justify-center"><Loader2 size={16} className="animate-spin" /></div>;
+
+  const kept = new Set(rows.filter((r) => r.id).map((r) => r.id!));
+  const removed = phases.filter((p) => !kept.has(p.id));
+  const dirty = JSON.stringify(rows.map((r) => [r.id ?? null, r.name.trim()])) !== JSON.stringify(phases.map((p) => [p.id, p.name]));
+  const edit = (i: number, name: string) => setRows((p) => p!.map((r, j) => (j === i ? { ...r, name } : r)));
+  const swap = (i: number, j: number) => setRows((p) => {
+    const n = [...p!];
+    [n[i], n[j]] = [n[j], n[i]];
+    return n;
+  });
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const body: any = { phases: rows.map((r) => ({ id: r.id, name: r.name })) };
+      if (need.length) {
+        if (need.some((n) => moves[n.id] === undefined)) { toast.error('Escolhe para onde passam os estudantes de cada fase removida'); return; }
+        body.moves = Object.fromEntries(need.map((n) => [n.id, moves[n.id] === '' ? null : Number(moves[n.id])]));
+      }
+      const { data } = await api.put<{ phases: Phase[]; moved: number }>('/finance/phases', body);
+      setPhasesCache(data.phases);
+      reset(data.phases);
+      loadCounts();
+      toast.success(data.moved ? 'Fases guardadas e estudantes mudados' : 'Fases guardadas');
+    } catch (e: any) {
+      if (e?.response?.status === 409 && e.response.data?.needMoves) {
+        setNeed(e.response.data.needMoves);
+        toast.error(e.response.data.message);
+      } else {
+        toast.error(errMsg(e));
+        reloadPhases().catch(() => {});
+      }
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h4 className="text-sm font-semibold">Fases do Método M.E.T.A.</h4>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Mudar o nome ou a ordem não mexe nos estudantes: cada um continua na mesma fase. Estas fases aparecem no quadro, na ficha do estudante e no painel.
+          </p>
+        </div>
+        <button className="btn" onClick={() => setRows((p) => [...p!, { key: `n${++seq.current}`, name: '' }])} disabled={rows.length >= 20}><Plus size={13} /> Adicionar fase</button>
+      </div>
+      <div className="space-y-1.5">
+        {rows.map((r, i) => (
+          <div key={r.key} className="grid grid-cols-[34px_1fr_auto_24px_24px_24px] gap-2 items-center">
+            <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>F{i + 1}</span>
+            <input className="input-base" style={inputSm} placeholder="Nome da fase" value={r.name} maxLength={60} onChange={(e) => edit(i, e.target.value)} />
+            <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{r.id ? `${counts[r.id] || 0} estudantes` : 'nova'}</span>
+            <button onClick={() => swap(i, i - 1)} disabled={i === 0} aria-label="Subir" style={{ opacity: i === 0 ? 0.3 : 1 }}><ArrowUp size={13} /></button>
+            <button onClick={() => swap(i, i + 1)} disabled={i === rows.length - 1} aria-label="Descer" style={{ opacity: i === rows.length - 1 ? 0.3 : 1 }}><ArrowDown size={13} /></button>
+            <button onClick={() => setRows((p) => p!.filter((_, j) => j !== i))} disabled={rows.length === 1} aria-label="Remover"><Trash2 size={13} style={{ color: '#EF4444' }} /></button>
+          </div>
+        ))}
+      </div>
+      {removed.length > 0 && (
+        <p className="text-xs" style={{ color: '#B45309' }}>
+          Vais remover: {removed.map((p) => `${p.name}${counts[p.id] ? ` (${counts[p.id]} estudantes)` : ''}`).join(', ')}.
+        </p>
+      )}
+      {need.length > 0 && (
+        <div className="space-y-1.5 p-3 rounded" style={{ background: 'var(--surface-2)' }}>
+          <p className="text-xs font-medium">Para onde passam os estudantes das fases removidas?</p>
+          {need.map((n) => (
+            <div key={n.id} className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="min-w-[180px]">{n.name} ({n.count} estudantes) →</span>
+              <select className="input-base" style={{ ...inputSm, width: 'auto' }} value={moves[n.id] ?? '__'} onChange={(e) => setMoves((m) => ({ ...m, [n.id]: e.target.value }))}>
+                <option value="__" disabled>Escolher</option>
+                <option value="">Sem fase</option>
+                {rows.filter((r) => r.id).map((r) => <option key={r.key} value={r.id}>F{rows.indexOf(r) + 1} · {r.name || '(sem nome)'}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <button className="btn btn-primary" disabled={busy || !dirty} onClick={save}>{busy ? <Loader2 size={14} className="animate-spin" /> : null} Guardar fases</button>
+        {dirty && <button className="btn btn-outline" disabled={busy} onClick={() => reset(phases)}>Cancelar</button>}
+      </div>
     </div>
   );
 }

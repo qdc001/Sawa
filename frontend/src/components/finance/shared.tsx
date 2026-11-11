@@ -1,5 +1,42 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import api from '../../lib/api';
+
+// ---------- Fases do metodo (configuraveis em Definicoes) ----------
+// O id fica gravado no estudante; a posicao na lista da o "F1, F2...".
+export type Phase = { id: number; name: string };
+let phaseCache: Phase[] | null = null;
+let phaseLoading: Promise<void> | null = null;
+const phaseListeners = new Set<(p: Phase[]) => void>();
+
+export function reloadPhases(): Promise<void> {
+  phaseLoading = api.get<{ phases: Phase[] }>('/finance/phases').then(({ data }) => {
+    phaseCache = data.phases;
+    phaseListeners.forEach((l) => l(data.phases));
+  }).finally(() => { phaseLoading = null; });
+  return phaseLoading;
+}
+export function setPhasesCache(p: Phase[]) {
+  phaseCache = p;
+  phaseListeners.forEach((l) => l(p));
+}
+// Todas as vistas usam a mesma lista: quando muda em Definicoes, muda em todo o lado.
+export function usePhases(): Phase[] | null {
+  const [p, setP] = useState<Phase[] | null>(phaseCache);
+  useEffect(() => {
+    phaseListeners.add(setP);
+    if (!phaseCache && !phaseLoading) reloadPhases().catch(() => {});
+    else if (phaseCache) setP(phaseCache);
+    return () => { phaseListeners.delete(setP); };
+  }, []);
+  return p;
+}
+export function phaseLabel(list: Phase[] | null, id: number | null | undefined, short = false): string {
+  if (!id) return short ? '—' : 'Sem fase';
+  const i = (list || []).findIndex((p) => p.id === id);
+  if (i < 0) return short ? '?' : 'Fase removida';
+  return short ? `F${i + 1}` : `F${i + 1} · ${list![i].name}`;
+}
 
 export const WALLETS = ['M-pesa', 'E-mola', 'BIM', 'Fisico'] as const;
 export type Wallet = (typeof WALLETS)[number];

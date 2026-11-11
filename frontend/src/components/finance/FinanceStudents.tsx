@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Banknote, Link2, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import api from '../../lib/api';
-import { Associate, Badge, dateLabel, errMsg, Field, Modal, monthLabel, mzn, num, Td, Th, today, WALLETS, inputSm } from './shared';
+import { Associate, Badge, dateLabel, errMsg, Field, Modal, monthLabel, mzn, num, phaseLabel, Td, Th, today, usePhases, WALLETS, inputSm } from './shared';
 
-export const PHASES = ['Fundação Invisível', 'Engenharia da Pesquisa', 'Plano de Ataque', 'Base Científica', 'Análise e Discussão', 'Redacção Final', 'Defesa do TCC'];
 export const PHASE_STATES = ['Entregue', 'Em curso', 'Pendente', 'Atrasado', 'Bloqueado'];
 const PROJECTS = ['Mestrado', 'Licenciatura', 'Simulacao', 'Revisao', 'Projeto', 'Analise estatistica'];
 const ORIGINS = ['Whatsap', 'Tiktok', 'Instagram', 'Recomendacao', 'Facebook'];
@@ -28,6 +27,8 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
     nextDueDate: s?.nextDueDate?.slice(0, 10) || '',
   });
   const [sellerCredit, setCredit] = useState(s ? (s.sellerCredit ?? !!s.entryDate) : false);
+  const phaseList = usePhases() || [];
+  const orphan = !!s?.currentPhase && !phaseList.some((p) => p.id === s.currentPhase);
   const [phases, setPhases] = useState<Student['phases']>(s?.phases || {});
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
@@ -100,18 +101,20 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
           <div className="mb-2 max-w-xs">
             <Field label="Fase actual">
               <select className="input-base" value={f.currentPhase} onChange={(e) => set('currentPhase', e.target.value)}>
-                <option value="">Sem fase</option>{PHASES.map((p, i) => <option key={p} value={i + 1}>F{i + 1} · {p}</option>)}
+                <option value="">Sem fase</option>
+                {orphan && <option value={String(s!.currentPhase)}>Fase removida</option>}
+                {phaseList.map((p, i) => <option key={p.id} value={String(p.id)}>F{i + 1} · {p.name}</option>)}
               </select>
             </Field>
           </div>
           <div className="space-y-1.5">
-            {PHASES.map((p, i) => (
-              <div key={p} className="grid grid-cols-[1fr_130px_140px] gap-2 items-center">
-                <span className="text-xs truncate">F{i + 1} · {p}</span>
-                <select className="input-base" style={inputSm} value={phases[i + 1]?.status || ''} onChange={(e) => setPhase(i + 1, 'status', e.target.value)}>
+            {phaseList.map((p, i) => (
+              <div key={p.id} className="grid grid-cols-[1fr_130px_140px] gap-2 items-center">
+                <span className="text-xs truncate">F{i + 1} · {p.name}</span>
+                <select className="input-base" style={inputSm} value={phases[p.id]?.status || ''} onChange={(e) => setPhase(p.id, 'status', e.target.value)}>
                   <option value="">—</option>{PHASE_STATES.map((st) => <option key={st}>{st}</option>)}
                 </select>
-                <input className="input-base" style={inputSm} type="date" value={phases[i + 1]?.date || ''} onChange={(e) => setPhase(i + 1, 'date', e.target.value)} />
+                <input className="input-base" style={inputSm} type="date" value={phases[p.id]?.date || ''} onChange={(e) => setPhase(p.id, 'date', e.target.value)} />
               </div>
             ))}
           </div>
@@ -266,6 +269,7 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
   const [edit, setEdit] = useState<{ student: Student | null } | null>(null);
   const [pay, setPay] = useState<Student | null>(null);
   const [linking, setLinking] = useState(false);
+  const phaseList = usePhases();
   const closeLink = useCallback(() => setLinking(false), []);
 
   const load = useCallback(() => {
@@ -337,7 +341,7 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
             <tbody>{shown.map((r) => (
               <tr key={r.id}>
                 <Td>{r.code}</Td><Td bold>{r.name}</Td><Td>{r.associate?.name || '—'}</Td><Td>{r.project || '—'}</Td><Td>{dateLabel(r.entryDate)}</Td>
-                <Td>{r.currentPhase ? `F${r.currentPhase}` : '—'}</Td><Td right>{num(r.totalValue)}</Td><Td right>{num(r.paidAmount)}</Td><Td right>{num(r.balance)}</Td>
+                <Td>{phaseLabel(phaseList, r.currentPhase, true)}</Td><Td right>{num(r.totalValue)}</Td><Td right>{num(r.paidAmount)}</Td><Td right>{num(r.balance)}</Td>
                 <Td>{statusBadge(r)}</Td><Td>{actions(r)}</Td>
               </tr>
             ))}</tbody>

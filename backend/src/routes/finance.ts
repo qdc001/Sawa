@@ -20,6 +20,28 @@ const DEFAULT_FIXED: FixedSalary[] = [
   { name: 'Directora operacional', amount: 15000, startPeriod: '2026-11' },
   { name: 'Director de marketing', amount: 10000, startPeriod: '2026-11' },
 ];
+const DEFAULT_PHASES = ['Fundação Invisível', 'Engenharia da Pesquisa', 'Plano de Ataque', 'Base Científica', 'Análise e Discussão', 'Redacção Final', 'Defesa do TCC'];
+type Phase = { id: number; name: string };
+function phaseList(s: { studentPhases: any }): Phase[] {
+  const l = s.studentPhases;
+  return Array.isArray(l) && l.length ? (l as Phase[]) : DEFAULT_PHASES.map((name, i) => ({ id: i + 1, name }));
+}
+// "F2 · Nome" pela posicao actual; uma fase apagada continua a ter texto para as mensagens.
+function phaseLabel(list: Phase[], id: number | null) {
+  if (!id) return 'Sem fase';
+  const i = list.findIndex((p) => p.id === id);
+  return i >= 0 ? `F${i + 1} · ${list[i].name}` : 'uma fase que já não existe';
+}
+function phaseId(v: any): number | null {
+  const f = v === '' || v === null || v === undefined ? null : Number(v);
+  if (f !== null && !(Number.isInteger(f) && f >= 1)) throw new AppError('Fase inválida', 400);
+  return f;
+}
+async function assertPhase(workspaceId: string, id: number | null) {
+  if (id === null) return;
+  const list = phaseList(await getSettings(workspaceId));
+  if (!list.some((p) => p.id === id)) throw new AppError('Essa fase já não existe. Actualiza a página.', 400);
+}
 const ORDINALS = ['Primeira', 'Segunda', 'Terceira', 'Quarta', 'Quinta', 'Sexta', 'Sétima', 'Oitava'];
 
 // So existe no workspace M.E.T.A.
@@ -360,11 +382,7 @@ function studentFields(b: any) {
   if (b.nextDueDate !== undefined) d.nextDueDate = optDate(b.nextDueDate, 'Próxima parcela');
   if (b.totalValue !== undefined) d.totalValue = money(b.totalValue, 'Valor total');
   if (b.installments !== undefined) d.installments = b.installments === '' || b.installments === null ? null : Math.max(1, Math.floor(money(b.installments, 'Nº de parcelas')));
-  if (b.currentPhase !== undefined) {
-    const f = b.currentPhase === '' || b.currentPhase === null ? null : Number(b.currentPhase);
-    if (f !== null && !(Number.isInteger(f) && f >= 1 && f <= 7)) throw new AppError('Fase inválida', 400);
-    d.currentPhase = f;
-  }
+  if (b.currentPhase !== undefined) d.currentPhase = phaseId(b.currentPhase);
   if (b.phases !== undefined) {
     if (typeof b.phases !== 'object' || b.phases === null) throw new AppError('Fases inválidas', 400);
     d.phases = b.phases;
@@ -379,6 +397,7 @@ router.post('/students', adminOnly, async (req: AuthRequest, res: Response, next
     const name = text(b.name);
     if (!name) throw new AppError('Indica o nome', 400);
     const fields = studentFields(b);
+    if (fields.currentPhase !== undefined) await assertPhase(workspaceId, fields.currentPhase);
     const codes = await prisma.financeStudent.findMany({ where: { workspaceId }, select: { code: true } });
     const max = codes.reduce((a, c) => Math.max(a, parseInt(c.code.slice(1), 10) || 0), 0);
     const created = await prisma.financeStudent.create({
@@ -408,10 +427,12 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
     }
     if (b.associateId !== undefined) data.associateId = await checkAssociate(workspaceId, b.associateId);
     // A fase tambem muda no quadro: nao escreve por cima de uma mudanca feita entretanto.
+    if (data.currentPhase !== undefined && data.currentPhase !== cur.currentPhase) await assertPhase(workspaceId, data.currentPhase);
     if (data.currentPhase !== undefined && b.currentPhaseFrom !== undefined) {
-      const from = b.currentPhaseFrom === '' || b.currentPhaseFrom === null ? null : Number(b.currentPhaseFrom);
+      const from = phaseId(b.currentPhaseFrom);
       if (cur.currentPhase !== from && cur.currentPhase !== data.currentPhase) {
-        throw new AppError(`A fase deste estudante foi mudada noutro lugar para ${cur.currentPhase ? `F${cur.currentPhase}` : 'Sem fase'}. Fecha e abre de novo.`, 409);
+        const list = phaseList(await getSettings(workspaceId));
+        throw new AppError(`A fase deste estudante foi mudada noutro lugar para ${phaseLabel(list, cur.currentPhase)}. Fecha e abre de novo.`, 409);
       }
     }
     if (b.status !== undefined) {
@@ -444,13 +465,9 @@ router.delete('/students/:id', adminOnly, async (req: AuthRequest, res: Response
 router.patch('/students/:id/phase', adminOnly, async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
-    const parse = (v: any) => {
-      const f = v === '' || v === null || v === undefined ? null : Number(v);
-      if (f !== null && !(Number.isInteger(f) && f >= 1 && f <= 7)) throw new AppError('Fase inválida', 400);
-      return f;
-    };
-    const to = parse(req.body?.phase);
-    const from = parse(req.body?.from);
+    const to = phaseId(req.body?.phase);
+    const from = phaseId(req.body?.from);
+    await assertPhase(workspaceId, to);
     const { count } = await prisma.financeStudent.updateMany({
       where: { id: req.params.id, workspaceId, currentPhase: from },
       data: { currentPhase: to },
@@ -460,7 +477,8 @@ router.patch('/students/:id/phase', adminOnly, async (req: AuthRequest, res: Res
     });
     if (!st) throw new AppError('Estudante não encontrado', 404);
     if (!count && st.currentPhase !== to) {
-      throw new AppError(`${st.name} já tinha sido mudado para ${st.currentPhase ? `F${st.currentPhase}` : 'Sem fase'} noutro lugar. O quadro foi actualizado.`, 409);
+      const list = phaseList(await getSettings(workspaceId));
+      throw new AppError(`${st.name} já tinha sido mudado para ${phaseLabel(list, st.currentPhase)} noutro lugar. O quadro foi actualizado.`, 409);
     }
     res.json(studentDto(st));
   } catch (e) { next(e); }
@@ -556,6 +574,10 @@ router.get('/academic', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
     const where = await scopeStudents(req);
+    const phases = phaseList(await getSettings(workspaceId));
+    const pos = new Map(phases.map((p, i) => [p.id, i + 1]));
+    const lastId = phases[phases.length - 1].id;
+    const half = Math.ceil((phases.length - 1) / 2);
     const [students, associates] = await Promise.all([
       prisma.financeStudent.findMany({
         where, select: { associateId: true, currentPhase: true, lastActivityAt: true, phases: true, project: true, origin: true, paidAmount: true },
@@ -564,27 +586,28 @@ router.get('/academic', async (req: AuthRequest, res: Response, next) => {
     ]);
     const now = Date.now();
     const inactive = (d: Date | null) => (d ? Math.floor((now - d.getTime()) / 86400000) : null);
-    const phaseCounts = [1, 2, 3, 4, 5, 6, 7].map((f) => students.filter((s) => s.currentPhase === f).length);
+    const phaseCounts = phases.map((p) => students.filter((s) => s.currentPhase === p.id).length);
+    const at = (s: { currentPhase: number | null }) => (s.currentPhase ? pos.get(s.currentPhase) || 0 : 0);
     const states: Record<string, number> = { Entregue: 0, 'Em curso': 0, Pendente: 0, Atrasado: 0, Bloqueado: 0 };
     let deliveredF7 = 0;
     for (const s of students) {
       for (const [f, v] of Object.entries((s.phases as any) || {})) {
         const st = (v as any)?.status;
         if (st && st in states) states[st]++;
-        if (f === '7' && st === 'Entregue') deliveredF7++;
+        if (f === String(lastId) && st === 'Entregue') deliveredF7++;
       }
     }
-    const withPhase = students.filter((s) => s.currentPhase);
+    const withPhase = students.filter((s) => at(s) > 0);
     const byAssociate = associates.map((a) => {
       const own = students.filter((s) => s.associateId === a.id);
       return {
         id: a.id, code: a.code, name: a.name, whatsapp: a.whatsapp, userId: a.userId,
         total: own.length,
-        early: own.filter((s) => s.currentPhase && s.currentPhase <= 3).length,
-        middle: own.filter((s) => s.currentPhase && s.currentPhase >= 4 && s.currentPhase <= 6).length,
-        final: own.filter((s) => s.currentPhase === 7).length,
+        early: own.filter((s) => at(s) > 0 && at(s) <= half && s.currentPhase !== lastId).length,
+        middle: own.filter((s) => at(s) > half && s.currentPhase !== lastId).length,
+        final: own.filter((s) => s.currentPhase === lastId).length,
         alerts: own.filter((s) => (inactive(s.lastActivityAt) ?? 0) > 14).length,
-        completed: own.filter((s) => s.currentPhase === 7 && (s.phases as any)?.['7']?.status === 'Entregue').length,
+        completed: own.filter((s) => s.currentPhase === lastId && (s.phases as any)?.[String(lastId)]?.status === 'Entregue').length,
       };
     });
     const group = (key: 'project' | 'origin') => {
@@ -599,9 +622,14 @@ router.get('/academic', async (req: AuthRequest, res: Response, next) => {
     };
     res.json({
       total: students.length,
-      averagePhase: withPhase.length ? Math.round((withPhase.reduce((a, s) => a + (s.currentPhase || 0), 0) / withPhase.length) * 10) / 10 : 0,
+      averagePhase: withPhase.length ? Math.round((withPhase.reduce((a, s) => a + at(s), 0) / withPhase.length) * 10) / 10 : 0,
       deliveredF7,
-      active: students.filter((s) => s.currentPhase && s.currentPhase < 7).length,
+      active: students.filter((s) => at(s) > 0 && s.currentPhase !== lastId).length,
+      groups: {
+        early: half > 0 ? `F1-F${half}` : '—',
+        middle: half + 1 <= phases.length - 1 ? `F${half + 1}-F${phases.length - 1}` : '—',
+        final: `F${phases.length}`,
+      },
       alerts: students.filter((s) => (inactive(s.lastActivityAt) ?? 0) > 14).length,
       phaseCounts, states, byAssociate, byProject: group('project'), byOrigin: group('origin'),
     });
@@ -770,6 +798,65 @@ router.delete('/coupons/:id', adminOnly, async (req: AuthRequest, res: Response,
 });
 
 // ---------- Definicoes ----------
+// ---------- Fases do metodo ----------
+router.get('/phases', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const phases = phaseList(await getSettings(req.user!.workspaceId));
+    const rows = await prisma.financeStudent.groupBy({ by: ['currentPhase'], where: await scopeStudents(req), _count: { _all: true } });
+    const counts: Record<string, number> = {};
+    for (const r of rows) if (r.currentPhase) counts[r.currentPhase] = r._count._all;
+    res.json({ phases, counts });
+  } catch (e) { next(e); }
+});
+
+// Renomear, acrescentar, remover e reordenar. Os ids existentes ficam; os novos nunca reutilizam um id antigo.
+// Estudantes numa fase removida passam para a fase escolhida em moves[id] (null = sem fase).
+router.put('/phases', adminOnly, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const settings = await getSettings(workspaceId);
+    const current = phaseList(settings);
+    const input = req.body?.phases;
+    if (!Array.isArray(input) || !input.length) throw new AppError('Tem de haver pelo menos uma fase', 400);
+    if (input.length > 20) throw new AppError('No máximo 20 fases', 400);
+    let nextId = Math.max(settings.phaseNextId, ...current.map((p) => p.id + 1));
+    const seen = new Set<string>();
+    const kept = new Set<number>();
+    const list: Phase[] = input.map((x: any) => {
+      const name = text(x?.name);
+      if (!name) throw new AppError('Cada fase precisa de um nome', 400);
+      if (name.length > 60) throw new AppError(`Nome demasiado longo: ${name.slice(0, 20)}...`, 400);
+      const k = name.toLowerCase();
+      if (seen.has(k)) throw new AppError(`Há duas fases com o nome "${name}"`, 400);
+      seen.add(k);
+      const id = Number(x?.id);
+      if (current.some((p) => p.id === id) && !kept.has(id)) { kept.add(id); return { id, name }; }
+      return { id: nextId++, name };
+    });
+    const removed = current.filter((p) => !kept.has(p.id));
+    const moves = req.body?.moves && typeof req.body.moves === 'object' ? req.body.moves : {};
+    const need: { id: number; name: string; count: number }[] = [];
+    const plan: { from: number; to: number | null }[] = [];
+    for (const p of removed) {
+      const count = await prisma.financeStudent.count({ where: { workspaceId, currentPhase: p.id } });
+      if (!count) continue;
+      if (!(String(p.id) in moves)) { need.push({ ...p, count }); continue; }
+      const to = phaseId(moves[String(p.id)]);
+      if (to !== null && !kept.has(to)) throw new AppError(`Escolhe uma fase que fica para os estudantes de "${p.name}"`, 400);
+      plan.push({ from: p.id, to });
+    }
+    if (need.length) {
+      res.status(409).json({ message: 'Há estudantes em fases que vais remover. Escolhe para onde passam.', needMoves: need });
+      return;
+    }
+    await prisma.$transaction(async (tx) => {
+      for (const m of plan) await tx.financeStudent.updateMany({ where: { workspaceId, currentPhase: m.from }, data: { currentPhase: m.to } });
+      await tx.financeSettings.update({ where: { workspaceId }, data: { studentPhases: list as any, phaseNextId: nextId } });
+    });
+    res.json({ phases: list, moved: plan.length });
+  } catch (e) { next(e); }
+});
+
 router.put('/settings', adminOnly, async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
@@ -839,7 +926,7 @@ router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) =
       ] },
       { name: 'Estudantes', rows: [
         ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas'],
-        ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes]),
+        ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase ? phaseLabel(phaseList(settings), s.currentPhase) : null, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes]),
       ] },
       { name: 'Pagamentos de salários', rows: [
         ['Mês do salário', 'Pessoa', 'Valor', 'Carteira', 'Data', 'Observação'],

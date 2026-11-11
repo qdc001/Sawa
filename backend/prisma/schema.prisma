@@ -1545,6 +1545,10 @@ model FinanceSettings {
   proLaboreFrom      String   @default("2025-11")
   couponValidityDays Int      @default(30)
   couponDiscount     Float    @default(500)
+  // Fases do metodo, pela ordem: [{ id, name }]. Vazio = as 7 fases originais (ids 1-7).
+  // O id nunca muda nem se reutiliza: e o que fica gravado em FinanceStudent.currentPhase.
+  studentPhases      Json     @default("[]")
+  phaseNextId        Int      @default(8)
   updatedAt          DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

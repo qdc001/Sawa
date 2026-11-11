@@ -2,14 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import api from '../../lib/api';
-import { Associate, errMsg, inputSm } from './shared';
-import { PHASES, Student } from './FinanceStudents';
+import { Associate, errMsg, inputSm, reloadPhases, usePhases } from './shared';
+import { Student } from './FinanceStudents';
 
 const LIMIT = 40;
-const COLUMNS: { phase: number | null; label: string }[] = [
-  { phase: null, label: 'Sem fase' },
-  ...PHASES.map((p, i) => ({ phase: i + 1, label: `F${i + 1} · ${p}` })),
-];
 
 // Quadro de fases. A fase vem do mesmo campo da ficha do estudante (currentPhase),
 // por isso o quadro e a ficha mostram sempre o mesmo valor.
@@ -22,12 +18,14 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
   const [more, setMore] = useState<Record<string, boolean>>({});
   const [over, setOver] = useState<string | null>(null);
   const [saving, setSaving] = useState<Set<string>>(new Set());
+  const phases = usePhases();
   const dragId = useRef<string | null>(null);
   const pending = useRef(0);
 
   const load = useCallback((quiet = false) => {
     if (pending.current) return; // nao substitui uma mudanca ainda a gravar
     if (!quiet) setLoading(true);
+    reloadPhases().catch(() => {});
     api.get<Student[]>('/finance/students').then(({ data }) => { if (!pending.current) setRows(data); })
       .catch((e) => { if (!quiet) toast.error(errMsg(e, 'Erro a carregar estudantes')); })
       .finally(() => setLoading(false));
@@ -71,11 +69,22 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
     });
   }, [rows, q, assoc, hidePaidNoPhase]);
 
-  const byCol = useMemo(() => {
-    const m = new Map<string, Student[]>(COLUMNS.map((c) => [String(c.phase), []]));
-    for (const r of filtered) m.get(String(r.currentPhase ?? null))?.push(r);
-    return m;
-  }, [filtered]);
+  // Colunas = fases configuradas. Estudantes numa fase que ja foi removida ficam numa coluna propria, para nao desaparecerem.
+  const { columns, byCol } = useMemo(() => {
+    const cols: { key: string; phase: number | null; label: string; orphan?: boolean }[] = [
+      { key: 'null', phase: null, label: 'Sem fase' },
+      ...(phases || []).map((p, i) => ({ key: String(p.id), phase: p.id, label: `F${i + 1} · ${p.name}` })),
+    ];
+    const m = new Map<string, Student[]>(cols.map((c) => [c.key, []]));
+    for (const r of filtered) {
+      const k = String(r.currentPhase ?? null);
+      if (!m.has(k)) {
+        if (!m.has('orphan')) { m.set('orphan', []); cols.push({ key: 'orphan', phase: null, label: 'Fase removida', orphan: true }); }
+        m.get('orphan')!.push(r);
+      } else m.get(k)!.push(r);
+    }
+    return { columns: cols, byCol: m };
+  }, [filtered, phases]);
 
   return (
     <div className="space-y-3">
@@ -98,10 +107,10 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
         {canEdit ? 'Arraste o cartão para outra coluna (ou escolha a fase no cartão). ' : ''}A fase é a mesma da ficha do estudante: o que muda aqui muda lá, e o contrário.
       </p>
-      {loading ? <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin" /></div> : (
+      {loading || !phases ? <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin" /></div> : (
         <div className="flex gap-3 overflow-x-auto pb-3" style={{ alignItems: 'flex-start' }}>
-          {COLUMNS.map((c) => {
-            const k = String(c.phase);
+          {columns.map((c) => {
+            const k = c.key;
             const list = byCol.get(k) || [];
             const shown = more[k] ? list : list.slice(0, LIMIT);
             return (
@@ -109,9 +118,9 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
                 key={k}
                 className="rounded-lg p-2 flex-shrink-0"
                 style={{ width: 230, background: over === k ? 'var(--primary-light)' : 'var(--surface-2)', border: `1px solid ${over === k ? 'var(--primary)' : 'var(--border)'}` }}
-                onDragOver={(e) => { if (canEdit && dragId.current) { e.preventDefault(); setOver(k); } }}
+                onDragOver={(e) => { if (canEdit && dragId.current && !c.orphan) { e.preventDefault(); setOver(k); } }}
                 onDragLeave={() => setOver((o) => (o === k ? null : o))}
-                onDrop={(e) => { e.preventDefault(); setOver(null); const id = dragId.current; dragId.current = null; if (id) move(id, c.phase); }}
+                onDrop={(e) => { e.preventDefault(); setOver(null); const id = dragId.current; dragId.current = null; if (id && !c.orphan) move(id, c.phase); }}
               >
                 <div className="flex items-center justify-between px-1 mb-2">
                   <span className="text-xs font-semibold truncate" title={c.label}>{c.label}</span>
@@ -135,11 +144,12 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
                       {canEdit && (
                         <select
                           className="input-base mt-1.5" style={{ padding: '2px 4px', fontSize: 11 }}
-                          value={r.currentPhase ?? ''} disabled={saving.has(r.id)}
-                          onChange={(e) => move(r.id, e.target.value ? Number(e.target.value) : null)}
+                          value={c.orphan ? 'orphan' : r.currentPhase ?? ''} disabled={saving.has(r.id)}
+                          onChange={(e) => { if (e.target.value !== 'orphan') move(r.id, e.target.value ? Number(e.target.value) : null); }}
                         >
+                          {c.orphan && <option value="orphan">Fase removida</option>}
                           <option value="">Sem fase</option>
-                          {PHASES.map((p, i) => <option key={p} value={i + 1}>F{i + 1} · {p}</option>)}
+                          {(phases || []).map((p, i) => <option key={p.id} value={p.id}>F{i + 1} · {p.name}</option>)}
                         </select>
                       )}
                     </div>
