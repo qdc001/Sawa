@@ -111,11 +111,11 @@ export default function AppLayout() {
   };
 
   // Banner de desconexão Evolution
-  const [evoDown, setEvoDown] = useState<{ minutes: number; message: string } | null>(null);
+  const [evoDown, setEvoDown] = useState<{ minutes: number; message: string; title?: string } | null>(null);
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
-    const onDown = (data: any) => setEvoDown({ minutes: data.minutesDown || 0, message: data.message || 'WhatsApp desligado' });
+    const onDown = (data: any) => setEvoDown({ minutes: data.minutesDown || 0, message: data.message || 'WhatsApp desligado', title: data.title });
     const onState = (data: any) => { if (data.state === 'open' || data.recovered) setEvoDown(null); };
     // Quando OWNER/ADMIN actualiza as Definições do workspace, todos os membros
     // ligados recebem o evento. Fazemos refetch completo (em vez de só aplicar o
@@ -582,7 +582,7 @@ export default function AppLayout() {
           <div className="px-4 py-2 flex items-center gap-3 text-sm" style={{ background: '#FEF3C7', borderBottom: '1px solid #FBBF24', color: '#92400E' }}>
             <span style={{ fontSize: 18 }}>⚠️</span>
             <span className="flex-1">
-              <strong>WhatsApp desligado há {evoDown.minutes} min.</strong> {evoDown.message}
+              <strong>{evoDown.title || `WhatsApp desligado há ${evoDown.minutes} min.`}</strong> {evoDown.message}
             </span>
             <button onClick={() => navigate('/integrations')} className="btn text-xs py-1 px-3" style={{ background: '#F59E0B', color: 'white' }}>
               Re-ligar
