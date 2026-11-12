@@ -249,7 +249,8 @@ function ConvertModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [busy, setBusy] = useState(false);
   // "linked": o valor pago passa a ser o que esta nos lancamentos. "sheet": fica o da ficha (diferenca = "pago antes").
   const [mode, setMode] = useState<'linked' | 'sheet'>('linked');
-  const [onlyChanged, setOnlyChanged] = useState(true);
+  // Grupo a ver e a passar no modo "Nos lancamentos".
+  const [group, setGroup] = useState<'same' | 'more' | 'less'>('same');
   // Modo "ficha": "a rever" marcados passam a usar os lancamentos.
   const [useLinked, setUseLinked] = useState<Set<string>>(new Set());
   const toggle = (id: string, on: boolean) => setUseLinked((p) => { const n = new Set(p); if (on) n.add(id); else n.delete(id); return n; });
@@ -261,19 +262,25 @@ function ConvertModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const diff = (x: ConvertRow) => Math.round((x.linked - x.paidAmount) * 100) / 100;
   const less = all.filter((x) => diff(x) < 0);
   const more = all.filter((x) => diff(x) > 0);
-  const total = !r ? 0 : mode === 'linked' ? all.length : r.ready.length + useLinked.size;
+  const same = all.filter((x) => diff(x) === 0);
+  const groupRows = group === 'same' ? same : group === 'more' ? more : less;
+  const groupName = group === 'same' ? 'iguais à ficha' : group === 'more' ? 'que ficam com mais' : 'que ficam com menos';
+  const total = !r ? 0 : mode === 'linked' ? groupRows.length : r.ready.length + useLinked.size;
   const apply = async () => {
     const msg = mode === 'linked'
-      ? `Passar ${total} estudantes? O valor pago de cada um passa a ser o que está nos lançamentos.${less.length ? `\n\nATENÇÃO: ${less.length} ficam com menos pago do que na ficha.` : ''}`
+      ? `Passar os ${total} estudantes ${groupName}? O valor pago de cada um passa a ser o que está nos lançamentos.${group === 'less' ? '\n\nATENÇÃO: estes ficam com menos pago do que na ficha.' : ''}`
       : `Passar ${total} estudantes? O valor pago de cada um fica igual ao da ficha${useLinked.size ? ` (e ${useLinked.size} dos "a rever" passam a usar os lançamentos)` : ''}.`;
     if (!window.confirm(msg)) return;
     setBusy(true);
     try {
-      const body = mode === 'linked' ? { apply: true, since, mode: 'linked' } : { apply: true, since, useLinked: [...useLinked] };
+      const body = mode === 'linked' ? { apply: true, since, mode: 'linked', ids: groupRows.map((x) => x.id) } : { apply: true, since, useLinked: [...useLinked] };
       const { data } = await api.post('/finance/students/ledger-convert', body, { timeout: 600000 });
       toast.success(`${mode === 'linked' ? data.fromLinked : data.ready.length + data.fromLinked} estudantes passaram para o saldo pelos lançamentos`);
       onSaved();
-      onClose();
+      if (mode === 'sheet') { onClose(); return; }
+      // Fica aberta para passar o grupo seguinte.
+      const { data: fresh } = await api.post('/finance/students/ledger-convert', { apply: false }, { timeout: 120000 });
+      setR(fresh);
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   };
   const sheetTable = (rows: ConvertRow[], pick = false) => (
@@ -286,7 +293,6 @@ function ConvertModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       ))}</tbody>
     </table>
   );
-  const shownLinked = onlyChanged ? all.filter((x) => diff(x) !== 0) : all;
   return (
     <Modal title="Estudantes antigos: saldo pelos lançamentos" onClose={onClose} wide>
       {!r ? <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div> : (
@@ -322,13 +328,15 @@ function ConvertModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                   Os que ficam com menos têm na ficha pagamentos que não estão ligados nos lançamentos. Se forem pagamentos reais, liga-os primeiro (ou lança-os); senão o saldo deles sobe.
                 </p>
               )}
-              <label className="flex items-center gap-2 text-xs cursor-pointer">
-                <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} /> Mostrar só os que mudam
-              </label>
+              <div className="flex flex-wrap gap-2">
+                {([['same', 'Iguais', same.length], ['more', 'Ficam com mais', more.length], ['less', 'Ficam com menos', less.length]] as const).map(([k, label, n]) => (
+                  <button key={k} className={`btn ${group === k ? 'btn-primary' : 'btn-outline'}`} style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setGroup(k)}>{label} ({n})</button>
+                ))}
+              </div>
               <div style={{ maxHeight: 320, overflowY: 'auto' }}>
                 <table className="w-full">
                   <thead><tr><Th>ID</Th><Th>Estudante</Th><Th>Pacote</Th><Th right>Na ficha</Th><Th right>Nos lançamentos (fica)</Th><Th right>Diferença</Th></tr></thead>
-                  <tbody>{shownLinked.map((x) => {
+                  <tbody>{groupRows.map((x) => {
                     const d = diff(x);
                     return (
                       <tr key={x.id}>
@@ -360,7 +368,7 @@ function ConvertModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             </>
           )}
           <button className="btn btn-primary w-full justify-center" disabled={busy || !total || since.length !== 10} onClick={apply}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Passar {total} estudantes
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Passar {total} estudantes{mode === 'linked' ? ` ${groupName}` : ''}
           </button>
         </div>
       )}

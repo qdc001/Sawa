@@ -542,6 +542,8 @@ router.post('/students/ledger-convert', adminOnly, async (req: AuthRequest, res:
     let fromLinked = 0;
     // mode "linked": o valor pago de todos passa a ser a soma dos lancamentos (sem "pago antes").
     const allLinked = req.body?.mode === 'linked';
+    // So estes estudantes (ex.: so o grupo "iguais", "com mais" ou "com menos"). Sem lista = todos.
+    const only = Array.isArray(req.body?.ids) ? new Set<string>(req.body.ids.map(String)) : null;
     // Soma dos lancamentos ligados de todos os estudantes numa so consulta.
     const sums = new Map((await prisma.financeEntry.groupBy({
       by: ['studentId'], where: { workspaceId, type: 'RECEITA', studentId: { in: list.map((x) => x.id) } },
@@ -552,6 +554,7 @@ router.post('/students/ledger-convert', adminOnly, async (req: AuthRequest, res:
       const o = openingFromSums(st, g?._sum.revenue || 0, g?._count._all || 0);
       const row = { id: st.id, code: st.code, name: st.name, paidAmount: st.paidAmount, linked: o.linked, openingPaid: o.openingPaid, packageTier: st.packageTier };
       (o.ok ? ready : review).push(row);
+      if (only && !only.has(st.id)) continue;
       if (o.ok && !allLinked && req.body?.apply === true) {
         await prisma.financeStudent.update({
           where: { id: st.id },

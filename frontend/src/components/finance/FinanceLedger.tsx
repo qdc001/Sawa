@@ -157,6 +157,8 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
+  // Filtro: receitas sem estudante (para ligar) ou so as ligadas.
+  const [link, setLink] = useState<'' | 'none' | 'linked'>('');
   const [modal, setModal] = useState<{ entry: Entry | null } | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const loadStudents = useCallback(() => {
@@ -176,8 +178,13 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
   const month = data.months.find((m) => m.period === period);
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return s ? entries.filter((e) => `${e.description} ${e.category} ${e.notes} ${e.associate?.name} ${e.student?.code} ${e.student?.name}`.toLowerCase().includes(s)) : entries;
-  }, [entries, q]);
+    return entries.filter((e) => {
+      if (link === 'none' && (e.type !== 'RECEITA' || e.student)) return false;
+      if (link === 'linked' && !e.student) return false;
+      return !s || `${e.description} ${e.category} ${e.notes} ${e.associate?.name} ${e.student?.code} ${e.student?.name}`.toLowerCase().includes(s);
+    });
+  }, [entries, q, link]);
+  const unlinked = entries.filter((e) => e.type === 'RECEITA' && !e.student).length;
 
   const changed = () => { load(); reload(); loadStudents(); };
   const remove = async (e: Entry) => {
@@ -199,6 +206,11 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
           <Search size={13} className="absolute left-2 top-2" style={{ color: 'var(--text-muted)' }} />
           <input className="input-base" style={{ ...inputSm, paddingLeft: 26, width: 220 }} placeholder="Pesquisar..." value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
+        <select className="input-base" style={{ ...inputSm, width: 'auto' }} value={link} onChange={(e) => setLink(e.target.value as typeof link)}>
+          <option value="">Todos os lançamentos</option>
+          <option value="none">Receitas sem estudante ({unlinked})</option>
+          <option value="linked">Ligados a um estudante</option>
+        </select>
         <button className="btn btn-primary ml-auto" onClick={() => setModal({ entry: null })}><Plus size={14} /> Novo lançamento</button>
       </div>
 
