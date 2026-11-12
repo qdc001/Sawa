@@ -26,10 +26,11 @@ export function normalizeTier(v: any): string | null | undefined {
 }
 
 // Quanto de cada pagamento (por ordem) cai na parte final [total - parte, total].
-export function splitDefense(total: number, share: number, amounts: number[]): number[] {
+// "start" = o que ja estava pago antes destes pagamentos (estudantes vindos da planilha).
+export function splitDefense(total: number, share: number, amounts: number[], start = 0): number[] {
   const part = Math.max(0, Math.min(share, total));
   const from = total - part;
-  let paid = 0;
+  let paid = start;
   return amounts.map((a) => {
     const start = paid;
     paid += a;
@@ -66,9 +67,11 @@ export async function recalcStudentLedger(tx: Tx, studentId: string) {
   }
 
   const share = st.packageTier && st.defenseAssociateId && settings ? defenseShares(settings)[st.packageTier] || 0 : 0;
-  const parts = splitDefense(st.totalValue, share, entries.map((e) => e.revenue));
+  const parts = splitDefense(st.totalValue, share, entries.map((e) => e.revenue), st.openingPaid);
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
+    // Pagamentos antes de "ledgerSince" ficam como estavam: a comissao desses meses ja foi paga.
+    if (st.ledgerSince && (!e.date || e.date < st.ledgerSince)) continue;
     const d = parts[i];
     const want = {
       defenseAmount: d,
@@ -81,13 +84,25 @@ export async function recalcStudentLedger(tx: Tx, studentId: string) {
       await tx.financeEntry.update({ where: { id: e.id }, data: want });
     }
   }
-  const paid = round2(entries.reduce((a, e) => a + e.revenue, 0));
+  const paid = round2(st.openingPaid + entries.reduce((a, e) => a + e.revenue, 0));
   await tx.financeStudent.update({
     where: { id: st.id },
     data: {
       paidAmount: paid,
-      installmentsPaid: entries.length,
-      status: st.totalValue > 0 && paid >= st.totalValue ? 'Pago' : 'Em aberto',
+      installmentsPaid: st.openingInstallments + entries.length,
+      // Se o valor pago nao mudou, mantem o estado que estava (ex.: "Pago" com desconto).
+      status: st.totalValue > 0 && paid >= st.totalValue ? 'Pago' : paid === st.paidAmount ? st.status : 'Em aberto',
     },
   });
+}
+
+// Passa um estudante antigo (saldo da planilha) para o saldo pelos lancamentos sem mudar o valor pago:
+// o que a planilha tem a mais do que os lancamentos ligados fica como "pago antes".
+// Devolve null se os lancamentos ligados ja somam mais do que o valor pago (e preciso rever a mao).
+export async function openingFor(tx: Tx, st: { id: string; paidAmount: number; installmentsPaid: number }) {
+  const agg = await tx.financeEntry.aggregate({ where: { studentId: st.id, type: 'RECEITA' }, _sum: { revenue: true }, _count: { _all: true } });
+  const linked = round2(agg._sum.revenue || 0);
+  const openingPaid = round2(st.paidAmount - linked);
+  if (openingPaid < -0.01) return { ok: false as const, linked, openingPaid: 0, openingInstallments: 0 };
+  return { ok: true as const, linked, openingPaid: Math.max(0, openingPaid), openingInstallments: Math.max(0, st.installmentsPaid - agg._count._all) };
 }

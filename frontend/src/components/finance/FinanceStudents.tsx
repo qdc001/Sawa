@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Banknote, History, Link2, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Banknote, History, Link2, Loader2, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { StudentHistoryModal } from './FinanceHistory';
 import api from '../../lib/api';
 import { Associate, Badge, dateLabel, defensePart, errMsg, Field, Modal, monthLabel, mzn, num, PACKAGE_TIERS, phaseLabel, studentShare, Td, Th, today, usePhases, WALLETS, inputSm } from './shared';
@@ -18,12 +18,16 @@ export type Student = {
   status: string; balance: number; associate: { id: string; code: string; name: string } | null; contactId: string | null;
   completedAt: string | null;
   packageTier: string | null; ledgerBalance: boolean; defenseAssociate: { id: string; code: string; name: string } | null;
+  openingPaid: number; openingInstallments: number; ledgerSince: string | null;
 };
 
-function StudentModal({ student, associates, creditName, creditValue, shares, onClose, onSaved }: { student: Student | null; associates: Associate[]; creditName: string; creditValue: number; shares: Record<string, number>; onClose: () => void; onSaved: () => void }) {
+export function StudentModal({ student, associates, creditName, creditValue, shares, onClose, onSaved, initialName }: {
+  student: Student | null; associates: Associate[]; creditName: string; creditValue: number; shares: Record<string, number>;
+  onClose: () => void; onSaved: (created?: Student) => void; initialName?: string;
+}) {
   const s = student;
   const [f, setF] = useState({
-    name: s?.name || '', gender: s?.gender || '', whatsapp: s?.whatsapp || '', associateId: s?.associate?.id || '',
+    name: s?.name || initialName || '', gender: s?.gender || '', whatsapp: s?.whatsapp || '', associateId: s?.associate?.id || '',
     faculty: s?.faculty || '', course: s?.course || '', theme: s?.theme || '', entryDate: s ? s.entryDate?.slice(0, 10) || '' : today(),
     currentPhase: s?.currentPhase ? String(s.currentPhase) : '', lastActivityAt: s?.lastActivityAt?.slice(0, 10) || '', notes: s?.notes || '',
     project: s?.project || '', origin: s?.origin || '', totalValue: s ? String(s.totalValue) : '', installments: s?.installments ? String(s.installments) : '',
@@ -31,6 +35,7 @@ function StudentModal({ student, associates, creditName, creditValue, shares, on
     packageTier: s?.packageTier || '', defenseAssociateId: s?.defenseAssociate?.id || '',
   });
   const [ledger, setLedger] = useState(s ? s.ledgerBalance : true);
+  const [openingPaid, setOpening] = useState(s ? String(s.openingPaid || 0) : '0');
   const [sellerCredit, setCredit] = useState(s ? (s.sellerCredit ?? !!s.entryDate) : false);
   const phaseList = usePhases() || [];
   const orphan = !!s?.currentPhase && !phaseList.some((p) => p.id === s.currentPhase);
@@ -55,12 +60,14 @@ function StudentModal({ student, associates, creditName, creditValue, shares, on
       const phaseBody = !s ? { currentPhase } : currentPhase !== origPhase ? { currentPhase, currentPhaseFrom: origPhase } : {};
       // A data de conclusao so vai se mudou: vazia, o CRM preenche quando a ultima fase fica "Entregue".
       const doneBody = completedAt !== (s?.completedAt?.slice(0, 10) || '') ? { completedAt: completedAt || null } : {};
-      if (s && ledger && !s.ledgerBalance && !window.confirm(`O valor pago de ${s.name} passa a ser a soma dos lançamentos ligados a ele (hoje: ${mzn(s.paidAmount)} registados à mão). Continuar?`)) { setBusy(false); return; }
-      const body = { ...rest, ...phaseBody, ...doneBody, associateId: f.associateId || null, defenseAssociateId: f.defenseAssociateId || null, packageTier: f.packageTier || null, ledgerBalance: ledger, phases, sellerCredit };
+      if (s && ledger && !s.ledgerBalance && !window.confirm(`O valor pago de ${s.name} fica igual (${mzn(s.paidAmount)}): o que não está nos lançamentos fica como "pago antes". Daqui para a frente o saldo actualiza sozinho e a parte da defesa conta só para pagamentos a partir de hoje. Continuar?`)) { setBusy(false); return; }
+      const openingBody = s && s.ledgerBalance && ledger && Number(openingPaid) !== s.openingPaid ? { openingPaid: Number(openingPaid) || 0 } : {};
+      const body = { ...openingBody, ...rest, ...phaseBody, ...doneBody, associateId: f.associateId || null, defenseAssociateId: f.defenseAssociateId || null, packageTier: f.packageTier || null, ledgerBalance: ledger, phases, sellerCredit };
+      let created: Student | undefined;
       if (s) await api.patch(`/finance/students/${s.id}`, body);
-      else await api.post('/finance/students', body);
+      else created = (await api.post('/finance/students', body)).data;
       toast.success('Guardado');
-      onSaved();
+      onSaved(created);
       onClose();
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   };
@@ -119,6 +126,15 @@ function StudentModal({ student, associates, creditName, creditValue, shares, on
             <input type="checkbox" checked={ledger} onChange={(e) => setLedger(e.target.checked)} />
             Saldo pelos lançamentos (o valor pago e as parcelas vêm dos pagamentos ligados a este estudante)
           </label>
+          {s?.ledgerBalance && ledger && (s.openingPaid > 0 || s.ledgerSince) && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 items-end">
+              <Field label="Pago antes dos lançamentos"><input className="input-base" type="number" min={0} value={openingPaid} onChange={(e) => setOpening(e.target.value)} /></Field>
+              <p className="sm:col-span-3 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                Veio da planilha e não está nos lançamentos ligados. Valor pago = este valor + os lançamentos.
+                {s.ledgerSince && ` A parte da defesa conta para pagamentos desde ${dateLabel(s.ledgerSince)}.`}
+              </p>
+            </div>
+          )}
           {(() => {
             const total = Number(f.totalValue) || 0;
             const share = ledger && f.packageTier && f.defenseAssociateId ? Math.min(shares[f.packageTier] || 0, total) : 0;
@@ -224,6 +240,67 @@ export function SplitPreview({ student, value, rate, shares, associateName, peri
   );
 }
 
+type ConvertRow = { id: string; code: string; name: string; paidAmount: number; linked: number; openingPaid: number; packageTier: string | null };
+
+// Passa os estudantes antigos para o saldo pelos lancamentos sem mudar o valor pago.
+function ConvertModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [since, setSince] = useState(today());
+  const [r, setR] = useState<{ ready: ConvertRow[]; review: ConvertRow[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.post('/finance/students/ledger-convert', { apply: false }).then(({ data }) => setR(data))
+      .catch((e) => { toast.error(errMsg(e)); onClose(); });
+  }, [onClose]);
+  const apply = async () => {
+    if (!window.confirm(`Passar ${r!.ready.length} estudantes para o saldo pelos lançamentos? O valor pago de cada um fica igual.`)) return;
+    setBusy(true);
+    try {
+      const { data } = await api.post('/finance/students/ledger-convert', { apply: true, since });
+      toast.success(`${data.ready.length} estudantes passaram para o saldo pelos lançamentos`);
+      onSaved();
+      onClose();
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
+  };
+  const table = (rows: ConvertRow[]) => (
+    <table className="w-full">
+      <thead><tr><Th>ID</Th><Th>Estudante</Th><Th>Pacote</Th><Th right>Valor pago</Th><Th right>Nos lançamentos</Th><Th right>Pago antes</Th></tr></thead>
+      <tbody>{rows.map((x) => (
+        <tr key={x.id}><Td>{x.code}</Td><Td bold>{x.name}</Td><Td>{x.packageTier || '—'}</Td><Td right>{num(x.paidAmount)}</Td><Td right>{num(x.linked)}</Td><Td right>{num(x.openingPaid)}</Td></tr>
+      ))}</tbody>
+    </table>
+  );
+  return (
+    <Modal title="Estudantes antigos: saldo pelos lançamentos" onClose={onClose} wide>
+      {!r ? <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div> : (
+        <div className="space-y-3">
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            O valor pago de cada estudante fica igual. O que veio da planilha e não está nos lançamentos ligados fica como "pago antes".
+            Depois disto, cada pagamento novo actualiza o saldo sozinho. Convém carregar primeiro em "Ligar aos lançamentos".
+          </p>
+          <div className="max-w-xs">
+            <Field label="A parte da defesa conta para pagamentos desde">
+              <input className="input-base" type="date" value={since} onChange={(e) => setSince(e.target.value)} />
+            </Field>
+            <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Os pagamentos anteriores ficam com a comissão que já tinham (salários já pagos não mudam).</p>
+          </div>
+          <p className="text-sm"><b>{r.ready.length}</b> prontos · <b style={{ color: r.review.length ? '#F59E0B' : undefined }}>{r.review.length}</b> a rever</p>
+          {r.ready.length > 0 && <div style={{ maxHeight: 260, overflowY: 'auto' }}>{table(r.ready)}</div>}
+          {r.review.length > 0 && (
+            <>
+              <h4 className="text-sm font-semibold">A rever: os lançamentos ligados somam mais do que o valor pago da ficha</h4>
+              <div style={{ maxHeight: 160, overflowY: 'auto' }}>{table(r.review)}</div>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Estes ficam como estão. Confirma o valor pago na ficha (ou os lançamentos ligados) e liga a caixa "Saldo pelos lançamentos" no estudante.</p>
+            </>
+          )}
+          <button className="btn btn-primary w-full justify-center" disabled={busy || !r.ready.length || since.length !== 10} onClick={apply}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Passar {r.ready.length} estudantes
+          </button>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 type LinkResult = {
   applied: boolean; payments: number; alreadyLinked: number; newLinks: number;
   associateChanges: { code: string; name: string; from: string | null; to: string | null }[];
@@ -317,6 +394,8 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
   const [edit, setEdit] = useState<{ student: Student | null } | null>(null);
   const [pay, setPay] = useState<Student | null>(null);
   const [linking, setLinking] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const closeConvert = useCallback(() => setConverting(false), []);
   const [history, setHistory] = useState<Student | null>(null);
   const phaseList = usePhases();
   const closeLink = useCallback(() => setLinking(false), []);
@@ -390,6 +469,9 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
           <option value="">Todos os estados</option><option>Em aberto</option><option>Pago</option><option value="overdue">Parcela em atraso</option>
         </select>
         {canEdit && mode === 'students' && <button className="btn btn-outline ml-auto" onClick={() => setLinking(true)}><Link2 size={14} /> Ligar aos lançamentos</button>}
+        {canEdit && mode === 'students' && rows.some((x) => !x.ledgerBalance) && (
+          <button className="btn btn-outline" onClick={() => setConverting(true)} title="Passar os estudantes antigos para o saldo pelos lançamentos"><RefreshCw size={14} /> Saldo automático nos antigos</button>
+        )}
         {canEdit && <button className={`btn btn-primary ${mode === 'students' ? '' : 'ml-auto'}`} onClick={() => setEdit({ student: null })}><Plus size={14} /> Novo estudante</button>}
       </div>
       <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -434,6 +516,7 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
       )}
       {edit && <StudentModal student={edit.student} associates={associates} creditName={creditName} creditValue={creditValue} shares={shares} onClose={() => setEdit(null)} onSaved={changed} />}
       {linking && <LinkModal onClose={closeLink} onSaved={changed} />}
+      {converting && <ConvertModal onClose={closeConvert} onSaved={changed} />}
       {history && <StudentHistoryModal student={history} onClose={() => setHistory(null)} />}
       {pay && <PaymentModal student={pay} associates={associates} rate={rate} shares={shares} onClose={() => setPay(null)} onSaved={changed} />}
     </div>

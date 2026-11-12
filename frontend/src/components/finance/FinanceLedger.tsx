@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Loader2, Pencil, Plus, Search, Trash2, UserPlus } from 'lucide-react';
 import api from '../../lib/api';
 import { Associate, dateLabel, DEFAULT_DEFENSE_SHARES, errMsg, Field, Kpi, Modal, monthLabel, mzn, num, Summary, Td, Th, today, WALLETS, inputSm } from './shared';
-import { SplitPreview, Student } from './FinanceStudents';
+import { SplitPreview, Student, StudentModal } from './FinanceStudents';
 
 type Entry = {
   id: string; period: string; date: string | null; description: string | null; type: string; category: string | null;
@@ -14,12 +14,14 @@ type Entry = {
 
 const studentLabel = (s: { code: string; name: string }) => `${s.code} · ${s.name}`;
 
-function EntryModal({ entry, associates, students, rate, shares, onClose, onSaved }: {
-  entry: Entry | null; associates: Associate[]; students: Student[]; rate: number; shares: Record<string, number>; onClose: () => void; onSaved: () => void;
+function EntryModal({ entry, associates, students, rate, shares, creditName, creditValue, onStudentCreated, onClose, onSaved }: {
+  entry: Entry | null; associates: Associate[]; students: Student[]; rate: number; shares: Record<string, number>;
+  creditName: string; creditValue: number; onStudentCreated: (s: Student) => void; onClose: () => void; onSaved: () => void;
 }) {
   const [type, setType] = useState(entry?.type || 'RECEITA');
   const [date, setDate] = useState(entry?.date?.slice(0, 10) || today());
-  const [description, setDescription] = useState(entry?.description || '');
+  // Receita nova: comeca como pagamento de um estudante; ao escolher o estudante fica "Pagamento - Nome".
+  const [description, setDescription] = useState(entry ? entry.description || '' : 'Pagamento - ');
   const [category, setCategory] = useState(entry?.category || '');
   const [amount, setAmount] = useState(entry ? String(entry.type === 'DESPESA' ? entry.expense : entry.revenue) : '');
   const [potentialRevenue, setPotential] = useState(entry?.potentialRevenue ? String(entry.potentialRevenue) : '');
@@ -30,10 +32,10 @@ function EntryModal({ entry, associates, students, rate, shares, onClose, onSave
   const [studentId, setStudentId] = useState(entry?.student?.id || '');
   const [studentText, setStudentText] = useState(entry?.student ? studentLabel(entry.student) : '');
   const [busy, setBusy] = useState(false);
-  const student = students.find((s) => s.id === studentId) || null;
-  const pickStudent = (txt: string) => {
-    setStudentText(txt);
-    const st = students.find((s) => studentLabel(s) === txt.trim()) || null;
+  const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState<Student | null>(null);
+  const student = students.find((s) => s.id === studentId) || (created?.id === studentId ? created : null);
+  const applyStudent = (st: Student | null) => {
     setStudentId(st?.id || '');
     if (!st || entry) return;
     if (!description.trim() || description.startsWith('Pagamento - ')) setDescription(`Pagamento - ${st.name}`);
@@ -41,9 +43,27 @@ function EntryModal({ entry, associates, students, rate, shares, onClose, onSave
     setAssociate(st.associate?.id || '');
     if (!potentialRevenue && st.installmentsPaid === 0 && !st.paidAmount && st.totalValue) setPotential(String(st.totalValue));
   };
+  const pickStudent = (txt: string) => {
+    setStudentText(txt);
+    applyStudent(students.find((s) => studentLabel(s) === txt.trim()) || null);
+  };
+  // Estudante criado aqui mesmo: fica logo escolhido neste lancamento.
+  const studentCreated = (st?: Student) => {
+    if (!st) return;
+    onStudentCreated(st);
+    setCreated(st);
+    setStudentText(studentLabel(st));
+    applyStudent(st);
+  };
+  // O que estiver escrito depois de "Pagamento - " serve de nome inicial para um estudante novo.
+  const typedName = studentText.trim() && !studentId ? studentText.trim() : description.replace(/^Pagamento -\s*/, '').trim();
   const save = async () => {
     if (!paymentMethod) { toast.error('Escolhe a forma de pagamento'); return; }
-    if (type === 'RECEITA' && studentText.trim() && !studentId) { toast.error('Escolhe o estudante da lista (ou apaga o campo)'); return; }
+    if (type === 'RECEITA' && studentText.trim() && !studentId) { toast.error('Escolhe o estudante da lista, cria um novo, ou apaga o campo'); return; }
+    if (type === 'RECEITA' && !studentId && /^Pagamento -/.test(description.trim())) {
+      if (!description.replace(/^Pagamento -\s*/, '').trim()) { toast.error('Escolhe o estudante (ou escreve a descrição)'); return; }
+      if (!window.confirm('Este pagamento não está ligado a um estudante do painel, por isso não entra no saldo dele. Guardar assim?')) return;
+    }
     setBusy(true);
     const body: Record<string, unknown> = { date, description, category, amount, potentialRevenue, associateId: associateId || null, paymentMethod, notes };
     if (type === 'RECEITA' && (!entry || (entry.student?.id || '') !== studentId)) body.studentId = studentId || null;
@@ -56,16 +76,26 @@ function EntryModal({ entry, associates, students, rate, shares, onClose, onSave
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   };
   return (
+    <>
     <Modal title={entry ? 'Editar lançamento' : 'Novo lançamento'} onClose={onClose}>
       <div className="space-y-3">
         {!entry && (
           <Field label="Tipo">
-            <select className="input-base" value={type} onChange={(e) => setType(e.target.value)}><option value="RECEITA">Receita</option><option value="DESPESA">Despesa</option></select>
+            <select className="input-base" value={type} onChange={(e) => {
+              setType(e.target.value);
+              if (e.target.value === 'DESPESA' && description.trim() === 'Pagamento -') setDescription('');
+              if (e.target.value === 'RECEITA' && !description.trim()) setDescription('Pagamento - ');
+            }}><option value="RECEITA">Receita</option><option value="DESPESA">Despesa</option></select>
           </Field>
         )}
         {type === 'RECEITA' && (
           <Field label="Estudante (pagamento de um estudante do painel)">
-            <input className="input-base" list="ledger-students" value={studentText} placeholder="Escreve o nome ou o ID e escolhe da lista" onChange={(e) => pickStudent(e.target.value)} />
+            <div className="flex gap-2">
+              <input className="input-base flex-1" list="ledger-students" value={studentText} placeholder="Escreve o nome ou o ID e escolhe da lista" onChange={(e) => pickStudent(e.target.value)} />
+              <button type="button" className="btn btn-outline whitespace-nowrap" onClick={() => setCreating(true)} title="Registar um estudante novo e ligar este pagamento a ele">
+                <UserPlus size={14} /> Novo estudante
+              </button>
+            </div>
             <datalist id="ledger-students">{students.map((s) => <option key={s.id} value={studentLabel(s)} />)}</datalist>
           </Field>
         )}
@@ -112,6 +142,11 @@ function EntryModal({ entry, associates, students, rate, shares, onClose, onSave
         <button className="btn btn-primary w-full justify-center" disabled={busy} onClick={save}>Guardar</button>
       </div>
     </Modal>
+    {creating && (
+      <StudentModal student={null} associates={associates} creditName={creditName} creditValue={creditValue} shares={shares}
+        initialName={typedName} onClose={() => setCreating(false)} onSaved={studentCreated} />
+    )}
+    </>
   );
 }
 
@@ -234,6 +269,8 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
       )}
       {modal && (
         <EntryModal entry={modal.entry} associates={data.associates} students={students} rate={data.settings.commissionRate}
+          creditName={data.settings.perNewStudentName} creditValue={data.settings.perNewStudent}
+          onStudentCreated={(st) => { setStudents((p) => [st, ...p]); reload(); }}
           shares={data.settings.defenseShares ?? DEFAULT_DEFENSE_SHARES} onClose={() => setModal(null)} onSaved={changed} />
       )}
     </div>

@@ -1596,44 +1596,49 @@ model FinanceAssociate {
 }
 
 model FinanceStudent {
-  id                 String    @id @default(cuid())
-  workspaceId        String
-  code               String
-  name               String
-  gender             String?
-  whatsapp           String?
-  associateId        String?
-  contactId          String?
-  faculty            String?
-  course             String?
-  theme              String?
-  entryDate          DateTime?
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  code                String
+  name                String
+  gender              String?
+  whatsapp            String?
+  associateId         String?
+  contactId           String?
+  faculty             String?
+  course              String?
+  theme               String?
+  entryDate           DateTime?
   // Venda da Lucilia (recebe o valor fixo). null = dados antigos: conta se tiver data de entrada.
-  sellerCredit       Boolean?
-  currentPhase       Int?
-  lastActivityAt     DateTime?
+  sellerCredit        Boolean?
+  currentPhase        Int?
+  lastActivityAt      DateTime?
   // { "1": { "status": "Entregue", "date": "2026-07-01" }, ... }
-  phases             Json      @default("{}")
-  notes              String?
-  project            String?
-  origin             String?
-  totalValue         Float     @default(0)
-  installments       Int?
-  paidAmount         Float     @default(0)
-  installmentsPaid   Int       @default(0)
-  nextDueDate        DateTime?
-  status             String    @default("Em aberto")
-  source             String    @default("crm")
+  phases              Json      @default("{}")
+  notes               String?
+  project             String?
+  origin              String?
+  totalValue          Float     @default(0)
+  installments        Int?
+  paidAmount          Float     @default(0)
+  installmentsPaid    Int       @default(0)
+  nextDueDate         DateTime?
+  status              String    @default("Em aberto")
+  source              String    @default("crm")
   // Dia em que o trabalho ficou concluido (automatico quando a ultima fase fica "Entregue"; editavel).
-  completedAt        DateTime?
+  completedAt         DateTime?
   // Pacote (Completo | Intermédio | Essencial): a parte final do valor e da preparacao para defesa.
-  packageTier        String?
+  packageTier         String?
   // Associado da preparacao para defesa: recebe a comissao dos pagamentos que caem na parte final.
-  defenseAssociateId String?
+  defenseAssociateId  String?
   // true = valor pago, parcelas e estado calculados sozinhos a partir dos lancamentos ligados (novos estudantes).
-  ledgerBalance      Boolean   @default(false)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  ledgerBalance       Boolean   @default(false)
+  // Estudantes vindos da planilha: o que ja estava pago fora dos lancamentos ligados, e desde quando
+  // a divisao da defesa se aplica (pagamentos anteriores ficam com a comissao que ja tinham).
+  openingPaid         Float     @default(0)
+  openingInstallments Int       @default(0)
+  ledgerSince         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   workspace        Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   associate        FinanceAssociate?     @relation(fields: [associateId], references: [id], onDelete: SetNull)

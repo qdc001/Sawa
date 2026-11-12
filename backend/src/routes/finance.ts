@@ -9,7 +9,7 @@ import { computeFlow, computeMonths, FinanceConfig, FixedSalary, normalizeWallet
 import { ParsedWorkbook, parseFinanceWorkbook, reconcile, SalaryPaymentCandidate, suggestSalaryPayments } from '../lib/financeImport';
 import { buildXlsx, XlsxSheet } from '../lib/xlsxWriter';
 import { planStudentLinks } from '../lib/financeLink';
-import { defenseShares, normalizeTier, PACKAGE_TIERS, recalcStudentLedger } from '../lib/financeLedger';
+import { defenseShares, normalizeTier, openingFor, PACKAGE_TIERS, recalcStudentLedger } from '../lib/financeLedger';
 import {
   adminOnly, assertPhase, getSettings, metaOnly, optDate, parseDate, Phase, phaseId, phaseLabel, phaseList,
   scopeStudents, studentDto, text,
@@ -391,6 +391,8 @@ function studentFields(b: any) {
     d.packageTier = t;
   }
   if (b.ledgerBalance !== undefined) d.ledgerBalance = !!b.ledgerBalance;
+  if (b.openingPaid !== undefined) d.openingPaid = money(b.openingPaid, 'Pago antes dos lançamentos');
+  if (b.openingInstallments !== undefined) d.openingInstallments = Math.floor(money(b.openingInstallments, 'Parcelas pagas antes'));
   if (b.phases !== undefined) {
     if (typeof b.phases !== 'object' || b.phases === null) throw new AppError('Fases inválidas', 400);
     d.phases = b.phases;
@@ -456,6 +458,14 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
     if ((data.sellerCredit ?? cur.sellerCredit) && !(data.entryDate !== undefined ? data.entryDate : cur.entryDate)) {
       throw new AppError('Indica a data de entrada para contar a venda.', 400);
     }
+    // Estudante antigo a passar para o saldo pelos lancamentos: o valor pago nao muda
+    // (o que nao esta nos lancamentos fica como "pago antes") e a divisao da defesa so vale daqui para a frente.
+    if (data.ledgerBalance === true && !cur.ledgerBalance) {
+      const o = await openingFor(prisma, cur);
+      if (data.openingPaid === undefined) data.openingPaid = o.openingPaid;
+      if (data.openingInstallments === undefined) data.openingInstallments = o.openingInstallments;
+      if (!cur.ledgerSince) data.ledgerSince = b.ledgerSince ? parseDate(b.ledgerSince) : todayUtc();
+    }
     // Com saldo automatico o valor pago e as parcelas vem dos lancamentos.
     const ledger = data.ledgerBalance ?? cur.ledgerBalance;
     if (b.paidAmount !== undefined && !ledger) data.paidAmount = money(b.paidAmount, 'Valor pago');
@@ -463,7 +473,7 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
     let up = await prisma.financeStudent.update({
       where: { id: cur.id }, data, include: studentInclude,
     });
-    if (['totalValue', 'packageTier', 'defenseAssociateId', 'ledgerBalance'].some((k) => data[k] !== undefined)) {
+    if (['totalValue', 'packageTier', 'defenseAssociateId', 'ledgerBalance', 'openingPaid', 'openingInstallments'].some((k) => data[k] !== undefined)) {
       await recalcStudentLedger(prisma, cur.id);
       up = await reloadStudent(cur.id);
     }
@@ -511,6 +521,35 @@ router.patch('/students/:id/phase', async (req: AuthRequest, res: Response, next
     }
     if (count && from !== to) await recordPhaseMove(req, st, from, to, note);
     res.json(studentDto(st));
+  } catch (e) { next(e); }
+});
+
+function todayUtc() {
+  return new Date(`${new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 10)}T00:00:00.000Z`);
+}
+
+// Passa os estudantes antigos (saldo da planilha) para o saldo pelos lancamentos, sem mudar o valor pago.
+// apply=false so mostra. "since": a partir deste dia os pagamentos entram na divisao da defesa.
+router.post('/students/ledger-convert', adminOnly, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const since = req.body?.since ? parseDate(req.body.since) : todayUtc();
+    const list = await prisma.financeStudent.findMany({ where: { workspaceId, ledgerBalance: false }, orderBy: { code: 'desc' } });
+    const ready: any[] = [];
+    const review: any[] = [];
+    for (const st of list) {
+      const o = await openingFor(prisma, st);
+      const row = { id: st.id, code: st.code, name: st.name, paidAmount: st.paidAmount, linked: o.linked, openingPaid: o.openingPaid, packageTier: st.packageTier };
+      (o.ok ? ready : review).push(row);
+      if (o.ok && req.body?.apply === true) {
+        await prisma.financeStudent.update({
+          where: { id: st.id },
+          data: { ledgerBalance: true, openingPaid: o.openingPaid, openingInstallments: o.openingInstallments, ledgerSince: st.ledgerSince || since },
+        });
+        await recalcStudentLedger(prisma, st.id);
+      }
+    }
+    res.json({ applied: req.body?.apply === true, since, ready, review });
   } catch (e) { next(e); }
 });
 
@@ -571,7 +610,7 @@ async function addStudentPayment(req: AuthRequest, st: StudentRow, o: {
   const settings = await getSettings(workspaceId);
   const p = o.date.toISOString().slice(0, 7);
   await ensureMonth(workspaceId, p);
-  const nth = st.ledgerBalance ? await prisma.financeEntry.count({ where: { studentId: st.id, type: 'RECEITA' } }) : st.installmentsPaid;
+  const nth = st.ledgerBalance ? st.openingInstallments + await prisma.financeEntry.count({ where: { studentId: st.id, type: 'RECEITA' } }) : st.installmentsPaid;
   return prisma.$transaction(async (tx) => {
     const entry = await tx.financeEntry.create({
       data: {
