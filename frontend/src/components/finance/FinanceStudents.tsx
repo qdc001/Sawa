@@ -247,53 +247,120 @@ function ConvertModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [since, setSince] = useState(today());
   const [r, setR] = useState<{ ready: ConvertRow[]; review: ConvertRow[] } | null>(null);
   const [busy, setBusy] = useState(false);
+  // "linked": o valor pago passa a ser o que esta nos lancamentos. "sheet": fica o da ficha (diferenca = "pago antes").
+  const [mode, setMode] = useState<'linked' | 'sheet'>('linked');
+  const [onlyChanged, setOnlyChanged] = useState(true);
+  // Modo "ficha": "a rever" marcados passam a usar os lancamentos.
+  const [useLinked, setUseLinked] = useState<Set<string>>(new Set());
+  const toggle = (id: string, on: boolean) => setUseLinked((p) => { const n = new Set(p); if (on) n.add(id); else n.delete(id); return n; });
   useEffect(() => {
-    api.post('/finance/students/ledger-convert', { apply: false }).then(({ data }) => setR(data))
+    api.post('/finance/students/ledger-convert', { apply: false }, { timeout: 120000 }).then(({ data }) => setR(data))
       .catch((e) => { toast.error(errMsg(e)); onClose(); });
   }, [onClose]);
+  const all = useMemo(() => (r ? [...r.ready, ...r.review].sort((x, y) => y.code.localeCompare(x.code, undefined, { numeric: true })) : []), [r]);
+  const diff = (x: ConvertRow) => Math.round((x.linked - x.paidAmount) * 100) / 100;
+  const less = all.filter((x) => diff(x) < 0);
+  const more = all.filter((x) => diff(x) > 0);
+  const total = !r ? 0 : mode === 'linked' ? all.length : r.ready.length + useLinked.size;
   const apply = async () => {
-    if (!window.confirm(`Passar ${r!.ready.length} estudantes para o saldo pelos lançamentos? O valor pago de cada um fica igual.`)) return;
+    const msg = mode === 'linked'
+      ? `Passar ${total} estudantes? O valor pago de cada um passa a ser o que está nos lançamentos.${less.length ? `\n\nATENÇÃO: ${less.length} ficam com menos pago do que na ficha.` : ''}`
+      : `Passar ${total} estudantes? O valor pago de cada um fica igual ao da ficha${useLinked.size ? ` (e ${useLinked.size} dos "a rever" passam a usar os lançamentos)` : ''}.`;
+    if (!window.confirm(msg)) return;
     setBusy(true);
     try {
-      const { data } = await api.post('/finance/students/ledger-convert', { apply: true, since });
-      toast.success(`${data.ready.length} estudantes passaram para o saldo pelos lançamentos`);
+      const body = mode === 'linked' ? { apply: true, since, mode: 'linked' } : { apply: true, since, useLinked: [...useLinked] };
+      const { data } = await api.post('/finance/students/ledger-convert', body, { timeout: 600000 });
+      toast.success(`${mode === 'linked' ? data.fromLinked : data.ready.length + data.fromLinked} estudantes passaram para o saldo pelos lançamentos`);
       onSaved();
       onClose();
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   };
-  const table = (rows: ConvertRow[]) => (
+  const sheetTable = (rows: ConvertRow[], pick = false) => (
     <table className="w-full">
-      <thead><tr><Th>ID</Th><Th>Estudante</Th><Th>Pacote</Th><Th right>Valor pago</Th><Th right>Nos lançamentos</Th><Th right>Pago antes</Th></tr></thead>
+      <thead><tr>{pick && <Th />}<Th>ID</Th><Th>Estudante</Th><Th>Pacote</Th><Th right>Valor pago</Th><Th right>Nos lançamentos</Th><Th right>Pago antes</Th></tr></thead>
       <tbody>{rows.map((x) => (
-        <tr key={x.id}><Td>{x.code}</Td><Td bold>{x.name}</Td><Td>{x.packageTier || '—'}</Td><Td right>{num(x.paidAmount)}</Td><Td right>{num(x.linked)}</Td><Td right>{num(x.openingPaid)}</Td></tr>
+        <tr key={x.id}>
+          {pick && <Td><input type="checkbox" aria-label={`Usar os lançamentos de ${x.name}`} checked={useLinked.has(x.id)} onChange={(e) => toggle(x.id, e.target.checked)} /></Td>}
+          <Td>{x.code}</Td><Td bold>{x.name}</Td><Td>{x.packageTier || '—'}</Td><Td right>{num(x.paidAmount)}</Td><Td right>{num(x.linked)}</Td><Td right>{num(x.openingPaid)}</Td></tr>
       ))}</tbody>
     </table>
   );
+  const shownLinked = onlyChanged ? all.filter((x) => diff(x) !== 0) : all;
   return (
     <Modal title="Estudantes antigos: saldo pelos lançamentos" onClose={onClose} wide>
       {!r ? <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div> : (
         <div className="space-y-3">
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            O valor pago de cada estudante fica igual. O que veio da planilha e não está nos lançamentos ligados fica como "pago antes".
             Depois disto, cada pagamento novo actualiza o saldo sozinho. Convém carregar primeiro em "Ligar aos lançamentos".
           </p>
+          <div className="space-y-1">
+            <span className="text-xs font-semibold">Valor pago de cada estudante</span>
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input type="radio" name="convert-mode" checked={mode === 'linked'} onChange={() => setMode('linked')} className="mt-1" />
+              <span><b>Nos lançamentos</b>: o valor pago passa a ser a soma dos pagamentos ligados ao estudante.</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input type="radio" name="convert-mode" checked={mode === 'sheet'} onChange={() => setMode('sheet')} className="mt-1" />
+              <span><b>O da ficha</b>: fica o valor da planilha; o que não está nos lançamentos fica como "pago antes".</span>
+            </label>
+          </div>
           <div className="max-w-xs">
             <Field label="A parte da defesa conta para pagamentos desde">
               <input className="input-base" type="date" value={since} onChange={(e) => setSince(e.target.value)} />
             </Field>
             <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Os pagamentos anteriores ficam com a comissão que já tinham (salários já pagos não mudam).</p>
           </div>
-          <p className="text-sm"><b>{r.ready.length}</b> prontos · <b style={{ color: r.review.length ? '#F59E0B' : undefined }}>{r.review.length}</b> a rever</p>
-          {r.ready.length > 0 && <div style={{ maxHeight: 260, overflowY: 'auto' }}>{table(r.ready)}</div>}
-          {r.review.length > 0 && (
+          {mode === 'linked' ? (
             <>
-              <h4 className="text-sm font-semibold">A rever: os lançamentos ligados somam mais do que o valor pago da ficha</h4>
-              <div style={{ maxHeight: 160, overflowY: 'auto' }}>{table(r.review)}</div>
-              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Estes ficam como estão. Confirma o valor pago na ficha (ou os lançamentos ligados) e liga a caixa "Saldo pelos lançamentos" no estudante.</p>
+              <p className="text-sm">
+                <b>{all.length}</b> estudantes · <b>{all.length - less.length - more.length}</b> iguais à ficha · <b>{more.length}</b> ficam com mais ·{' '}
+                <b style={{ color: less.length ? '#EF4444' : undefined }}>{less.length}</b> ficam com menos
+              </p>
+              {less.length > 0 && (
+                <p className="text-xs" style={{ color: '#F59E0B' }}>
+                  Os que ficam com menos têm na ficha pagamentos que não estão ligados nos lançamentos. Se forem pagamentos reais, liga-os primeiro (ou lança-os); senão o saldo deles sobe.
+                </p>
+              )}
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} /> Mostrar só os que mudam
+              </label>
+              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                <table className="w-full">
+                  <thead><tr><Th>ID</Th><Th>Estudante</Th><Th>Pacote</Th><Th right>Na ficha</Th><Th right>Nos lançamentos (fica)</Th><Th right>Diferença</Th></tr></thead>
+                  <tbody>{shownLinked.map((x) => {
+                    const d = diff(x);
+                    return (
+                      <tr key={x.id}>
+                        <Td>{x.code}</Td><Td bold>{x.name}</Td><Td>{x.packageTier || '—'}</Td><Td right>{num(x.paidAmount)}</Td>
+                        <Td right bold>{num(x.linked)}</Td><Td right color={d < 0 ? '#EF4444' : d > 0 ? '#10B981' : undefined}>{d > 0 ? '+' : ''}{num(d)}</Td>
+                      </tr>
+                    );
+                  })}</tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm"><b>{r.ready.length}</b> prontos · <b style={{ color: r.review.length ? '#F59E0B' : undefined }}>{r.review.length}</b> a rever</p>
+              {r.ready.length > 0 && <div style={{ maxHeight: 260, overflowY: 'auto' }}>{sheetTable(r.ready)}</div>}
+              {r.review.length > 0 && (
+                <>
+                  <h4 className="text-sm font-semibold">A rever: os lançamentos ligados somam mais do que o valor pago da ficha</h4>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    Os que marcares passam a ter o valor pago igual à soma dos lançamentos. Os não marcados ficam como estão.{' '}
+                    <button className="underline" onClick={() => setUseLinked(new Set(r.review.filter((x) => !x.paidAmount).map((x) => x.id)))}>
+                      Marcar os que têm valor pago 0 ({r.review.filter((x) => !x.paidAmount).length})
+                    </button>
+                    {useLinked.size > 0 && <> · <button className="underline" onClick={() => setUseLinked(new Set())}>desmarcar todos</button></>}
+                  </p>
+                  <div style={{ maxHeight: 160, overflowY: 'auto' }}>{sheetTable(r.review, true)}</div>
+                </>
+              )}
             </>
           )}
-          <button className="btn btn-primary w-full justify-center" disabled={busy || !r.ready.length || since.length !== 10} onClick={apply}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Passar {r.ready.length} estudantes
+          <button className="btn btn-primary w-full justify-center" disabled={busy || !total || since.length !== 10} onClick={apply}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Passar {total} estudantes
           </button>
         </div>
       )}

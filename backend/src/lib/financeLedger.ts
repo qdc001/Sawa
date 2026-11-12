@@ -101,8 +101,12 @@ export async function recalcStudentLedger(tx: Tx, studentId: string) {
 // Devolve null se os lancamentos ligados ja somam mais do que o valor pago (e preciso rever a mao).
 export async function openingFor(tx: Tx, st: { id: string; paidAmount: number; installmentsPaid: number }) {
   const agg = await tx.financeEntry.aggregate({ where: { studentId: st.id, type: 'RECEITA' }, _sum: { revenue: true }, _count: { _all: true } });
-  const linked = round2(agg._sum.revenue || 0);
+  return openingFromSums(st, agg._sum.revenue || 0, agg._count._all);
+}
+
+export function openingFromSums(st: { paidAmount: number; installmentsPaid: number }, linkedSum: number, linkedCount: number) {
+  const linked = round2(linkedSum);
   const openingPaid = round2(st.paidAmount - linked);
   if (openingPaid < -0.01) return { ok: false as const, linked, openingPaid: 0, openingInstallments: 0 };
-  return { ok: true as const, linked, openingPaid: Math.max(0, openingPaid), openingInstallments: Math.max(0, st.installmentsPaid - agg._count._all) };
+  return { ok: true as const, linked, openingPaid: Math.max(0, openingPaid), openingInstallments: Math.max(0, st.installmentsPaid - linkedCount) };
 }

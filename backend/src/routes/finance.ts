@@ -9,7 +9,7 @@ import { computeFlow, computeMonths, FinanceConfig, FixedSalary, normalizeWallet
 import { ParsedWorkbook, parseFinanceWorkbook, reconcile, SalaryPaymentCandidate, suggestSalaryPayments } from '../lib/financeImport';
 import { buildXlsx, XlsxSheet } from '../lib/xlsxWriter';
 import { planStudentLinks } from '../lib/financeLink';
-import { defenseShares, normalizeTier, openingFor, PACKAGE_TIERS, recalcStudentLedger } from '../lib/financeLedger';
+import { defenseShares, normalizeTier, openingFor, openingFromSums, PACKAGE_TIERS, recalcStudentLedger } from '../lib/financeLedger';
 import {
   adminOnly, assertPhase, getSettings, metaOnly, optDate, parseDate, Phase, phaseId, phaseLabel, phaseList,
   scopeStudents, studentDto, text,
@@ -535,21 +535,40 @@ router.post('/students/ledger-convert', adminOnly, async (req: AuthRequest, res:
     const workspaceId = req.user!.workspaceId;
     const since = req.body?.since ? parseDate(req.body.since) : todayUtc();
     const list = await prisma.financeStudent.findMany({ where: { workspaceId, ledgerBalance: false }, orderBy: { code: 'desc' } });
+    // "A rever" escolhidos pelo admin: o valor pago passa a ser a soma dos lancamentos (a ficha estava por preencher).
+    const useLinked = new Set<string>(Array.isArray(req.body?.useLinked) ? req.body.useLinked.map(String) : []);
     const ready: any[] = [];
     const review: any[] = [];
+    let fromLinked = 0;
+    // mode "linked": o valor pago de todos passa a ser a soma dos lancamentos (sem "pago antes").
+    const allLinked = req.body?.mode === 'linked';
+    // Soma dos lancamentos ligados de todos os estudantes numa so consulta.
+    const sums = new Map((await prisma.financeEntry.groupBy({
+      by: ['studentId'], where: { workspaceId, type: 'RECEITA', studentId: { in: list.map((x) => x.id) } },
+      _sum: { revenue: true }, _count: { _all: true },
+    })).map((g) => [g.studentId as string, g]));
     for (const st of list) {
-      const o = await openingFor(prisma, st);
+      const g = sums.get(st.id);
+      const o = openingFromSums(st, g?._sum.revenue || 0, g?._count._all || 0);
       const row = { id: st.id, code: st.code, name: st.name, paidAmount: st.paidAmount, linked: o.linked, openingPaid: o.openingPaid, packageTier: st.packageTier };
       (o.ok ? ready : review).push(row);
-      if (o.ok && req.body?.apply === true) {
+      if (o.ok && !allLinked && req.body?.apply === true) {
         await prisma.financeStudent.update({
           where: { id: st.id },
           data: { ledgerBalance: true, openingPaid: o.openingPaid, openingInstallments: o.openingInstallments, ledgerSince: st.ledgerSince || since },
         });
         await recalcStudentLedger(prisma, st.id);
       }
+      if ((allLinked || (!o.ok && useLinked.has(st.id))) && req.body?.apply === true) {
+        await prisma.financeStudent.update({
+          where: { id: st.id },
+          data: { ledgerBalance: true, openingPaid: 0, openingInstallments: 0, ledgerSince: st.ledgerSince || since },
+        });
+        await recalcStudentLedger(prisma, st.id);
+        fromLinked++;
+      }
     }
-    res.json({ applied: req.body?.apply === true, since, ready, review });
+    res.json({ applied: req.body?.apply === true, since, ready, review, fromLinked });
   } catch (e) { next(e); }
 });
 
