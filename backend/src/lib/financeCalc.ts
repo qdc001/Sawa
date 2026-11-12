@@ -27,6 +27,8 @@ export type FinanceConfig = {
 export type CalcEntry = {
   period: string; revenue: number; expense: number; potentialRevenue: number;
   commission: number; associateId: string | null; paymentMethod: string | null;
+  // Parte final do pacote (preparacao para defesa): comissao que vai para o associado de defesa.
+  defenseCommission?: number; defenseAssociateId?: string | null;
 };
 export type CalcPayroll = {
   period: string; proLabore: number; reinvestment: number; reserve: number; status: string;
@@ -119,6 +121,10 @@ export function computeMonths(
       if (e.associateId) {
         commissions[e.associateId] = (commissions[e.associateId] || 0) + e.commission;
         commissionTotal += e.commission;
+      }
+      if (e.defenseAssociateId && e.defenseCommission) {
+        commissions[e.defenseAssociateId] = (commissions[e.defenseAssociateId] || 0) + e.defenseCommission;
+        commissionTotal += e.defenseCommission;
       }
       const w = normalizeWallet(e.paymentMethod);
       if (w) { wallets[w].in += e.revenue; wallets[w].out += e.expense; }

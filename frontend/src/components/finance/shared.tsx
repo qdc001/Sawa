@@ -68,7 +68,26 @@ export type Settings = {
   commissionRate: number; perNewStudent: number; perNewStudentName: string; perNewStudentFrom: string;
   workingCapital: number; sealPrevidencia: number; sealOportunidade: number; sealDono: number; sealExpansao: number;
   fixedSalaries: FixedSalary[]; proLabore: number; proLaboreFrom: string; couponValidityDays: number; couponDiscount: number;
+  defenseShares: Record<string, number>;
 };
+
+// Pacotes: a parte final do valor e da preparacao para defesa.
+export const PACKAGE_TIERS = ['Completo', 'Intermédio', 'Essencial'];
+export const DEFAULT_DEFENSE_SHARES: Record<string, number> = { Completo: 5000, 'Intermédio': 4000, Essencial: 3000 };
+// Quanto de um pagamento cai na parte final [total - parte, total], depois de ja estar pago "paidBefore".
+export function defensePart(total: number, share: number, paidBefore: number, amount: number) {
+  const part = Math.max(0, Math.min(share, total));
+  const from = total - part;
+  return part > 0 ? Math.max(0, Math.min(paidBefore + amount, total) - Math.max(paidBefore, from)) : 0;
+}
+// Parte final do pacote que vai para a preparacao para defesa (0 se nao se aplica a este estudante).
+export function studentShare(
+  s: { packageTier: string | null; ledgerBalance: boolean; defenseAssociate: unknown; totalValue: number },
+  shares: Record<string, number>,
+) {
+  if (!s.ledgerBalance || !s.packageTier || !s.defenseAssociate) return 0;
+  return Math.min(shares[s.packageTier] || 0, s.totalValue);
+}
 export type SalaryPayment = {
   id: string; period: string; payee: string; associateId: string | null; amount: number; wallet: string;
   date: string | null; notes: string | null; source: string;

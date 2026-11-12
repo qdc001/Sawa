@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { Banknote, History, Link2, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { StudentHistoryModal } from './FinanceHistory';
 import api from '../../lib/api';
-import { Associate, Badge, dateLabel, errMsg, Field, Modal, monthLabel, mzn, num, phaseLabel, Td, Th, today, usePhases, WALLETS, inputSm } from './shared';
+import { Associate, Badge, dateLabel, defensePart, errMsg, Field, Modal, monthLabel, mzn, num, PACKAGE_TIERS, phaseLabel, studentShare, Td, Th, today, usePhases, WALLETS, inputSm } from './shared';
 
 export const PHASE_STATES = ['Entregue', 'Em curso', 'Pendente', 'Atrasado', 'Bloqueado'];
 const PROJECTS = ['Mestrado', 'Licenciatura', 'Simulacao', 'Revisao', 'Projeto', 'Analise estatistica'];
@@ -17,9 +17,10 @@ export type Student = {
   totalValue: number; installments: number | null; paidAmount: number; installmentsPaid: number; nextDueDate: string | null;
   status: string; balance: number; associate: { id: string; code: string; name: string } | null; contactId: string | null;
   completedAt: string | null;
+  packageTier: string | null; ledgerBalance: boolean; defenseAssociate: { id: string; code: string; name: string } | null;
 };
 
-function StudentModal({ student, associates, creditName, creditValue, onClose, onSaved }: { student: Student | null; associates: Associate[]; creditName: string; creditValue: number; onClose: () => void; onSaved: () => void }) {
+function StudentModal({ student, associates, creditName, creditValue, shares, onClose, onSaved }: { student: Student | null; associates: Associate[]; creditName: string; creditValue: number; shares: Record<string, number>; onClose: () => void; onSaved: () => void }) {
   const s = student;
   const [f, setF] = useState({
     name: s?.name || '', gender: s?.gender || '', whatsapp: s?.whatsapp || '', associateId: s?.associate?.id || '',
@@ -27,7 +28,9 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
     currentPhase: s?.currentPhase ? String(s.currentPhase) : '', lastActivityAt: s?.lastActivityAt?.slice(0, 10) || '', notes: s?.notes || '',
     project: s?.project || '', origin: s?.origin || '', totalValue: s ? String(s.totalValue) : '', installments: s?.installments ? String(s.installments) : '',
     nextDueDate: s?.nextDueDate?.slice(0, 10) || '', completedAt: s?.completedAt?.slice(0, 10) || '',
+    packageTier: s?.packageTier || '', defenseAssociateId: s?.defenseAssociate?.id || '',
   });
+  const [ledger, setLedger] = useState(s ? s.ledgerBalance : true);
   const [sellerCredit, setCredit] = useState(s ? (s.sellerCredit ?? !!s.entryDate) : false);
   const phaseList = usePhases() || [];
   const orphan = !!s?.currentPhase && !phaseList.some((p) => p.id === s.currentPhase);
@@ -52,7 +55,8 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
       const phaseBody = !s ? { currentPhase } : currentPhase !== origPhase ? { currentPhase, currentPhaseFrom: origPhase } : {};
       // A data de conclusao so vai se mudou: vazia, o CRM preenche quando a ultima fase fica "Entregue".
       const doneBody = completedAt !== (s?.completedAt?.slice(0, 10) || '') ? { completedAt: completedAt || null } : {};
-      const body = { ...rest, ...phaseBody, ...doneBody, associateId: f.associateId || null, phases, sellerCredit };
+      if (s && ledger && !s.ledgerBalance && !window.confirm(`O valor pago de ${s.name} passa a ser a soma dos lançamentos ligados a ele (hoje: ${mzn(s.paidAmount)} registados à mão). Continuar?`)) { setBusy(false); return; }
+      const body = { ...rest, ...phaseBody, ...doneBody, associateId: f.associateId || null, defenseAssociateId: f.defenseAssociateId || null, packageTier: f.packageTier || null, ledgerBalance: ledger, phases, sellerCredit };
       if (s) await api.patch(`/finance/students/${s.id}`, body);
       else await api.post('/finance/students', body);
       toast.success('Guardado');
@@ -98,7 +102,31 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
             <Field label="Valor total">{input('totalValue', 'number')}</Field>
             <Field label="Nº de parcelas">{input('installments', 'number')}</Field>
             <Field label="Próxima parcela">{input('nextDueDate', 'date')}</Field>
+            <Field label="Pacote">
+              <select className="input-base" value={f.packageTier} onChange={(e) => set('packageTier', e.target.value)}>
+                <option value="">Sem pacote</option>{PACKAGE_TIERS.map((t) => <option key={t}>{t}</option>)}
+              </select>
+            </Field>
+            <div className="col-span-2">
+              <Field label="Associado de defesa">
+                <select className="input-base" value={f.defenseAssociateId} onChange={(e) => set('defenseAssociateId', e.target.value)}>
+                  <option value="">Sem associado de defesa</option>{associates.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
+                </select>
+              </Field>
+            </div>
           </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer mt-2">
+            <input type="checkbox" checked={ledger} onChange={(e) => setLedger(e.target.checked)} />
+            Saldo pelos lançamentos (o valor pago e as parcelas vêm dos pagamentos ligados a este estudante)
+          </label>
+          {(() => {
+            const total = Number(f.totalValue) || 0;
+            const share = ledger && f.packageTier && f.defenseAssociateId ? Math.min(shares[f.packageTier] || 0, total) : 0;
+            const who = associates.find((a) => a.id === f.defenseAssociateId)?.name;
+            if (share > 0) return <p className="text-xs mt-1 p-2 rounded" style={{ background: 'var(--surface-2)' }}>Depois de pagos <b>{mzn(total - share)}</b>, os últimos <b>{mzn(share)}</b> contam para a defesa: a comissão dessa parte vai para <b>{who}</b>.</p>;
+            if (f.packageTier && f.defenseAssociateId && !ledger) return <p className="text-xs mt-1" style={{ color: '#F59E0B' }}>A parte da defesa só é calculada com "Saldo pelos lançamentos" ligado.</p>;
+            return null;
+          })()}
         </div>
         <div>
           <h4 className="text-sm font-semibold mb-2">Fases do Método M.E.T.A.</h4>
@@ -132,7 +160,7 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
   );
 }
 
-function PaymentModal({ student, associates, rate, onClose, onSaved }: { student: Student; associates: Associate[]; rate: number; onClose: () => void; onSaved: () => void }) {
+function PaymentModal({ student, associates, rate, shares, onClose, onSaved }: { student: Student; associates: Associate[]; rate: number; shares: Record<string, number>; onClose: () => void; onSaved: () => void }) {
   const [date, setDate] = useState(today());
   const [amount, setAmount] = useState('');
   const [paymentMethod, setMethod] = useState('');
@@ -172,14 +200,27 @@ function PaymentModal({ student, associates, rate, onClose, onSaved }: { student
           <Field label="Próxima parcela"><input className="input-base" type="date" value={nextDueDate} onChange={(e) => setNext(e.target.value)} /></Field>
           <Field label="Observação"><input className="input-base" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Automática" /></Field>
         </div>
-        {value > 0 && associateId && date.length === 10 && (
-          <p className="text-xs p-2 rounded" style={{ background: 'var(--surface-2)' }}>
-            A comissão de <b>{mzn(value * rate)}</b> ({Math.round(rate * 100)}%) entra no salário de <b>{monthLabel(date.slice(0, 7))}</b>.
-          </p>
-        )}
+        {value > 0 && date.length === 10 && <SplitPreview student={student} value={value} rate={rate} shares={shares} associateName={associates.find((a) => a.id === associateId)?.name || null} period={date.slice(0, 7)} />}
         <button className="btn btn-primary w-full justify-center" disabled={busy} onClick={save}>Registar pagamento</button>
       </div>
     </Modal>
+  );
+}
+
+// Mostra para quem vai a comissao deste pagamento (normal e, na parte final do pacote, defesa).
+export function SplitPreview({ student, value, rate, shares, associateName, period }: {
+  student: Pick<Student, 'packageTier' | 'ledgerBalance' | 'defenseAssociate' | 'totalValue' | 'paidAmount'>; value: number; rate: number;
+  shares: Record<string, number>; associateName: string | null; period: string;
+}) {
+  const d = defensePart(student.totalValue, studentShare(student, shares), student.paidAmount, value);
+  const main = value - d;
+  if (!associateName && !d) return null;
+  return (
+    <p className="text-xs p-2 rounded" style={{ background: 'var(--surface-2)' }}>
+      {associateName && main > 0 && <>A comissão de <b>{mzn(main * rate)}</b> ({Math.round(rate * 100)}%) vai para <b>{associateName}</b>. </>}
+      {d > 0 && <><b>{mzn(d)}</b> deste pagamento já é da parte da defesa: <b>{mzn(d * rate)}</b> vão para <b>{student.defenseAssociate?.name}</b>. </>}
+      Entra no salário de <b>{monthLabel(period)}</b>.
+    </p>
   );
 }
 
@@ -263,8 +304,9 @@ function statusBadge(s: Student) {
   return s.status === 'Pago' ? <Badge text="Pago" tone="green" /> : <Badge text="Em aberto" tone="amber" />;
 }
 
-export default function FinanceStudents({ mode, associates, rate, canEdit, onChanged, creditName, creditValue }: {
+export default function FinanceStudents({ mode, associates, rate, canEdit, onChanged, creditName, creditValue, shares }: {
   mode: 'students' | 'installments'; associates: Associate[]; rate: number; canEdit: boolean; onChanged: () => void; creditName: string; creditValue: number;
+  shares: Record<string, number>;
 }) {
   const [rows, setRows] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -304,6 +346,13 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
 
   const changed = () => { load(); onChanged(); };
+  // Associado de defesa e quanto da parte final ja entrou.
+  const defenseCell = (r: Student) => {
+    const share = studentShare(r, shares);
+    if (!share) return r.defenseAssociate ? <span style={{ color: 'var(--text-muted)' }}>{r.defenseAssociate.name}</span> : '—';
+    const inPart = Math.max(0, Math.min(r.paidAmount, r.totalValue) - (r.totalValue - share));
+    return <span title={`A parte da defesa começa depois de ${mzn(r.totalValue - share)} pagos`}>{r.defenseAssociate!.name} · {num(inPart)}/{num(share)}</span>;
+  };
   const remove = async (r: Student) => {
     if (!window.confirm(`Eliminar o estudante ${r.code} (${r.name})? Os lançamentos ficam, mas deixam de estar ligados a ele.`)) return;
     try {
@@ -360,13 +409,14 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
           </table>
         ) : (
           <table className="w-full">
-            <thead><tr>{['ID', 'Cliente', 'Projecto', 'Origem', 'Valor total', 'Parcelas', 'Pagas', 'Valor pago', 'Saldo', 'Entrada', 'Próxima parcela', 'Estado', ''].map((h, i) => <Th key={i} right={[4, 5, 6, 7, 8].includes(i)}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['ID', 'Cliente', 'Projecto', 'Pacote', 'Valor total', 'Parcelas', 'Pagas', 'Valor pago', 'Saldo', 'Defesa', 'Entrada', 'Próxima parcela', 'Estado', ''].map((h, i) => <Th key={i} right={[4, 5, 6, 7, 8].includes(i)}>{h}</Th>)}</tr></thead>
             <tbody>{shown.map((r) => {
               const late = r.status !== 'Pago' && !!r.nextDueDate && r.nextDueDate.slice(0, 10) < nowIso;
               return (
                 <tr key={r.id}>
-                  <Td>{r.code}</Td><Td bold>{r.name}</Td><Td>{r.project || '—'}</Td><Td>{r.origin || '—'}</Td><Td right>{num(r.totalValue)}</Td>
+                  <Td>{r.code}</Td><Td bold>{r.name}</Td><Td>{r.project || '—'}</Td><Td>{r.packageTier || '—'}</Td><Td right>{num(r.totalValue)}</Td>
                   <Td right>{r.installments ?? '—'}</Td><Td right>{r.installmentsPaid}</Td><Td right>{num(r.paidAmount)}</Td><Td right>{num(r.balance)}</Td>
+                  <Td>{defenseCell(r)}</Td>
                   <Td>{dateLabel(r.entryDate)}</Td><Td color={late ? '#EF4444' : undefined}>{dateLabel(r.nextDueDate)}</Td><Td>{statusBadge(r)}</Td><Td>{actions(r)}</Td>
                 </tr>
               );
@@ -382,10 +432,10 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
           <button className="btn" disabled={page === pages} onClick={() => setPage(page + 1)}>Seguinte</button>
         </div>
       )}
-      {edit && <StudentModal student={edit.student} associates={associates} creditName={creditName} creditValue={creditValue} onClose={() => setEdit(null)} onSaved={changed} />}
+      {edit && <StudentModal student={edit.student} associates={associates} creditName={creditName} creditValue={creditValue} shares={shares} onClose={() => setEdit(null)} onSaved={changed} />}
       {linking && <LinkModal onClose={closeLink} onSaved={changed} />}
       {history && <StudentHistoryModal student={history} onClose={() => setHistory(null)} />}
-      {pay && <PaymentModal student={pay} associates={associates} rate={rate} onClose={() => setPay(null)} onSaved={changed} />}
+      {pay && <PaymentModal student={pay} associates={associates} rate={rate} shares={shares} onClose={() => setPay(null)} onSaved={changed} />}
     </div>
   );
 }

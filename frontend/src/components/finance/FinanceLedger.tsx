@@ -2,15 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import api from '../../lib/api';
-import { Associate, dateLabel, errMsg, Field, Kpi, Modal, monthLabel, mzn, num, Summary, Td, Th, today, WALLETS, inputSm } from './shared';
+import { Associate, dateLabel, DEFAULT_DEFENSE_SHARES, errMsg, Field, Kpi, Modal, monthLabel, mzn, num, Summary, Td, Th, today, WALLETS, inputSm } from './shared';
+import { SplitPreview, Student } from './FinanceStudents';
 
 type Entry = {
   id: string; period: string; date: string | null; description: string | null; type: string; category: string | null;
   potentialRevenue: number; expense: number; revenue: number; commission: number; commissionistRaw: string | null;
-  paymentMethod: string | null; notes: string | null; associate: { id: string; name: string } | null; student: { id: string; code: string } | null;
+  paymentMethod: string | null; notes: string | null; associate: { id: string; name: string } | null; student: { id: string; code: string; name: string } | null;
+  defenseAmount: number; defenseCommission: number; defenseAssociate: { id: string; name: string } | null;
 };
 
-function EntryModal({ entry, associates, onClose, onSaved }: { entry: Entry | null; associates: Associate[]; onClose: () => void; onSaved: () => void }) {
+const studentLabel = (s: { code: string; name: string }) => `${s.code} · ${s.name}`;
+
+function EntryModal({ entry, associates, students, rate, shares, onClose, onSaved }: {
+  entry: Entry | null; associates: Associate[]; students: Student[]; rate: number; shares: Record<string, number>; onClose: () => void; onSaved: () => void;
+}) {
   const [type, setType] = useState(entry?.type || 'RECEITA');
   const [date, setDate] = useState(entry?.date?.slice(0, 10) || today());
   const [description, setDescription] = useState(entry?.description || '');
@@ -20,11 +26,27 @@ function EntryModal({ entry, associates, onClose, onSaved }: { entry: Entry | nu
   const [associateId, setAssociate] = useState(entry?.associate?.id || '');
   const [paymentMethod, setMethod] = useState(WALLETS.find((w) => w === entry?.paymentMethod) || '');
   const [notes, setNotes] = useState(entry?.notes || '');
+  // Estudante do painel: o pagamento entra no saldo dele em vez de ficar so com um nome escrito.
+  const [studentId, setStudentId] = useState(entry?.student?.id || '');
+  const [studentText, setStudentText] = useState(entry?.student ? studentLabel(entry.student) : '');
   const [busy, setBusy] = useState(false);
+  const student = students.find((s) => s.id === studentId) || null;
+  const pickStudent = (txt: string) => {
+    setStudentText(txt);
+    const st = students.find((s) => studentLabel(s) === txt.trim()) || null;
+    setStudentId(st?.id || '');
+    if (!st || entry) return;
+    if (!description.trim() || description.startsWith('Pagamento - ')) setDescription(`Pagamento - ${st.name}`);
+    if (!category.trim() && st.project) setCategory(st.project);
+    setAssociate(st.associate?.id || '');
+    if (!potentialRevenue && st.installmentsPaid === 0 && !st.paidAmount && st.totalValue) setPotential(String(st.totalValue));
+  };
   const save = async () => {
     if (!paymentMethod) { toast.error('Escolhe a forma de pagamento'); return; }
+    if (type === 'RECEITA' && studentText.trim() && !studentId) { toast.error('Escolhe o estudante da lista (ou apaga o campo)'); return; }
     setBusy(true);
-    const body = { date, description, category, amount, potentialRevenue, associateId: associateId || null, paymentMethod, notes };
+    const body: Record<string, unknown> = { date, description, category, amount, potentialRevenue, associateId: associateId || null, paymentMethod, notes };
+    if (type === 'RECEITA' && (!entry || (entry.student?.id || '') !== studentId)) body.studentId = studentId || null;
     try {
       if (entry) await api.patch(`/finance/entries/${entry.id}`, body);
       else await api.post('/finance/entries', { ...body, type });
@@ -41,7 +63,19 @@ function EntryModal({ entry, associates, onClose, onSaved }: { entry: Entry | nu
             <select className="input-base" value={type} onChange={(e) => setType(e.target.value)}><option value="RECEITA">Receita</option><option value="DESPESA">Despesa</option></select>
           </Field>
         )}
-        {entry?.student && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Pagamento do estudante {entry.student.code}: alterar o valor actualiza também o parcelamento.</p>}
+        {type === 'RECEITA' && (
+          <Field label="Estudante (pagamento de um estudante do painel)">
+            <input className="input-base" list="ledger-students" value={studentText} placeholder="Escreve o nome ou o ID e escolhe da lista" onChange={(e) => pickStudent(e.target.value)} />
+            <datalist id="ledger-students">{students.map((s) => <option key={s.id} value={studentLabel(s)} />)}</datalist>
+          </Field>
+        )}
+        {type === 'RECEITA' && studentText.trim() && !studentId && <p className="text-xs" style={{ color: '#F59E0B' }}>Ainda não escolheste um estudante da lista.</p>}
+        {student && (
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            {student.project || 'Sem projecto'}{student.packageTier ? ` · ${student.packageTier}` : ''} · Pago {mzn(student.paidAmount)} de {mzn(student.totalValue)} · Saldo <b>{mzn(student.balance)}</b>
+            {student.ledgerBalance ? ' · o saldo actualiza sozinho com este lançamento.' : ' · estudante antigo: o saldo é o da ficha.'}
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <Field label="Data"><input className="input-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
           <Field label="Valor (MZN)"><input className="input-base" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
@@ -68,7 +102,13 @@ function EntryModal({ entry, associates, onClose, onSaved }: { entry: Entry | nu
             </select>
           </Field>
         </div>
-        <Field label="Observações"><input className="input-base" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+        <Field label="Observações"><input className="input-base" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={student ? 'Automática (ex.: Segunda parcela)' : ''} /></Field>
+        {!entry && student && Number(amount) > 0 && date.length === 10 && (
+          <SplitPreview student={student} value={Number(amount)} rate={rate} shares={shares} associateName={associates.find((a) => a.id === associateId)?.name || null} period={date.slice(0, 7)} />
+        )}
+        {entry && (entry.defenseAmount > 0) && (
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{mzn(entry.defenseAmount)} deste pagamento são da parte da defesa ({entry.defenseAssociate?.name}).</p>
+        )}
         <button className="btn btn-primary w-full justify-center" disabled={busy} onClick={save}>Guardar</button>
       </div>
     </Modal>
@@ -83,6 +123,11 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [modal, setModal] = useState<{ entry: Entry | null } | null>(null);
+  const [students, setStudents] = useState<Student[]>([]);
+  const loadStudents = useCallback(() => {
+    api.get('/finance/students').then(({ data: d }) => setStudents(d)).catch(() => {});
+  }, []);
+  useEffect(loadStudents, [loadStudents]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -96,10 +141,10 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
   const month = data.months.find((m) => m.period === period);
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return s ? entries.filter((e) => `${e.description} ${e.category} ${e.notes} ${e.associate?.name}`.toLowerCase().includes(s)) : entries;
+    return s ? entries.filter((e) => `${e.description} ${e.category} ${e.notes} ${e.associate?.name} ${e.student?.code} ${e.student?.name}`.toLowerCase().includes(s)) : entries;
   }, [entries, q]);
 
-  const changed = () => { load(); reload(); };
+  const changed = () => { load(); reload(); loadStudents(); };
   const remove = async (e: Entry) => {
     if (!window.confirm(`Eliminar "${e.description || 'lançamento'}"?${e.student ? ' O pagamento sai também do parcelamento do estudante.' : ''}`)) return;
     try {
@@ -138,12 +183,23 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
             <tbody>
               {shown.map((e) => (
                 <tr key={e.id}>
-                  <Td>{dateLabel(e.date)}</Td><Td>{e.description || '—'}</Td><Td>{e.category || '—'}</Td>
+                  <Td>{dateLabel(e.date)}</Td>
+                  <Td>
+                    {e.description || '—'}
+                    {e.student && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }} title={`Ligado ao estudante ${e.student.name}`}>{e.student.code}</span>}
+                  </Td>
+                  <Td>{e.category || '—'}</Td>
                   <Td right>{e.potentialRevenue ? num(e.potentialRevenue) : ''}</Td>
                   <Td right color="#EF4444">{e.expense ? num(e.expense) : ''}</Td>
                   <Td right color="#10B981">{e.revenue ? num(e.revenue) : ''}</Td>
-                  <Td>{e.associate?.name || e.commissionistRaw || '—'}</Td>
-                  <Td right>{e.commission ? num(e.commission) : ''}</Td>
+                  <Td>
+                    {e.associate?.name || e.commissionistRaw || '—'}
+                    {e.defenseAssociate && e.defenseCommission > 0 && <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Defesa: {e.defenseAssociate.name}</div>}
+                  </Td>
+                  <Td right>
+                    {e.commission || e.defenseCommission > 0 ? num(e.commission) : ''}
+                    {e.defenseCommission > 0 && <div className="text-[11px]" style={{ color: 'var(--text-muted)' }} title={`${num(e.defenseAmount)} da parte da defesa`}>+ {num(e.defenseCommission)}</div>}
+                  </Td>
                   <Td>{e.paymentMethod || '—'}</Td><Td>{e.notes || ''}</Td>
                   <Td>
                     <span className="flex gap-2">
@@ -176,7 +232,10 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
           </div>
         </div>
       )}
-      {modal && <EntryModal entry={modal.entry} associates={data.associates} onClose={() => setModal(null)} onSaved={changed} />}
+      {modal && (
+        <EntryModal entry={modal.entry} associates={data.associates} students={students} rate={data.settings.commissionRate}
+          shares={data.settings.defenseShares ?? DEFAULT_DEFENSE_SHARES} onClose={() => setModal(null)} onSaved={changed} />
+      )}
     </div>
   );
 }

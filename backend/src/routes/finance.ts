@@ -9,6 +9,7 @@ import { computeFlow, computeMonths, FinanceConfig, FixedSalary, normalizeWallet
 import { ParsedWorkbook, parseFinanceWorkbook, reconcile, SalaryPaymentCandidate, suggestSalaryPayments } from '../lib/financeImport';
 import { buildXlsx, XlsxSheet } from '../lib/xlsxWriter';
 import { planStudentLinks } from '../lib/financeLink';
+import { defenseShares, normalizeTier, PACKAGE_TIERS, recalcStudentLedger } from '../lib/financeLedger';
 import {
   adminOnly, assertPhase, getSettings, metaOnly, optDate, parseDate, Phase, phaseId, phaseLabel, phaseList,
   scopeStudents, studentDto, text,
@@ -18,6 +19,10 @@ import workRoutes, { recordPhaseMove, syncCompletion } from './financeWork';
 const router = Router();
 
 const FUNDS = ['Dono', 'Previdencia', 'Oportunidade', 'Expansao', 'Empresa'];
+const studentInclude = {
+  associate: { select: { id: true, code: true, name: true } },
+  defenseAssociate: { select: { id: true, code: true, name: true } },
+};
 const ORDINALS = ['Primeira', 'Segunda', 'Terceira', 'Quarta', 'Quinta', 'Sexta', 'Sétima', 'Oitava'];
 
 router.use(metaOnly);
@@ -58,7 +63,7 @@ async function loadSummary(workspaceId: string) {
   const [entries, payrolls, students, investments, associates, salaryPayments] = await Promise.all([
     prisma.financeEntry.findMany({
       where: { workspaceId },
-      select: { period: true, revenue: true, expense: true, potentialRevenue: true, commission: true, associateId: true, paymentMethod: true },
+      select: { period: true, revenue: true, expense: true, potentialRevenue: true, commission: true, associateId: true, paymentMethod: true, defenseCommission: true, defenseAssociateId: true },
     }),
     prisma.financePayroll.findMany({ where: { workspaceId } }),
     prisma.financeStudent.findMany({ where: { workspaceId }, select: { entryDate: true, sellerCredit: true } }),
@@ -70,7 +75,7 @@ async function loadSummary(workspaceId: string) {
     entries, payrolls, students.map((s) => ((s.sellerCredit ?? !!s.entryDate) ? s.entryDate : null)), cfg,
     salaryPayments,
   );
-  return { settings, months, flow: computeFlow(months, investments, cfg), associates, salaryPayments };
+  return { settings: { ...settings, defenseShares: defenseShares(settings) }, months, flow: computeFlow(months, investments, cfg), associates, salaryPayments };
 }
 
 // ---------- Resumo ----------
@@ -168,14 +173,44 @@ router.get('/me', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
     const associate = await prisma.financeAssociate.findFirst({ where: { workspaceId, userId: req.user!.id } });
-    if (!associate) return res.json({ associate: null, months: [] });
-    const rows = await prisma.financeEntry.groupBy({
-      by: ['period'], where: { workspaceId, associateId: associate.id },
-      _sum: { commission: true, revenue: true }, _count: { _all: true }, orderBy: { period: 'desc' },
-    });
+    if (!associate) return res.json({ associate: null, months: [], defenseStudents: [] });
+    const [rows, def, students, settings] = await Promise.all([
+      prisma.financeEntry.groupBy({
+        by: ['period'], where: { workspaceId, associateId: associate.id },
+        _sum: { commission: true, revenue: true }, _count: { _all: true },
+      }),
+      prisma.financeEntry.groupBy({
+        by: ['period'], where: { workspaceId, defenseAssociateId: associate.id },
+        _sum: { defenseCommission: true, defenseAmount: true }, _count: { _all: true },
+      }),
+      prisma.financeStudent.findMany({
+        where: { workspaceId, defenseAssociateId: associate.id },
+        select: { code: true, name: true, packageTier: true, totalValue: true, paidAmount: true, ledgerBalance: true, entries: { select: { defenseAmount: true, defenseCommission: true } } },
+        orderBy: { code: 'desc' },
+      }),
+      getSettings(workspaceId),
+    ]);
+    type Row = { period: string; commission: number; revenue: number; payments: number; defenseCommission: number; defenseAmount: number; defensePayments: number };
+    const by = new Map<string, Row>();
+    const row = (period: string) => {
+      if (!by.has(period)) by.set(period, { period, commission: 0, revenue: 0, payments: 0, defenseCommission: 0, defenseAmount: 0, defensePayments: 0 });
+      return by.get(period)!;
+    };
+    for (const r of rows) Object.assign(row(r.period), { commission: r._sum.commission || 0, revenue: r._sum.revenue || 0, payments: r._count._all });
+    for (const r of def) Object.assign(row(r.period), { defenseCommission: r._sum.defenseCommission || 0, defenseAmount: r._sum.defenseAmount || 0, defensePayments: r._count._all });
+    const shares = defenseShares(settings);
     res.json({
       associate: { code: associate.code, name: associate.name },
-      months: rows.map((r) => ({ period: r.period, commission: r._sum.commission || 0, revenue: r._sum.revenue || 0, payments: r._count._all })),
+      months: [...by.values()].sort((a, b) => b.period.localeCompare(a.period)),
+      defenseStudents: students.map((st) => {
+        const share = st.packageTier ? Math.min(shares[st.packageTier] || 0, st.totalValue) : 0;
+        return {
+          code: st.code, name: st.name, packageTier: st.packageTier, totalValue: st.totalValue, paidAmount: st.paidAmount,
+          ledgerBalance: st.ledgerBalance, share, startsAt: st.totalValue - share,
+          received: st.entries.reduce((a, e) => a + e.defenseAmount, 0),
+          commission: st.entries.reduce((a, e) => a + e.defenseCommission, 0),
+        };
+      }),
     });
   } catch (e) { next(e); }
 });
@@ -183,6 +218,7 @@ router.get('/me', async (req: AuthRequest, res: Response, next) => {
 // ---------- Lancamentos ----------
 const entryInclude = {
   associate: { select: { id: true, code: true, name: true } },
+  defenseAssociate: { select: { id: true, code: true, name: true } },
   student: { select: { id: true, code: true, name: true } },
 };
 
@@ -213,6 +249,19 @@ router.post('/entries', adminOnly, async (req: AuthRequest, res: Response, next)
     if (!amount) throw new AppError('Indica o valor', 400);
     const settings = await getSettings(workspaceId);
     const associateId = type === 'RECEITA' ? await checkAssociate(workspaceId, b.associateId) : null;
+    // Pagamento de um estudante do painel: conta no saldo dele (e na parte da defesa, se tiver).
+    if (b.studentId) {
+      if (type !== 'RECEITA') throw new AppError('Só uma receita pode ser ligada a um estudante', 400);
+      const st = await prisma.financeStudent.findFirst({ where: { id: String(b.studentId), workspaceId } });
+      if (!st) throw new AppError('Estudante não encontrado', 400);
+      const pot = b.potentialRevenue === undefined || b.potentialRevenue === '' || b.potentialRevenue === null ? null : money(b.potentialRevenue);
+      const r = await addStudentPayment(req, st, {
+        date, amount, method: wallet(b.paymentMethod), associateId, notes: text(b.notes), description: text(b.description),
+        category: b.category !== undefined ? text(b.category) : undefined, potentialRevenue: pot,
+        ...(b.nextDueDate !== undefined ? { nextDueDate: optDate(b.nextDueDate, 'Próxima parcela') } : {}),
+      });
+      return res.status(201).json(r.entry);
+    }
     const p = date.toISOString().slice(0, 7);
     await ensureMonth(workspaceId, p);
     const created = await prisma.financeEntry.create({
@@ -254,6 +303,15 @@ router.patch('/entries/:id', adminOnly, async (req: AuthRequest, res: Response, 
     const revenue = b.amount !== undefined && cur.type === 'RECEITA' ? money(b.amount) : cur.revenue;
     if (b.amount !== undefined && cur.type === 'DESPESA') data.expense = money(b.amount);
     if (b.amount !== undefined && cur.type === 'RECEITA') data.revenue = revenue;
+    let studentId = cur.studentId;
+    if (b.studentId !== undefined) {
+      studentId = b.studentId ? String(b.studentId) : null;
+      if (studentId && cur.type !== 'RECEITA') throw new AppError('Só uma receita pode ser ligada a um estudante', 400);
+      if (studentId && !(await prisma.financeStudent.findFirst({ where: { id: studentId, workspaceId }, select: { id: true } }))) {
+        throw new AppError('Estudante não encontrado', 400);
+      }
+      data.studentId = studentId;
+    }
     let associateId = cur.associateId;
     if (b.associateId !== undefined) {
       associateId = await checkAssociate(workspaceId, b.associateId);
@@ -266,12 +324,18 @@ router.patch('/entries/:id', adminOnly, async (req: AuthRequest, res: Response, 
     }
     await ensureMonth(workspaceId, p);
     const updated = await prisma.$transaction(async (tx) => {
-      const up = await tx.financeEntry.update({ where: { id: cur.id }, data, include: entryInclude });
-      if (cur.studentId && revenue !== cur.revenue) {
-        const st = await tx.financeStudent.update({ where: { id: cur.studentId }, data: { paidAmount: { increment: revenue - cur.revenue } } });
-        await tx.financeStudent.update({ where: { id: st.id }, data: { status: studentAfterPayment(st) } });
+      const up = await tx.financeEntry.update({ where: { id: cur.id }, data });
+      const ids = [...new Set([cur.studentId, studentId].filter(Boolean))] as string[];
+      for (const st of await tx.financeStudent.findMany({ where: { id: { in: ids } } })) {
+        // Saldo automatico: recalcula tudo a partir dos lancamentos (valor, data e ligacao contam).
+        if (st.ledgerBalance) { await recalcStudentLedger(tx, st.id); continue; }
+        // Dados antigos: so acerta o valor pago quando muda o valor do mesmo estudante (ligar/desligar nao mexe no saldo da planilha).
+        if (st.id === cur.studentId && st.id === studentId && revenue !== cur.revenue) {
+          const s2 = await tx.financeStudent.update({ where: { id: st.id }, data: { paidAmount: { increment: revenue - cur.revenue } } });
+          await tx.financeStudent.update({ where: { id: st.id }, data: { status: studentAfterPayment(s2) } });
+        }
       }
-      return up;
+      return tx.financeEntry.findUniqueOrThrow({ where: { id: up.id }, include: entryInclude });
     });
     res.json(updated);
   } catch (e) { next(e); }
@@ -284,7 +348,9 @@ router.delete('/entries/:id', adminOnly, async (req: AuthRequest, res: Response,
     if (!cur) throw new AppError('Lançamento não encontrado', 404);
     await prisma.$transaction(async (tx) => {
       await tx.financeEntry.delete({ where: { id: cur.id } });
-      if (cur.studentId) {
+      const linked = cur.studentId ? await tx.financeStudent.findUnique({ where: { id: cur.studentId }, select: { ledgerBalance: true } }) : null;
+      if (linked?.ledgerBalance) await recalcStudentLedger(tx, cur.studentId!);
+      else if (linked) {
         const st = await tx.financeStudent.update({
           where: { id: cur.studentId },
           data: { paidAmount: { decrement: cur.revenue }, installmentsPaid: { decrement: 1 } },
@@ -301,7 +367,7 @@ router.get('/students', async (req: AuthRequest, res: Response, next) => {
   try {
     const list = await prisma.financeStudent.findMany({
       where: await scopeStudents(req),
-      include: { associate: { select: { id: true, code: true, name: true } } },
+      include: studentInclude,
       orderBy: { code: 'desc' },
     });
     res.json(list.map(studentDto));
@@ -319,6 +385,12 @@ function studentFields(b: any) {
   if (b.totalValue !== undefined) d.totalValue = money(b.totalValue, 'Valor total');
   if (b.installments !== undefined) d.installments = b.installments === '' || b.installments === null ? null : Math.max(1, Math.floor(money(b.installments, 'Nº de parcelas')));
   if (b.currentPhase !== undefined) d.currentPhase = phaseId(b.currentPhase);
+  if (b.packageTier !== undefined) {
+    const t = normalizeTier(b.packageTier);
+    if (t === undefined) throw new AppError(`Pacote inválido. Usa: ${PACKAGE_TIERS.join(', ')}`, 400);
+    d.packageTier = t;
+  }
+  if (b.ledgerBalance !== undefined) d.ledgerBalance = !!b.ledgerBalance;
   if (b.phases !== undefined) {
     if (typeof b.phases !== 'object' || b.phases === null) throw new AppError('Fases inválidas', 400);
     d.phases = b.phases;
@@ -340,11 +412,14 @@ router.post('/students', adminOnly, async (req: AuthRequest, res: Response, next
       data: {
         workspaceId, code: `E${String(max + 1).padStart(3, '0')}`, name,
         associateId: await checkAssociate(workspaceId, b.associateId),
+        defenseAssociateId: await checkAssociate(workspaceId, b.defenseAssociateId),
+        // Estudantes novos: o saldo vem dos lancamentos ligados.
+        ledgerBalance: true,
         ...fields,
         // Sem data de entrada o estudante nao contava para a comissao por estudante novo.
         entryDate: fields.entryDate ?? new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`),
       },
-      include: { associate: { select: { id: true, code: true, name: true } } },
+      include: studentInclude,
     });
     if (created.currentPhase) await recordPhaseMove(req, created, null, created.currentPhase, null);
     if (fields.completedAt === undefined && (await syncCompletion(workspaceId, created.id))) return res.status(201).json(studentDto(await reloadStudent(created.id)));
@@ -364,6 +439,7 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
       if (!data.name) throw new AppError('Indica o nome', 400);
     }
     if (b.associateId !== undefined) data.associateId = await checkAssociate(workspaceId, b.associateId);
+    if (b.defenseAssociateId !== undefined) data.defenseAssociateId = await checkAssociate(workspaceId, b.defenseAssociateId);
     // A fase tambem muda no quadro: nao escreve por cima de uma mudanca feita entretanto.
     if (data.currentPhase !== undefined && data.currentPhase !== cur.currentPhase) await assertPhase(workspaceId, data.currentPhase);
     if (data.currentPhase !== undefined && b.currentPhaseFrom !== undefined) {
@@ -380,11 +456,17 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
     if ((data.sellerCredit ?? cur.sellerCredit) && !(data.entryDate !== undefined ? data.entryDate : cur.entryDate)) {
       throw new AppError('Indica a data de entrada para contar a venda.', 400);
     }
-    if (b.paidAmount !== undefined) data.paidAmount = money(b.paidAmount, 'Valor pago');
-    if (b.installmentsPaid !== undefined) data.installmentsPaid = Math.floor(money(b.installmentsPaid, 'Parcelas pagas'));
+    // Com saldo automatico o valor pago e as parcelas vem dos lancamentos.
+    const ledger = data.ledgerBalance ?? cur.ledgerBalance;
+    if (b.paidAmount !== undefined && !ledger) data.paidAmount = money(b.paidAmount, 'Valor pago');
+    if (b.installmentsPaid !== undefined && !ledger) data.installmentsPaid = Math.floor(money(b.installmentsPaid, 'Parcelas pagas'));
     let up = await prisma.financeStudent.update({
-      where: { id: cur.id }, data, include: { associate: { select: { id: true, code: true, name: true } } },
+      where: { id: cur.id }, data, include: studentInclude,
     });
+    if (['totalValue', 'packageTier', 'defenseAssociateId', 'ledgerBalance'].some((k) => data[k] !== undefined)) {
+      await recalcStudentLedger(prisma, cur.id);
+      up = await reloadStudent(cur.id);
+    }
     if (data.currentPhase !== undefined && up.currentPhase !== cur.currentPhase) await recordPhaseMove(req, up, cur.currentPhase, up.currentPhase, null);
     if (data.phases !== undefined && data.completedAt === undefined && (await syncCompletion(workspaceId, cur.id))) up = await reloadStudent(cur.id);
     res.json(studentDto(up));
@@ -392,7 +474,7 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
 });
 
 async function reloadStudent(id: string) {
-  return prisma.financeStudent.findUniqueOrThrow({ where: { id }, include: { associate: { select: { id: true, code: true, name: true } } } });
+  return prisma.financeStudent.findUniqueOrThrow({ where: { id }, include: studentInclude });
 }
 
 router.delete('/students/:id', adminOnly, async (req: AuthRequest, res: Response, next) => {
@@ -420,7 +502,7 @@ router.patch('/students/:id/phase', async (req: AuthRequest, res: Response, next
       data: { currentPhase: to, ...(from !== to ? { lastActivityAt: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`) } : {}) },
     });
     const st = await prisma.financeStudent.findFirst({
-      where: { ...scope, id: req.params.id }, include: { associate: { select: { id: true, code: true, name: true } } },
+      where: { ...scope, id: req.params.id }, include: studentInclude,
     });
     if (!st) throw new AppError('Estudante não encontrado', 404);
     if (!count && st.currentPhase !== to) {
@@ -458,6 +540,8 @@ router.post('/students/link', adminOnly, async (req: AuthRequest, res: Response,
       await prisma.$transaction(async (tx) => {
         for (const [sid, ids] of byStudent) await tx.financeEntry.updateMany({ where: { id: { in: ids }, workspaceId }, data: { studentId: sid } });
         for (const [sid, aid] of plan.associates) await tx.financeStudent.update({ where: { id: sid }, data: { associateId: aid } });
+        const ledger = await tx.financeStudent.findMany({ where: { id: { in: [...byStudent.keys()] }, ledgerBalance: true }, select: { id: true } });
+        for (const s2 of ledger) await recalcStudentLedger(tx, s2.id);
       }, { timeout: 120000, maxWait: 20000 });
     }
     res.json({
@@ -475,6 +559,48 @@ router.post('/students/link', adminOnly, async (req: AuthRequest, res: Response,
   } catch (e) { next(e); }
 });
 
+type StudentRow = NonNullable<Awaited<ReturnType<typeof prisma.financeStudent.findFirst>>>;
+
+// Cria o lancamento do pagamento ligado ao estudante e actualiza o saldo dele.
+// Saldo automatico: recalcula a partir dos lancamentos (inclui a parte da defesa). Dados antigos: soma ao valor pago.
+async function addStudentPayment(req: AuthRequest, st: StudentRow, o: {
+  date: Date; amount: number; method: string; associateId: string | null; nextDueDate?: Date | null;
+  notes?: string | null; description?: string | null; category?: string | null; potentialRevenue?: number | null;
+}) {
+  const workspaceId = st.workspaceId;
+  const settings = await getSettings(workspaceId);
+  const p = o.date.toISOString().slice(0, 7);
+  await ensureMonth(workspaceId, p);
+  const nth = st.ledgerBalance ? await prisma.financeEntry.count({ where: { studentId: st.id, type: 'RECEITA' } }) : st.installmentsPaid;
+  return prisma.$transaction(async (tx) => {
+    const entry = await tx.financeEntry.create({
+      data: {
+        workspaceId, period: p, date: o.date, type: 'RECEITA', description: o.description || `Pagamento - ${st.name}`,
+        category: o.category !== undefined ? o.category : st.project,
+        potentialRevenue: o.potentialRevenue ?? (nth === 0 ? st.totalValue : 0), revenue: o.amount,
+        commission: o.associateId ? o.amount * settings.commissionRate : 0, associateId: o.associateId, paymentMethod: o.method,
+        notes: o.notes || `${ORDINALS[nth] || `${nth + 1}.ª`} parcela`,
+        studentId: st.id, source: 'crm', createdById: req.user!.id,
+      },
+    });
+    const due = o.nextDueDate !== undefined ? { nextDueDate: o.nextDueDate } : {};
+    if (st.ledgerBalance) {
+      await recalcStudentLedger(tx, st.id);
+      if (o.nextDueDate !== undefined) await tx.financeStudent.update({ where: { id: st.id }, data: due });
+    } else {
+      const paid = st.paidAmount + o.amount;
+      await tx.financeStudent.update({
+        where: { id: st.id },
+        data: { paidAmount: paid, installmentsPaid: st.installmentsPaid + 1, ...due, status: studentAfterPayment({ totalValue: st.totalValue, paidAmount: paid }) },
+      });
+    }
+    return {
+      entry: await tx.financeEntry.findUniqueOrThrow({ where: { id: entry.id }, include: entryInclude }),
+      student: await tx.financeStudent.findUniqueOrThrow({ where: { id: st.id }, include: studentInclude }),
+    };
+  });
+}
+
 // Registo unico: entra no mes do pagamento, conta os 25% nesse mes e actualiza as parcelas.
 router.post('/students/:id/payments', adminOnly, async (req: AuthRequest, res: Response, next) => {
   try {
@@ -485,34 +611,10 @@ router.post('/students/:id/payments', adminOnly, async (req: AuthRequest, res: R
     if (!amount) throw new AppError('Indica o valor', 400);
     const method = wallet(b.paymentMethod);
     const nextDueDate = optDate(b.nextDueDate, 'Próxima parcela');
-    const settings = await getSettings(workspaceId);
     const st = await prisma.financeStudent.findFirst({ where: { id: req.params.id, workspaceId } });
     if (!st) throw new AppError('Estudante não encontrado', 404);
     const associateId = b.associateId !== undefined ? await checkAssociate(workspaceId, b.associateId) : st.associateId;
-    const p = date.toISOString().slice(0, 7);
-    const first = st.installmentsPaid === 0;
-    await ensureMonth(workspaceId, p);
-    const paid = st.paidAmount + amount;
-    const result = await prisma.$transaction(async (tx) => {
-      const entry = await tx.financeEntry.create({
-        data: {
-          workspaceId, period: p, date, type: 'RECEITA', description: `Pagamento - ${st.name}`, category: st.project,
-          potentialRevenue: first ? st.totalValue : 0, revenue: amount,
-          commission: associateId ? amount * settings.commissionRate : 0, associateId, paymentMethod: method,
-          notes: text(b.notes) || `${ORDINALS[st.installmentsPaid] || `${st.installmentsPaid + 1}.ª`} parcela`,
-          studentId: st.id, source: 'crm', createdById: req.user!.id,
-        },
-      });
-      const student = await tx.financeStudent.update({
-        where: { id: st.id },
-        data: {
-          paidAmount: paid, installmentsPaid: st.installmentsPaid + 1, nextDueDate,
-          status: studentAfterPayment({ totalValue: st.totalValue, paidAmount: paid }),
-        },
-        include: { associate: { select: { id: true, code: true, name: true } } },
-      });
-      return { entry, student };
-    });
+    const result = await addStudentPayment(req, st, { date, amount, method, associateId, nextDueDate, notes: text(b.notes) });
     res.status(201).json({ entry: result.entry, student: studentDto(result.student) });
   } catch (e) { next(e); }
 });
@@ -627,10 +729,10 @@ router.delete('/associates/:id', adminOnly, async (req: AuthRequest, res: Respon
   try {
     const workspaceId = req.user!.workspaceId;
     const cur = await prisma.financeAssociate.findFirst({
-      where: { id: req.params.id, workspaceId }, include: { _count: { select: { entries: true, students: true } } },
+      where: { id: req.params.id, workspaceId }, include: { _count: { select: { entries: true, students: true, defenseEntries: true, defenseStudents: true } } },
     });
     if (!cur) throw new AppError('Associado não encontrado', 404);
-    if (cur._count.entries || cur._count.students) throw new AppError('Este associado tem estudantes ou comissões registadas e não pode ser eliminado.', 400);
+    if (cur._count.entries || cur._count.students || cur._count.defenseEntries || cur._count.defenseStudents) throw new AppError('Este associado tem estudantes ou comissões registadas e não pode ser eliminado.', 400);
     await prisma.financeAssociate.delete({ where: { id: cur.id } });
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -831,7 +933,19 @@ router.put('/settings', adminOnly, async (req: AuthRequest, res: Response, next)
         return { name, amount: money(s.amount), startPeriod: period(s.startPeriod), endPeriod: s.endPeriod ? period(s.endPeriod) : null };
       });
     }
-    res.json(await prisma.financeSettings.update({ where: { workspaceId }, data }));
+    if (b.defenseShares !== undefined) {
+      if (typeof b.defenseShares !== 'object' || b.defenseShares === null) throw new AppError('Valores da defesa inválidos', 400);
+      const v: Record<string, number> = {};
+      for (const t of PACKAGE_TIERS) if (b.defenseShares[t] !== undefined) v[t] = money(b.defenseShares[t], `Defesa (${t})`);
+      data.defenseShares = v;
+    }
+    const saved = await prisma.financeSettings.update({ where: { workspaceId }, data });
+    // A parte da defesa (ou a comissao) mudou: recalcula os estudantes com saldo automatico.
+    if (data.defenseShares !== undefined || data.commissionRate !== undefined) {
+      const list = await prisma.financeStudent.findMany({ where: { workspaceId, ledgerBalance: true }, select: { id: true } });
+      for (const st of list) await recalcStudentLedger(prisma, st.id);
+    }
+    res.json({ ...saved, defenseShares: defenseShares(saved) });
   } catch (e) { next(e); }
 });
 
@@ -841,8 +955,8 @@ router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) =
     const workspaceId = req.user!.workspaceId;
     const [{ settings, months, flow, associates, salaryPayments }, entries, students, investments, coupons] = await Promise.all([
       loadSummary(workspaceId),
-      prisma.financeEntry.findMany({ where: { workspaceId }, include: { associate: { select: { name: true } }, student: { select: { code: true } } }, orderBy: [{ period: 'desc' }, { date: 'desc' }] }),
-      prisma.financeStudent.findMany({ where: { workspaceId }, include: { associate: { select: { code: true, name: true } } }, orderBy: { code: 'desc' } }),
+      prisma.financeEntry.findMany({ where: { workspaceId }, include: { associate: { select: { name: true } }, defenseAssociate: { select: { name: true } }, student: { select: { code: true } } }, orderBy: [{ period: 'desc' }, { date: 'desc' }] }),
+      prisma.financeStudent.findMany({ where: { workspaceId }, include: { associate: { select: { code: true, name: true } }, defenseAssociate: { select: { name: true } } }, orderBy: { code: 'desc' } }),
       prisma.financeInvestment.findMany({ where: { workspaceId }, orderBy: { date: 'desc' } }),
       prisma.financeCoupon.findMany({ where: { workspaceId }, orderBy: { createdAt: 'desc' } }),
     ]);
@@ -869,12 +983,12 @@ router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) =
         ...months.map((m) => [m.period, m.newStudentFee, ...associates.map((a) => m.commissions[a.id] || 0), m.commissionTotal + m.newStudentFee]),
       ] },
       { name: 'Lançamentos', rows: [
-        ['Mês', 'Data', 'Descrição', 'Tipo', 'Categoria', 'Receita potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma de pagamento', 'Observações', 'Estudante'],
-        ...entries.map((e) => [e.period, e.date, e.description, e.type, e.category, e.potentialRevenue, e.expense, e.revenue, e.associate?.name || e.commissionistRaw, e.commission, e.paymentMethod, e.notes, e.student?.code]),
+        ['Mês', 'Data', 'Descrição', 'Tipo', 'Categoria', 'Receita potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma de pagamento', 'Observações', 'Estudante', 'Parte da defesa', 'Associado de defesa', 'Comissão da defesa'],
+        ...entries.map((e) => [e.period, e.date, e.description, e.type, e.category, e.potentialRevenue, e.expense, e.revenue, e.associate?.name || e.commissionistRaw, e.commission, e.paymentMethod, e.notes, e.student?.code, e.defenseAmount || null, e.defenseAssociate?.name, e.defenseCommission || null]),
       ] },
       { name: 'Estudantes', rows: [
-        ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas'],
-        ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase ? phaseLabel(phaseList(settings), s.currentPhase) : null, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes]),
+        ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas', 'Pacote', 'Associado de defesa', 'Saldo pelos lançamentos'],
+        ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase ? phaseLabel(phaseList(settings), s.currentPhase) : null, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes, s.packageTier, s.defenseAssociate?.name, s.ledgerBalance ? 'Sim' : 'Não']),
       ] },
       { name: 'Pagamentos de salários', rows: [
         ['Mês do salário', 'Pessoa', 'Valor', 'Carteira', 'Data', 'Observação'],

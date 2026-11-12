@@ -11,33 +11,33 @@ datasource db {
 // ==================== AUTH & USERS ====================
 
 model User {
-  id               String    @id @default(cuid())
-  name             String
-  email            String    @unique
-  password         String
-  avatar           String?
-  phone            String?
+  id                String    @id @default(cuid())
+  name              String
+  email             String    @unique
+  password          String
+  avatar            String?
+  phone             String?
   // JID do grupo WhatsApp para onde se envia o digest diário deste utilizador
   // (formato: 258...-12345@g.us). Se preenchido, sobrepõe-se ao `phone` no digest.
-  digestGroupJid   String?
-  role             UserRole  @default(AGENT)
-  isActive         Boolean   @default(true)
-  status           String    @default("OFFLINE") // ONLINE | AWAY | BUSY | DND | OFFLINE
-  internalNotes    String?
-  viewOnlyOwn      Boolean   @default(false)
+  digestGroupJid    String?
+  role              UserRole  @default(AGENT)
+  isActive          Boolean   @default(true)
+  status            String    @default("OFFLINE") // ONLINE | AWAY | BUSY | DND | OFFLINE
+  internalNotes     String?
+  viewOnlyOwn       Boolean   @default(false)
   // Prefixo definivel (ex: "ABS") usado para gerar o codigo dos contactos que
   // lhe sao atribuidos (ex: "ABS-0001"). Sem prefixo => nao gera codigo.
   contactCodePrefix String?
-  lastLoginAt      DateTime?
+  lastLoginAt       DateTime?
   // 2FA
-  twoFactorEnabled Boolean   @default(false)
-  twoFactorSecret  String?
+  twoFactorEnabled  Boolean   @default(false)
+  twoFactorSecret   String?
   // Preferencias notificacoes (JSON: { newLead, taskOverdue, newMessage, mention } )
-  emailPreferences Json      @default("{\"newLead\":true,\"taskOverdue\":true,\"newMessage\":false,\"mention\":true}")
+  emailPreferences  Json      @default("{\"newLead\":true,\"taskOverdue\":true,\"newMessage\":false,\"mention\":true}")
   // i18n
-  language         String    @default("pt")
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  language          String    @default("pt")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   workspace           Workspace            @relation(fields: [workspaceId], references: [id])
   workspaceId         String
@@ -47,9 +47,9 @@ model User {
   passwordResetTokens PasswordResetToken[]
   inviteToken         InviteToken?
 
-  assignedLeads         Lead[]              @relation("AssignedLeads")
-  assignedContacts      Contact[]           @relation("AssignedContacts")
-  createdLeads          Lead[]              @relation("CreatedLeads")
+  assignedLeads         Lead[]               @relation("AssignedLeads")
+  assignedContacts      Contact[]            @relation("AssignedContacts")
+  createdLeads          Lead[]               @relation("CreatedLeads")
   tasks                 Task[]
   messages              Message[]
   notes                 Note[]
@@ -63,8 +63,8 @@ model User {
   assignedConversations ConversationMeta[]
   csatRequests          CsatRequest[]
   quotes                Quote[]
-  aiSuggestionsDecided  AiSalesSuggestion[] @relation("AiSuggestionDecidedBy")
-  appointments          Appointment[]       @relation("appointmentAssignedTo")
+  aiSuggestionsDecided  AiSalesSuggestion[]  @relation("AiSuggestionDecidedBy")
+  appointments          Appointment[]        @relation("appointmentAssignedTo")
   defenseParticipations DefenseParticipant[]
 
   @@map("users")
@@ -78,58 +78,58 @@ enum UserRole {
 }
 
 model Workspace {
-  id                            String    @id @default(cuid())
+  id                            String                 @id @default(cuid())
   name                          String
-  slug                          String    @unique
+  slug                          String                 @unique
   logo                          String?
-  timezone                      String    @default("Africa/Maputo")
-  currency                      String    @default("MZN")
+  timezone                      String                 @default("Africa/Maputo")
+  currency                      String                 @default("MZN")
   // Terminologia customizavel do workspace (Fase 3 da reconfiguracao).
   // Permite que uma clinica veja "Pacientes", uma ONG veja "Formandos", uma
   // empresa comercial veja "Clientes". A entidade tecnica continua a chamar-se
   // Contact no schema — so a label visivel muda.
-  contactLabelSingular          String    @default("Contacto")
-  contactLabelPlural            String    @default("Contactos")
+  contactLabelSingular          String                 @default("Contacto")
+  contactLabelPlural            String                 @default("Contactos")
   // Terminologia customizavel para Marcacoes (Fase 3.4: clinicas usam "Consulta").
-  appointmentLabelSingular      String    @default("Marcação")
-  appointmentLabelPlural        String    @default("Marcações")
+  appointmentLabelSingular      String                 @default("Marcação")
+  appointmentLabelPlural        String                 @default("Marcações")
   // Tipos de consulta/marcacao configuraveis. Array de
   // { key, label, defaultDurationMin }. Ex: [{key:'primeira',label:'Primeira consulta',defaultDurationMin:45}]
   // Vazio = sem dropdown de tipo (usa so texto livre no titulo).
-  appointmentTypes              Json      @default("[]")
+  appointmentTypes              Json                   @default("[]")
   // Lembretes automaticos de consulta (Fase 4 clinica).
   // Job cron corre a cada 5min; envia mensagem X horas antes de cada consulta
   // que ainda nao tem reminderSentAt.
-  appointmentReminderEnabled    Boolean   @default(true)
-  appointmentReminderHours      Int       @default(24)
+  appointmentReminderEnabled    Boolean                @default(true)
+  appointmentReminderHours      Int                    @default(24)
   appointmentReminderTemplate   String?
   // === Leizy proactiva (Sprint 3 do cumprimento do manual) ===
   // Reactivacao: cron nocturno identifica pacientes sem consulta ha N meses.
   // A Leizy prepara mensagem personalizada, mete em fila (AiSalesSuggestion).
-  reactivationEnabled           Boolean   @default(true)
-  reactivationDaysThreshold     Int       @default(180)   // 6 meses default
+  reactivationEnabled           Boolean                @default(true)
+  reactivationDaysThreshold     Int                    @default(180) // 6 meses default
   reactivationLastRunAt         DateTime?
   // Aniversario do paciente: cron diario le birth_date custom field, envia
   // mensagem personalizada gerada pela Leizy.
-  birthdayGreetingEnabled       Boolean   @default(true)
-  birthdayGreetingHour          Int       @default(9)     // 0-23 hora local
+  birthdayGreetingEnabled       Boolean                @default(true)
+  birthdayGreetingHour          Int                    @default(9) // 0-23 hora local
   birthdayGreetingLastRunAt     DateTime?
   birthdayGreetingTemplate      String?
   // Follow-up pos-consulta: N dias apos Appointment COMPLETED, se ainda nao
   // houve resposta ao paciente, a Leizy envia mensagem de acompanhamento.
-  postConsultFollowupEnabled    Boolean   @default(true)
-  postConsultFollowupDays       Int       @default(3)
+  postConsultFollowupEnabled    Boolean                @default(true)
+  postConsultFollowupDays       Int                    @default(3)
   postConsultFollowupTemplate   String?
   // Subscrição/plano: STARTER | GROWTH | BUSINESS | ENTERPRISE
-  plan                          String    @default("STARTER")
+  plan                          String                 @default("STARTER")
   trialEndsAt                   DateTime?
-  primaryColor                  String    @default("#6366F1")
-  dateFormat                    String    @default("DD/MM/YYYY")
-  fiscalYearStartMonth          Int       @default(1) // 1 = Janeiro
-  autoAssignEnabled             Boolean   @default(false) // atribuicao round-robin de conversas novas
+  primaryColor                  String                 @default("#6366F1")
+  dateFormat                    String                 @default("DD/MM/YYYY")
+  fiscalYearStartMonth          Int                    @default(1) // 1 = Janeiro
+  autoAssignEnabled             Boolean                @default(false) // atribuicao round-robin de conversas novas
   // Metricas de tempo de resposta: { startAt?: ISO, businessHours?: { enabled, startHour, endHour, weekdaysOnly } }
   // startAt = "recomecar contagem" (ignora mensagens anteriores).
-  responseMetricsConfig         Json      @default("{}")
+  responseMetricsConfig         Json                   @default("{}")
   financeSettings               FinanceSettings?
   financeAssociates             FinanceAssociate[]
   financeStudents               FinanceStudent[]
@@ -143,35 +143,35 @@ model Workspace {
   chatAnalysisRuns              ChatAnalysisRun[]
   // Opcoes customizaveis para tarefas (arrays JSON; vazio = usar defaults)
   // Formato cada item: { value: string, label: string, color?: string }
-  taskTypes                     Json      @default("[]")
-  taskPriorities                Json      @default("[]")
-  taskStatuses                  Json      @default("[]")
-  taskRecurrences               Json      @default("[]")
+  taskTypes                     Json                   @default("[]")
+  taskPriorities                Json                   @default("[]")
+  taskStatuses                  Json                   @default("[]")
+  taskRecurrences               Json                   @default("[]")
   // Títulos pré-definidos para tarefa (ex: Slide, Sinopse, Projecto, Monografia)
-  taskTitles                    Json      @default("[]")
+  taskTitles                    Json                   @default("[]")
   // Labels customizadas dos campos do modal de tarefa.
   // Formato: { title: string, description: string, type: string, priority: string, dueAt: string, assignee: string, contact: string }
-  taskFieldLabels               Json      @default("{}")
+  taskFieldLabels               Json                   @default("{}")
   // Digest diário de tarefas via WhatsApp para os responsáveis
-  dailyDigestEnabled            Boolean   @default(false)
-  dailyDigestHour               Int       @default(7) // 0-23 (hora local Africa/Maputo)
-  dailyDigestMinute             Int       @default(0) // 0-59
+  dailyDigestEnabled            Boolean                @default(false)
+  dailyDigestHour               Int                    @default(7) // 0-23 (hora local Africa/Maputo)
+  dailyDigestMinute             Int                    @default(0) // 0-59
   // Timestamp da última execução para evitar duplicar no mesmo minuto
   dailyDigestLastRunAt          DateTime?
   // Template customizável da mensagem do digest. Estrutura:
   // { header, overdueHeader, todayHeader, tomorrowHeader, taskLine, footer }
   // Vazio = usa defaults definidos no código.
-  dailyDigestTemplate           Json      @default("{}")
+  dailyDigestTemplate           Json                   @default("{}")
   // Dias da semana em que o digest é enviado. Array de ints 0-6 (0=Dom,1=Seg,...,6=Sáb).
   // Default: todos os dias.
-  dailyDigestWeekdays           Json      @default("[0,1,2,3,4,5,6]")
-  assignmentNotifyEnabled       Boolean   @default(true)
+  dailyDigestWeekdays           Json                   @default("[0,1,2,3,4,5,6]")
+  assignmentNotifyEnabled       Boolean                @default(true)
   // Voz/tom da marca que a IA usa ao redigir mensagens (suggest-reply, agent-reply, improve-text)
   aiBrandVoice                  String?
   // Sector/ramo de actividade do workspace, usado pela IA Vendedora para escolher
   // tacticas e vocabulario adequados. Chaves alinhadas com sectorTemplates:
   // imobiliaria | clinica | escola | consultoria | outro.
-  sector                        String    @default("outro")
+  sector                        String                 @default("outro")
   // Persona da IA Vendedora (configuravel por cliente do Klaru).
   aiAgentName                   String?
   aiAgentRole                   String?
@@ -183,28 +183,28 @@ model Workspace {
   aiLearnedMemory               String?
   // === Fase 3 da IA Vendedora: execucao supervisionada ===
   // Liga/desliga a geracao automatica de sugestoes quando chega mensagem.
-  aiSalesEnabled                Boolean   @default(false)
+  aiSalesEnabled                Boolean                @default(false)
   // Modo de operacao da IA Vendedora:
   //   supervised  -> sugere, humano aprova/edita/descarta antes de enviar
   //   auto        -> envia directamente sem aprovacao humana (para a Fase 4)
-  aiSalesMode                   String    @default("supervised")
+  aiSalesMode                   String                 @default("supervised")
   // Quais conversas (chave: contactId) tem IA Vendedora ligada quando o modo
   // global esta desligado. Array de strings. Decisao por conversa, conforme
   // a escolha feita na Fase 2.
-  aiSalesEnabledConversationIds Json      @default("[]")
+  aiSalesEnabledConversationIds Json                   @default("[]")
   // Limite duro de mensagens fragmentadas por resposta da IA. Conforme decisao
   // da Fase 2, default 4.
-  aiSalesMaxParts               Int       @default(4)
+  aiSalesMaxParts               Int                    @default(4)
   // Lista de palavras-trigger para handoff automatico (ex: "queixa", "reembolso").
   // Array de strings, lowercase, comparadas em substring contra a mensagem
   // recebida.
-  aiSalesHandoffTriggers        Json      @default("[]")
+  aiSalesHandoffTriggers        Json                   @default("[]")
   // Contacto humano de emergencia para handoff quando a Leizy escala uma
   // conversa (obrigatorio quando aiSalesMode='auto'). Nome + telefone.
   aiHandoffContactName          String?
   aiHandoffContactPhone         String?
-  createdAt                     DateTime  @default(now())
-  updatedAt                     DateTime  @updatedAt
+  createdAt                     DateTime               @default(now())
+  updatedAt                     DateTime               @updatedAt
 
   users                User[]
   pipelines            Pipeline[]
@@ -236,10 +236,10 @@ model Workspace {
   // === Tracking de consumo de tokens LLM ===
   // Cache do uso actual para evitar somar a tabela em cada chamada.
   // Sao recalculados periodicamente a partir de AiUsageLog.
-  aiTokensUsedToday    Int       @default(0)
-  aiTokensUsedMonth    Int       @default(0)
-  aiTokensUsageDay     DateTime? // data do contador diario (YYYY-MM-DD UTC)
-  aiTokensUsageMonth   String?   // "YYYY-MM" do contador mensal
+  aiTokensUsedToday            Int       @default(0)
+  aiTokensUsedMonth            Int       @default(0)
+  aiTokensUsageDay             DateTime? // data do contador diario (YYYY-MM-DD UTC)
+  aiTokensUsageMonth           String? // "YYYY-MM" do contador mensal
   // Override por workspace (null = usar o limite do plano)
   aiTokensDailyLimitOverride   Int?
   aiTokensMonthlyLimitOverride Int?
@@ -266,21 +266,21 @@ model Workspace {
 // ==================== PIPELINE & LEADS ====================
 
 model Pipeline {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  color       String   @default("#3B82F6")
-  isDefault   Boolean  @default(false)
-  position    Int      @default(0)
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  color          String   @default("#3B82F6")
+  isDefault      Boolean  @default(false)
+  position       Int      @default(0)
   // Instrucao especifica para a Leizy quando fala com leads deste pipeline.
   // Injectada no prompt como bloco separado com prioridade alta. Ex:
   // "Trata sempre por 'senhor(a)' e evita gírias. So propoe consulta particular."
-  aiInstructions String? @db.Text
+  aiInstructions String?  @db.Text
   // Se false, a Leizy nao responde a leads deste pipeline (nem em modo
   // supervisionado nem em automatico). Default true para manter compat.
-  aiEnabled      Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  aiEnabled      Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
@@ -294,15 +294,15 @@ model Pipeline {
 }
 
 model Stage {
-  id        String    @id @default(cuid())
-  name      String
-  color     String    @default("#6B7280")
-  position  Int
-  type      StageType @default(REGULAR)
+  id          String    @id @default(cuid())
+  name        String
+  color       String    @default("#6B7280")
+  position    Int
+  type        StageType @default(REGULAR)
   // Mensagem enviada ao contacto quando o lead entra nesta etapa (se a caixinha estiver marcada no Pipeline).
-  moveMessage String?  @db.Text
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  moveMessage String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   pipelineId String
@@ -1257,39 +1257,39 @@ model QuoteItem {
 //      sugestoes originais para alimentar aiLearnedMemory
 //
 model AiSalesSuggestion {
-  id               String    @id @default(cuid())
+  id                String    @id @default(cuid())
   // === Origem ===
-  workspaceId      String
-  contactId        String
-  leadId           String?
+  workspaceId       String
+  contactId         String
+  leadId            String?
   // Mensagem inbound que disparou a sugestao (null se foi gerada manualmente)
-  triggerMessageId String?
+  triggerMessageId  String?
   // === Conteudo proposto pela IA ===
   // Array de strings com as partes da resposta fragmentada (max 4 por config).
-  parts            Json
+  parts             Json
   // Accao que a IA escolheu:
   //   send_text      -> envia so o texto em parts
   //   send_product   -> envia texto + anexa ficheiros do produto
   //   handoff        -> passa para humano (parts pode ser mensagem de transicao)
   //   wait           -> nao responde agora (ex: lead pediu para falar so amanha)
-  action           String    @default("send_text")
+  action            String    @default("send_text")
   // Se action=send_product, qual produto e que ficheiros enviar.
-  productId        String?
-  productFileIds   Json      @default("[]")
+  productId         String?
+  productFileIds    Json      @default("[]")
   // Se action=book_appointment, o payload (title, startsAtISO, durationMin, notes).
   // Se action=create_task, o payload (title, description, priority, dueInDays).
-  actionPayload    Json?
+  actionPayload     Json?
   // Se accao concreta ja foi executada, o ID do recurso criado (Appointment / Task).
-  createdEntityType String?  // 'appointment' | 'task'
+  createdEntityType String? // 'appointment' | 'task'
   createdEntityId   String?
   // Justificativa interna: porque escolheu esta resposta (debug + auditoria).
-  reasoning        String?   @db.Text
+  reasoning         String?   @db.Text
   // Chaves dos principios que a IA usou (string[]). Util para o painel.
-  principlesUsed   Json      @default("[]")
+  principlesUsed    Json      @default("[]")
   // Modelo e tokens usados (para custos/diagnostico).
-  modelUsed        String?
-  promptTokens     Int?
-  completionTokens Int?
+  modelUsed         String?
+  promptTokens      Int?
+  completionTokens  Int?
   // === Estado e decisao humana ===
   // PENDING   -> a aguardar revisao humana
   // APPROVED  -> enviada como esta (parts originais)
@@ -1297,16 +1297,16 @@ model AiSalesSuggestion {
   // DISCARDED -> humano rejeitou, nao enviou nada
   // SENT      -> modo auto, enviada sem revisao
   // FAILED    -> erro ao enviar
-  status           String    @default("PENDING")
+  status            String    @default("PENDING")
   // Se editada, as partes finais que foram efectivamente enviadas.
-  finalParts       Json?
+  finalParts        Json?
   // IDs das mensagens criadas ao enviar (string[], correspondem a Message.id).
-  sentMessageIds   Json      @default("[]")
-  decidedAt        DateTime?
-  decidedById      String?
-  errorDetail      String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  sentMessageIds    Json      @default("[]")
+  decidedAt         DateTime?
+  decidedById       String?
+  errorDetail       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contact        Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -1330,43 +1330,43 @@ model AiSalesSuggestion {
 // e filtradas por palavras-chave da mensagem do lead quando o conjunto activo
 // e grande.
 model AiCoachingRule {
-  id                 String   @id @default(cuid())
-  workspaceId        String
+  id          String @id @default(cuid())
+  workspaceId String
 
   // Situacao em que a regra se aplica (ex: "lead pergunta o preco antes de ver o produto")
-  situation          String   @db.Text
+  situation         String   @db.Text
   // Accao/resposta recomendada para a IA seguir nesse caso
-  recommendedAction  String   @db.Text
+  recommendedAction String   @db.Text
   // Exemplos opcionais (array JSON: [{ leadMessage, aiResponse }])
-  examples           Json     @default("[]")
+  examples          Json     @default("[]")
   // Tom especifico para esta regra (ex: "mais empatico", "mais directo"). Opcional.
-  tone               String?
+  tone              String?
   // Categoria livre para agrupamento (ex: "preco", "objeccao", "boas-vindas")
-  category           String?
+  category          String?
   // Palavras-chave (lowercase) para filtro rapido por relevancia
-  keywords           String[] @default([])
+  keywords          String[] @default([])
 
   // Origem da regra:
   //   coach_chat    -> ensinada pelo admin via chat com o coach
   //   auto_learned  -> gerada pelo job nocturno a partir de conversas reais
   //   manual        -> criada directamente no painel
-  source             String   @default("coach_chat")
+  source     String  @default("coach_chat")
   // Confianca (0-1). 1.0 para regras ensinadas, < 1.0 para auto-aprendidas.
-  confidence         Float    @default(1.0)
+  confidence Float   @default(1.0)
   // Se a regra esta activa no prompt da IA
-  isActive           Boolean  @default(true)
+  isActive   Boolean @default(true)
   // Prioridade: regras com prioridade mais alta sao incluidas primeiro
-  priority           Int      @default(0)
+  priority   Int     @default(0)
 
   // Contadores de uso para o painel
-  timesApplied       Int      @default(0)
+  timesApplied       Int       @default(0)
   lastAppliedAt      DateTime?
   // IDs de conversas/mensagens das quais a regra foi derivada (auto-learning)
-  derivedFromConvIds String[] @default([])
+  derivedFromConvIds String[]  @default([])
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  createdById        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -1381,9 +1381,9 @@ model AiCoachingRule {
 model AiUsageLog {
   id               String   @id @default(cuid())
   workspaceId      String
-  provider         String   // 'groq' | 'gemini'
+  provider         String // 'groq' | 'gemini'
   model            String
-  feature          String   // 'sales' | 'coach' | 'chatbot' | 'copilot' | 'learning' | 'autolearn'
+  feature          String // 'sales' | 'coach' | 'chatbot' | 'copilot' | 'learning' | 'autolearn'
   promptTokens     Int      @default(0)
   completionTokens Int      @default(0)
   totalTokens      Int      @default(0)
@@ -1400,12 +1400,12 @@ model AiUsageLog {
 // Configuravel via UI admin. Um registo por plano. Se um plano nao tiver
 // linha, assume os defaults definidos em lib/plans.ts.
 model PlanAiLimit {
-  id                  String   @id @default(cuid())
-  planKey             String   @unique  // STARTER | GROWTH | BUSINESS | ENTERPRISE
-  dailyTokenLimit     Int      // -1 = ilimitado
-  monthlyTokenLimit   Int      // -1 = ilimitado
-  updatedAt           DateTime @updatedAt
-  createdAt           DateTime @default(now())
+  id                String   @id @default(cuid())
+  planKey           String   @unique // STARTER | GROWTH | BUSINESS | ENTERPRISE
+  dailyTokenLimit   Int // -1 = ilimitado
+  monthlyTokenLimit Int // -1 = ilimitado
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
 
   @@map("plan_ai_limits")
 }
@@ -1413,15 +1413,15 @@ model PlanAiLimit {
 // Histórico das conversas do admin com o coach (meta-IA que ajuda a treinar
 // a IA Vendedora). Cada documento e uma sessao com array de mensagens.
 model AiCoachConversation {
-  id             String   @id @default(cuid())
-  workspaceId    String
+  id          String   @id @default(cuid())
+  workspaceId String
   // Titulo curto gerado da primeira mensagem
-  title          String?
+  title       String?
   // Array JSON de mensagens: [{ role: "user"|"assistant"|"system", content: string, createdAt: string, rulesCreated?: string[] }]
-  messages       Json     @default("[]")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  createdById    String?
+  messages    Json     @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -1434,31 +1434,31 @@ model AiCoachConversation {
 // estado com semantica de agendamento (CONFIRMADA, REALIZADA, FALTOU).
 // Um Appointment pertence sempre a um Contact e (opcionalmente) a um Lead.
 model Appointment {
-  id            String            @id @default(cuid())
-  workspaceId   String
-  contactId     String
-  leadId        String?
-  assignedToId  String?
+  id             String            @id @default(cuid())
+  workspaceId    String
+  contactId      String
+  leadId         String?
+  assignedToId   String?
   // Ex: "Consulta de rotina", "Reuniao de proposta", "Sessao de fisioterapia"
-  title         String
-  description   String?
+  title          String
+  description    String?
   // Localizacao/sala/link de videochamada. Texto livre.
-  location      String?
+  location       String?
   // Data e hora de inicio (armazenada em UTC).
-  startsAt      DateTime
+  startsAt       DateTime
   // Duracao em minutos. Default 30.
-  durationMin   Int               @default(30)
-  status        AppointmentStatus @default(SCHEDULED)
+  durationMin    Int               @default(30)
+  status         AppointmentStatus @default(SCHEDULED)
   // Marca se ja foi enviado o lembrete via WhatsApp (para nao duplicar)
   reminderSentAt DateTime?
   // Notas apos a marcacao (relato, receita, proximos passos)
-  notes         String?
+  notes          String?
   // Marcada pela Leizy? Se true, a recepcao ve indicador visual e o
   // createdById fica null (nenhum humano criou).
-  createdByAi   Boolean           @default(false)
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  createdById   String?
+  createdByAi    Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  createdById    String?
 
   workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contact    Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -1472,11 +1472,11 @@ model Appointment {
 }
 
 enum AppointmentStatus {
-  SCHEDULED   // agendada, ainda por confirmar
-  CONFIRMED   // cliente confirmou
-  COMPLETED   // aconteceu
-  CANCELED    // cancelada por qualquer lado antes da hora
-  NO_SHOW     // cliente nao apareceu
+  SCHEDULED // agendada, ainda por confirmar
+  CONFIRMED // cliente confirmou
+  COMPLETED // aconteceu
+  CANCELED // cancelada por qualquer lado antes da hora
+  NO_SHOW // cliente nao apareceu
 }
 
 // Base de conhecimento da Leizy (Sprint 4 do cumprimento do manual).
@@ -1485,23 +1485,23 @@ enum AppointmentStatus {
 // e fatiado em chunks (KnowledgeChunk) que sao pesquisaveis via full-text
 // search do Postgres e injectados no prompt da Leizy quando relevantes.
 model KnowledgeDocument {
-  id           String    @id @default(cuid())
-  workspaceId  String
-  title        String
+  id          String   @id @default(cuid())
+  workspaceId String
+  title       String
   // Texto completo em UTF-8 (extraido de PDF ou copy-paste directo)
-  content      String
+  content     String
   // Categoria livre para o admin organizar. Ex: 'precos', 'procedimentos',
   // 'planos-saude', 'protocolos'. Nao filtra a pesquisa, so ajuda a listar.
-  category     String?
-  sourceType   String    @default("text")  // 'text' | 'pdf' | 'docx'
-  sourceUrl    String?   // se veio de upload, url do ficheiro guardado
-  fileSizeKb   Int       @default(0)
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  createdById  String?
+  category    String?
+  sourceType  String   @default("text") // 'text' | 'pdf' | 'docx'
+  sourceUrl   String? // se veio de upload, url do ficheiro guardado
+  fileSizeKb  Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
 
-  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   chunks    KnowledgeChunk[]
 
   @@index([workspaceId, isActive])
@@ -1511,15 +1511,15 @@ model KnowledgeDocument {
 // Chunk pesquisavel. Cria-se ~1 chunk por 500 palavras. O campo `content`
 // tem indice GIN para full-text search em portugues.
 model KnowledgeChunk {
-  id           String   @id @default(cuid())
-  workspaceId  String
-  documentId   String
+  id          String   @id @default(cuid())
+  workspaceId String
+  documentId  String
   // Indice do chunk dentro do documento (para debug / ordem)
-  chunkIndex   Int
-  content      String
+  chunkIndex  Int
+  content     String
   // Cache de palavras-chave para melhorar match. Array de palavras lowercase.
-  keywords     String[] @default([])
-  createdAt    DateTime @default(now())
+  keywords    String[] @default([])
+  createdAt   DateTime @default(now())
 
   workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   document  KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -1534,36 +1534,38 @@ model KnowledgeChunk {
 // mes em que o dinheiro entrou: e nele que contam os 25% de comissao.
 
 model FinanceSettings {
-  workspaceId        String   @id
-  commissionRate     Float    @default(0.25)
-  perNewStudent      Float    @default(250)
-  perNewStudentName  String   @default("Lucília")
-  perNewStudentFrom  String   @default("2026-01")
-  workingCapital     Float    @default(1200000)
-  sealPrevidencia    Float    @default(0.3)
-  sealOportunidade   Float    @default(0.1)
-  sealDono           Float    @default(0.2)
-  sealExpansao       Float    @default(0.4)
+  workspaceId          String   @id
+  commissionRate       Float    @default(0.25)
+  perNewStudent        Float    @default(250)
+  perNewStudentName    String   @default("Lucília")
+  perNewStudentFrom    String   @default("2026-01")
+  workingCapital       Float    @default(1200000)
+  sealPrevidencia      Float    @default(0.3)
+  sealOportunidade     Float    @default(0.1)
+  sealDono             Float    @default(0.2)
+  sealExpansao         Float    @default(0.4)
   // [{ name, amount, startPeriod, endPeriod? }]
-  fixedSalaries      Json     @default("[]")
-  proLabore          Float    @default(50000)
-  proLaboreFrom      String   @default("2025-11")
-  couponValidityDays Int      @default(30)
-  couponDiscount     Float    @default(500)
+  fixedSalaries        Json     @default("[]")
+  proLabore            Float    @default(50000)
+  proLaboreFrom        String   @default("2025-11")
+  couponValidityDays   Int      @default(30)
+  couponDiscount       Float    @default(500)
   // Fases do metodo, pela ordem: [{ id, name }]. Vazio = as 7 fases originais (ids 1-7).
   // O id nunca muda nem se reutiliza: e o que fica gravado em FinanceStudent.currentPhase.
-  studentPhases      Json     @default("[]")
-  phaseNextId        Int      @default(8)
+  studentPhases        Json     @default("[]")
+  phaseNextId          Int      @default(8)
   // Preparacao para defesa: numero de salas, quem tem de escolher sessoes (ids de User)
   // e o maximo de colaboradores por sessao (0 = sem limite).
-  defenseRooms        Int      @default(2)
-  defenseParticipants Json     @default("[]")
-  defenseMaxPerSession Int     @default(0)
+  defenseRooms         Int      @default(2)
+  defenseParticipants  Json     @default("[]")
+  defenseMaxPerSession Int      @default(0)
   // Horario por dia da semana, popup (hora, minimo, bloquear ou lembrar) e nomes das salas. Vazio = valores por defeito.
-  defenseConfig       Json     @default("{}")
+  defenseConfig        Json     @default("{}")
   // Necessidades de formacao escritas no relatorio mensal: { "2026-11": { "<associateId>": "texto" } }
-  trainingNotes      Json     @default("{}")
-  updatedAt          DateTime @updatedAt
+  trainingNotes        Json     @default("{}")
+  // Parte final de cada pacote que e da preparacao para defesa: { "Completo": 5000, "Intermédio": 4000, "Essencial": 3000 }. Vazio = estes valores.
+  defenseShares        Json     @default("{}")
+  updatedAt            DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -1581,10 +1583,12 @@ model FinanceAssociate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  students  FinanceStudent[]
-  entries   FinanceEntry[]
-  salaryPayments FinanceSalaryPayment[]
+  workspace       Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  students        FinanceStudent[]
+  entries         FinanceEntry[]
+  salaryPayments  FinanceSalaryPayment[]
+  defenseStudents FinanceStudent[]       @relation("DefenseStudents")
+  defenseEntries  FinanceEntry[]         @relation("DefenseEntries")
 
   @@unique([workspaceId, code])
   @@index([workspaceId, userId])
@@ -1592,44 +1596,51 @@ model FinanceAssociate {
 }
 
 model FinanceStudent {
-  id               String    @id @default(cuid())
-  workspaceId      String
-  code             String
-  name             String
-  gender           String?
-  whatsapp         String?
-  associateId      String?
-  contactId        String?
-  faculty          String?
-  course           String?
-  theme            String?
-  entryDate        DateTime?
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  code               String
+  name               String
+  gender             String?
+  whatsapp           String?
+  associateId        String?
+  contactId          String?
+  faculty            String?
+  course             String?
+  theme              String?
+  entryDate          DateTime?
   // Venda da Lucilia (recebe o valor fixo). null = dados antigos: conta se tiver data de entrada.
-  sellerCredit     Boolean?
-  currentPhase     Int?
-  lastActivityAt   DateTime?
+  sellerCredit       Boolean?
+  currentPhase       Int?
+  lastActivityAt     DateTime?
   // { "1": { "status": "Entregue", "date": "2026-07-01" }, ... }
-  phases           Json      @default("{}")
-  notes            String?
-  project          String?
-  origin           String?
-  totalValue       Float     @default(0)
-  installments     Int?
-  paidAmount       Float     @default(0)
-  installmentsPaid Int       @default(0)
-  nextDueDate      DateTime?
-  status           String    @default("Em aberto")
-  source           String    @default("crm")
+  phases             Json      @default("{}")
+  notes              String?
+  project            String?
+  origin             String?
+  totalValue         Float     @default(0)
+  installments       Int?
+  paidAmount         Float     @default(0)
+  installmentsPaid   Int       @default(0)
+  nextDueDate        DateTime?
+  status             String    @default("Em aberto")
+  source             String    @default("crm")
   // Dia em que o trabalho ficou concluido (automatico quando a ultima fase fica "Entregue"; editavel).
-  completedAt      DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  completedAt        DateTime?
+  // Pacote (Completo | Intermédio | Essencial): a parte final do valor e da preparacao para defesa.
+  packageTier        String?
+  // Associado da preparacao para defesa: recebe a comissao dos pagamentos que caem na parte final.
+  defenseAssociateId String?
+  // true = valor pago, parcelas e estado calculados sozinhos a partir dos lancamentos ligados (novos estudantes).
+  ledgerBalance      Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  associate FinanceAssociate? @relation(fields: [associateId], references: [id], onDelete: SetNull)
-  entries   FinanceEntry[]
-  events    FinanceStudentEvent[]
-  defenseSessions DefenseSession[]
+  workspace        Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  associate        FinanceAssociate?     @relation(fields: [associateId], references: [id], onDelete: SetNull)
+  defenseAssociate FinanceAssociate?     @relation("DefenseStudents", fields: [defenseAssociateId], references: [id], onDelete: SetNull)
+  entries          FinanceEntry[]
+  events           FinanceStudentEvent[]
+  defenseSessions  DefenseSession[]
 
   @@unique([workspaceId, code])
   @@index([workspaceId, associateId])
@@ -1637,31 +1648,36 @@ model FinanceStudent {
 }
 
 model FinanceEntry {
-  id               String    @id @default(cuid())
-  workspaceId      String
-  period           String
-  date             DateTime?
-  description      String?
-  type             String
-  category         String?
-  potentialRevenue Float     @default(0)
-  expense          Float     @default(0)
-  revenue          Float     @default(0)
-  commission       Float     @default(0)
-  associateId      String?
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  period             String
+  date               DateTime?
+  description        String?
+  type               String
+  category           String?
+  potentialRevenue   Float     @default(0)
+  expense            Float     @default(0)
+  revenue            Float     @default(0)
+  commission         Float     @default(0)
+  associateId        String?
   // Texto original quando o comissionista nao corresponde a um associado.
-  commissionistRaw String?
-  paymentMethod    String?
-  notes            String?
-  studentId        String?
-  source           String    @default("crm")
-  createdById      String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  commissionistRaw   String?
+  paymentMethod      String?
+  notes              String?
+  studentId          String?
+  // Parte deste pagamento que cai na parte final do pacote (preparacao para defesa) e a comissao dela.
+  defenseAmount      Float     @default(0)
+  defenseCommission  Float     @default(0)
+  defenseAssociateId String?
+  source             String    @default("crm")
+  createdById        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  associate FinanceAssociate? @relation(fields: [associateId], references: [id], onDelete: SetNull)
-  student   FinanceStudent?   @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  associate        FinanceAssociate? @relation(fields: [associateId], references: [id], onDelete: SetNull)
+  defenseAssociate FinanceAssociate? @relation("DefenseEntries", fields: [defenseAssociateId], references: [id], onDelete: SetNull)
+  student          FinanceStudent?   @relation(fields: [studentId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, period])
   @@index([studentId])

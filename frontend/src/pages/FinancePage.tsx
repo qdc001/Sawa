@@ -9,6 +9,7 @@ import { errMsg, Summary } from '../components/finance/shared';
 import { FinanceCommissions, FinanceMonths, FinanceOverview } from '../components/finance/FinanceOverview';
 import FinanceLedger from '../components/finance/FinanceLedger';
 import FinanceStudents from '../components/finance/FinanceStudents';
+import { DEFAULT_DEFENSE_SHARES } from '../components/finance/shared';
 import FinancePhaseBoard from '../components/finance/FinancePhaseBoard';
 import FinanceReports from '../components/finance/FinanceReports';
 import { FinanceCoupons, FinanceDistribution, FinanceInvestments, FinanceMine, FinanceProgram, FinanceSettings } from '../components/finance/FinanceOther';
@@ -113,7 +114,8 @@ export default function FinancePage() {
           {tab === 'ledger' && data && <FinanceLedger data={data} reload={load} />}
           {(tab === 'students' || tab === 'installments') && (
             <FinanceStudents mode={tab} associates={data?.associates || []} rate={data?.settings.commissionRate ?? 0.25} canEdit={isAdmin} onChanged={load}
-              creditName={data?.settings.perNewStudentName ?? 'Lucília'} creditValue={data?.settings.perNewStudent ?? 250} />
+              creditName={data?.settings.perNewStudentName ?? 'Lucília'} creditValue={data?.settings.perNewStudent ?? 250}
+              shares={data?.settings.defenseShares ?? DEFAULT_DEFENSE_SHARES} />
           )}
           {tab === 'phases' && <FinancePhaseBoard associates={data?.associates || []} canEdit />}
           {tab === 'reports' && data && <FinanceReports associates={data.associates} />}

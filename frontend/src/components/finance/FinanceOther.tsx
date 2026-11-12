@@ -3,10 +3,7 @@ import toast from 'react-hot-toast';
 import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import api from '../../lib/api';
-import {
-  Badge, CHART_GRID, CHART_TICK, dateLabel, errMsg, Field, FixedSalary, inputSm, Kpi, Modal, monthLabel, monthShort, mzn, num,
-  Phase, reloadPhases, setPhasesCache, Settings, Summary, Td, Th, today, tooltipStyle, usePhases, WALLETS,
-} from './shared';
+import { Badge, CHART_GRID, CHART_TICK, dateLabel, errMsg, Field, FixedSalary, inputSm, Kpi, Modal, monthLabel, monthShort, mzn, num, Phase, reloadPhases, setPhasesCache, Settings, Summary, Td, Th, today, tooltipStyle, usePhases, WALLETS, PACKAGE_TIERS, DEFAULT_DEFENSE_SHARES } from './shared';
 import { PHASE_STATES } from './FinanceStudents';
 
 // ---------- Programa (Painel + Associados + Estatisticas) ----------
@@ -383,26 +380,59 @@ export function FinanceCoupons() {
 
 // ---------- O meu resumo ----------
 export function FinanceMine() {
-  const [data, setData] = useState<{ associate: { code: string; name: string } | null; months: { period: string; commission: number; revenue: number; payments: number }[] } | null>(null);
+  const [data, setData] = useState<{
+    associate: { code: string; name: string } | null;
+    months: { period: string; commission: number; revenue: number; payments: number; defenseCommission: number; defenseAmount: number; defensePayments: number }[];
+    defenseStudents: { code: string; name: string; packageTier: string | null; totalValue: number; paidAmount: number; ledgerBalance: boolean; share: number; startsAt: number; received: number; commission: number }[];
+  } | null>(null);
   useEffect(() => { api.get('/finance/me').then(({ data: d }) => setData(d)).catch((e) => toast.error(errMsg(e))); }, []);
   if (!data) return <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div>;
   if (!data.associate) return <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>A tua conta ainda não está ligada a um associado. Pede ao administrador para fazer a ligação.</div>;
+  const hasDefense = data.defenseStudents.length > 0 || data.months.some((m) => m.defenseCommission);
+  const sum = (k: 'payments' | 'revenue' | 'commission' | 'defenseAmount' | 'defenseCommission') => data.months.reduce((a, m) => a + m[k], 0);
   return (
-    <div className="card p-4 overflow-x-auto">
-      <h3 className="font-semibold text-sm mb-1">O meu desempenho do lote · {data.associate.name} ({data.associate.code})</h3>
-      <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>A tua comissão de cada pagamento recebido, no mês em que foi pago.</p>
-      <table className="w-full">
-        <thead><tr><Th>Mês</Th><Th right>Pagamentos</Th><Th right>Valor recebido</Th><Th right>Comissão</Th></tr></thead>
-        <tbody>
-          {data.months.map((m) => <tr key={m.period}><Td bold>{monthLabel(m.period)}</Td><Td right>{m.payments}</Td><Td right>{num(m.revenue)}</Td><Td right bold>{num(m.commission)}</Td></tr>)}
-          {data.months.length > 1 && (
-            <tr>
-              <Td bold>Total</Td><Td right bold>{data.months.reduce((a, m) => a + m.payments, 0)}</Td>
-              <Td right bold>{num(data.months.reduce((a, m) => a + m.revenue, 0))}</Td><Td right bold>{num(data.months.reduce((a, m) => a + m.commission, 0))}</Td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+    <div className="space-y-4">
+      <div className="card p-4 overflow-x-auto">
+        <h3 className="font-semibold text-sm mb-1">O meu desempenho do lote · {data.associate.name} ({data.associate.code})</h3>
+        <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+          A tua comissão de cada pagamento recebido, no mês em que foi pago.{hasDefense && ' A preparação para defesa conta só a parte final de cada pacote.'}
+        </p>
+        <table className="w-full">
+          <thead><tr>
+            <Th>Mês</Th><Th right>Pagamentos</Th><Th right>Valor recebido</Th><Th right>Comissão</Th>
+            {hasDefense && <><Th right>Parte da defesa</Th><Th right>Comissão da defesa</Th><Th right>Total</Th></>}
+          </tr></thead>
+          <tbody>
+            {data.months.map((m) => (
+              <tr key={m.period}>
+                <Td bold>{monthLabel(m.period)}</Td><Td right>{m.payments}</Td><Td right>{num(m.revenue)}</Td><Td right bold={!hasDefense}>{num(m.commission)}</Td>
+                {hasDefense && <><Td right>{num(m.defenseAmount)}</Td><Td right>{num(m.defenseCommission)}</Td><Td right bold>{num(m.commission + m.defenseCommission)}</Td></>}
+              </tr>
+            ))}
+            {data.months.length > 1 && (
+              <tr>
+                <Td bold>Total</Td><Td right bold>{sum('payments')}</Td><Td right bold>{num(sum('revenue'))}</Td><Td right bold>{num(sum('commission'))}</Td>
+                {hasDefense && <><Td right bold>{num(sum('defenseAmount'))}</Td><Td right bold>{num(sum('defenseCommission'))}</Td><Td right bold>{num(sum('commission') + sum('defenseCommission'))}</Td></>}
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {data.defenseStudents.length > 0 && (
+        <div className="card p-4 overflow-x-auto">
+          <h3 className="font-semibold text-sm mb-1">Os meus estudantes da preparação para defesa</h3>
+          <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>A tua parte começa quando o estudante já pagou o valor em "Começa depois de".</p>
+          <table className="w-full">
+            <thead><tr><Th>ID</Th><Th>Estudante</Th><Th>Pacote</Th><Th right>Valor total</Th><Th right>Pago</Th><Th right>Começa depois de</Th><Th right>Parte da defesa</Th><Th right>Já entrou</Th><Th right>A tua comissão</Th></tr></thead>
+            <tbody>{data.defenseStudents.map((s) => (
+              <tr key={s.code}>
+                <Td>{s.code}</Td><Td bold>{s.name}</Td><Td>{s.packageTier || '—'}</Td><Td right>{num(s.totalValue)}</Td><Td right>{num(s.paidAmount)}</Td>
+                <Td right>{s.share ? num(s.startsAt) : '—'}</Td><Td right>{num(s.share)}</Td><Td right>{num(s.received)}</Td><Td right bold>{num(s.commission)}</Td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -547,6 +577,7 @@ export function FinanceSettings({ data, reload }: { data: Summary; reload: () =>
     couponValidityDays: String(s.couponValidityDays), couponDiscount: String(s.couponDiscount),
   });
   const [fixed, setFixed] = useState<FixedSalary[]>(s.fixedSalaries);
+  const [shares, setShares] = useState<Record<string, string>>(() => Object.fromEntries(PACKAGE_TIERS.map((t) => [t, String(s.defenseShares?.[t] ?? DEFAULT_DEFENSE_SHARES[t])])));
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
   const input = (k: keyof typeof f, type = 'number') => <input className="input-base" type={type} value={f[k]} onChange={(e) => set(k, e.target.value)} />;
@@ -558,6 +589,7 @@ export function FinanceSettings({ data, reload }: { data: Summary; reload: () =>
       await api.put('/finance/settings', {
         ...f, commissionRate: pctToRate(f.commissionRate), sealPrevidencia: pctToRate(f.sealPrevidencia), sealOportunidade: pctToRate(f.sealOportunidade),
         sealDono: pctToRate(f.sealDono), sealExpansao: pctToRate(f.sealExpansao), fixedSalaries: fixed,
+        defenseShares: Object.fromEntries(PACKAGE_TIERS.map((t) => [t, Number(shares[t]) || 0])),
       });
       toast.success('Definições guardadas');
       reload();
@@ -600,6 +632,20 @@ export function FinanceSettings({ data, reload }: { data: Summary; reload: () =>
                 <input className="input-base" style={inputSm} type="month" title="Até (opcional)" value={x.endPeriod || ''} onChange={(e) => editFixed(i, 'endPeriod', e.target.value)} />
                 <button onClick={() => setFixed((p) => p.filter((_, j) => j !== i))} aria-label="Remover"><Trash2 size={13} style={{ color: '#EF4444' }} /></button>
               </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <h4 className="text-sm font-semibold mb-1">Preparação para defesa: parte final de cada pacote</h4>
+          <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+            Quando o estudante já pagou o total menos este valor, cada metical seguinte conta para o associado de defesa (recebe {f.commissionRate || 0}% dessa parte).
+            Só nos estudantes com saldo pelos lançamentos, pacote e associado de defesa.
+          </p>
+          <div className="grid grid-cols-3 gap-3 max-w-lg">
+            {PACKAGE_TIERS.map((t) => (
+              <Field key={t} label={t}>
+                <input className="input-base" type="number" min={0} value={shares[t]} onChange={(e) => setShares((p) => ({ ...p, [t]: e.target.value }))} />
+              </Field>
             ))}
           </div>
         </div>
