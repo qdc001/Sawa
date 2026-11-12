@@ -25,6 +25,7 @@ import api, { Lead, Pipeline, Stage, CustomField, CustomFieldType, User } from '
 import { LeadScoreBadge } from '../lib/leadScore';
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
+import { getSocket } from '../lib/socket';
 
 // ============== Hook: pan-scroll com botao do rato ==============
 // scrollButton: 0 = esquerdo, 1 = meio, 2 = direito; -1 = desactivado
@@ -298,8 +299,8 @@ function ManageStagesModal({
         stages.map((s) => {
           const original = pipeline.stages.find((o) => o.id === s.id);
           if (!original) return null;
-          if (original.name !== s.name || original.color !== s.color) {
-            return api.patch(`/stages/${s.id}`, { name: s.name, color: s.color });
+          if (original.name !== s.name || original.color !== s.color || (original.moveMessage || '') !== (s.moveMessage || '')) {
+            return api.patch(`/stages/${s.id}`, { name: s.name, color: s.color, moveMessage: s.moveMessage || null });
           }
           return null;
         })
@@ -368,12 +369,13 @@ function ManageStagesModal({
         </div>
 
         <div className="space-y-2 mb-4">
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Mensagem ao entrar na etapa: enviada por WhatsApp ao contacto do lead quando o mover para esta etapa, se a caixinha
+            "Enviar mensagem ao mover" estiver marcada no Pipeline. Pode usar {'{nome}'}, {'{nome_completo}'}, {'{etapa}'} e {'{pipeline}'}.
+          </p>
           {stages.map((stage) => (
-            <div
-              key={stage.id}
-              className="flex items-center gap-2 p-2 rounded"
-              style={{ background: 'var(--surface-2)' }}
-            >
+            <div key={stage.id} className="p-2 rounded space-y-2" style={{ background: 'var(--surface-2)' }}>
+            <div className="flex items-center gap-2">
               <input
                 type="color"
                 value={stage.color}
@@ -402,6 +404,16 @@ function ManageStagesModal({
               >
                 <Trash2 size={16} style={{ color: '#EF4444' }} />
               </button>
+            </div>
+            <textarea
+              value={stage.moveMessage || ''}
+              onChange={(e) => updateField(stage.id, 'moveMessage', e.target.value)}
+              placeholder="Mensagem ao entrar nesta etapa (opcional). Ex.: Olá {nome}, o seu processo passou para a etapa {etapa}."
+              className="input-base w-full"
+              rows={2}
+              maxLength={2000}
+              style={{ fontSize: 12 }}
+            />
             </div>
           ))}
         </div>
@@ -1636,6 +1648,16 @@ export default function PipelinePage() {
     return saved !== null ? parseInt(saved, 10) : 1; // default: meio
   });
 
+  // Caixinha "Enviar mensagem ao mover": a escolha fica guardada neste computador.
+  const [sendOnMove, setSendOnMoveState] = useState<boolean>(() => {
+    try { return localStorage.getItem('pipeline:sendOnMove') === '1'; } catch { return false; }
+  });
+  const setSendOnMove = (v: boolean) => {
+    setSendOnMoveState(v);
+    try { localStorage.setItem('pipeline:sendOnMove', v ? '1' : '0'); } catch { /* sem armazenamento */ }
+  };
+  const dragging = useRef(false);
+
   const boardRef = useRef<HTMLDivElement>(null);
   useDragScroll(boardRef, scrollButton);
 
@@ -1718,6 +1740,52 @@ export default function PipelinePage() {
     loadLeads();
   }, [activePipelineId, isAggregated]);
 
+  // Tempo real: o que outra pessoa muda aparece logo (socket) e, por seguranca, volta a ler tudo de 30 em 30s.
+  useEffect(() => {
+    if (!activePipelineId || !activePipeline) return;
+    const url = isAggregated ? `/leads?limit=500` : `/leads?pipelineId=${activePipelineId}&limit=200`;
+    const refresh = () => {
+      if (document.visibilityState !== 'visible' || dragging.current) return;
+      api.get(url).then(({ data }) => { if (!dragging.current) setLeads(data.leads || []); }).catch(() => {});
+    };
+    const belongs = (l: Lead) => isAggregated || l.pipelineId === activePipelineId;
+    const upsert = (raw: any) => {
+      if (!raw?.id) return;
+      const { moveMessage: _ignored, ...l } = raw;
+      setLeads((prev) => {
+        const has = prev.some((x) => x.id === l.id);
+        if (!belongs(l)) return has ? prev.filter((x) => x.id !== l.id) : prev;
+        return has ? prev.map((x) => (x.id === l.id ? l : x)) : [l, ...prev];
+      });
+    };
+    const remove = (d: any) => setLeads((prev) => prev.filter((x) => x.id !== d?.id));
+    const socket = getSocket();
+    socket?.on('lead:moved', upsert);
+    socket?.on('lead:updated', upsert);
+    socket?.on('lead:created', upsert);
+    socket?.on('lead:deleted', remove);
+    const t = setInterval(refresh, 30000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('focus', refresh);
+      socket?.off('lead:moved', upsert);
+      socket?.off('lead:updated', upsert);
+      socket?.off('lead:created', upsert);
+      socket?.off('lead:deleted', remove);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePipelineId, isAggregated, !!activePipeline]);
+
+  const afterMove = (data: any) => {
+    const { moveMessage: m, ...lead } = data || {};
+    if (m) {
+      if (m.sent) toast.success(`Mensagem enviada a ${lead.contact?.firstName || 'o contacto'}`);
+      else toast.error(`Lead movido, mas a mensagem não foi enviada: ${m.error || 'erro'}`);
+    }
+    return lead as Lead;
+  };
+
   // Lead corresponde a pesquisa global?
   const matchesSearch = (lead: Lead): boolean => {
     const q = globalSearchQuery.trim().toLowerCase();
@@ -1760,10 +1828,12 @@ export default function PipelinePage() {
   const handleDragStart = (event: DragStartEvent) => {
     const lead = leads.find((l) => l.id === event.active.id);
     if (lead) setActiveDragLead(lead);
+    dragging.current = true;
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveDragLead(null);
+    dragging.current = false;
     const { active, over } = event;
     if (!over) return;
 
@@ -1835,9 +1905,10 @@ export default function PipelinePage() {
         )
       );
       try {
-        const { data } = await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId });
+        const { data } = await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId, sendMessage: sendOnMove });
         // Sincronizar com resposta completa do backend
-        setLeads((prev) => prev.map((l) => (l.id === activeLeadId ? data : l)));
+        const moved = afterMove(data);
+        setLeads((prev) => prev.map((l) => (l.id === activeLeadId ? moved : l)));
         toast.success(`Movido em "${originalPipeline.name}"`);
       } catch {
         setLeads((prev) =>
@@ -1865,8 +1936,9 @@ export default function PipelinePage() {
       )
     );
     try {
-      const { data } = await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId });
-      setLeads((prev) => prev.map((l) => (l.id === activeLeadId ? data : l)));
+      const { data } = await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId, sendMessage: sendOnMove });
+      const moved = afterMove(data);
+      setLeads((prev) => prev.map((l) => (l.id === activeLeadId ? moved : l)));
     } catch {
       setLeads((prev) =>
         prev.map((l) =>
@@ -1947,6 +2019,20 @@ export default function PipelinePage() {
           <span>Gerir Etapas</span>
         </button>
 
+        <label
+          className="flex items-center gap-1.5 text-sm cursor-pointer px-2 py-1 rounded"
+          style={{ color: 'var(--text-primary)', background: sendOnMove ? 'var(--primary-light)' : 'transparent' }}
+          title="Marcada: ao mover um lead, envia ao contacto a mensagem configurada na etapa de destino (Gerir Etapas)."
+        >
+          <input type="checkbox" checked={sendOnMove} onChange={(e) => setSendOnMove(e.target.checked)} />
+          Enviar mensagem ao mover
+          {sendOnMove && (
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              ({activePipeline.stages.filter((s) => s.moveMessage?.trim()).length} etapas com mensagem)
+            </span>
+          )}
+        </label>
+
         <div className="relative">
           <button
             onClick={() => setShowMouseSettings((v) => !v)}
@@ -2016,6 +2102,7 @@ export default function PipelinePage() {
           collisionDetection={closestCorners}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onDragCancel={() => { dragging.current = false; setActiveDragLead(null); }}
         >
           <div className="flex gap-3 h-full" style={{ minHeight: 'calc(100vh - 200px)' }}>
             {activePipeline.stages.map((stage) => (

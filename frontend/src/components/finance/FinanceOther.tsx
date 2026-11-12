@@ -389,10 +389,19 @@ export function FinanceMine() {
   if (!data.associate) return <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>A tua conta ainda não está ligada a um associado. Pede ao administrador para fazer a ligação.</div>;
   return (
     <div className="card p-4 overflow-x-auto">
-      <h3 className="font-semibold text-sm mb-2">A minha comissão · {data.associate.name} ({data.associate.code})</h3>
+      <h3 className="font-semibold text-sm mb-1">O meu desempenho do lote · {data.associate.name} ({data.associate.code})</h3>
+      <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>A tua comissão de cada pagamento recebido, no mês em que foi pago.</p>
       <table className="w-full">
         <thead><tr><Th>Mês</Th><Th right>Pagamentos</Th><Th right>Valor recebido</Th><Th right>Comissão</Th></tr></thead>
-        <tbody>{data.months.map((m) => <tr key={m.period}><Td bold>{monthLabel(m.period)}</Td><Td right>{m.payments}</Td><Td right>{num(m.revenue)}</Td><Td right bold>{num(m.commission)}</Td></tr>)}</tbody>
+        <tbody>
+          {data.months.map((m) => <tr key={m.period}><Td bold>{monthLabel(m.period)}</Td><Td right>{m.payments}</Td><Td right>{num(m.revenue)}</Td><Td right bold>{num(m.commission)}</Td></tr>)}
+          {data.months.length > 1 && (
+            <tr>
+              <Td bold>Total</Td><Td right bold>{data.months.reduce((a, m) => a + m.payments, 0)}</Td>
+              <Td right bold>{num(data.months.reduce((a, m) => a + m.revenue, 0))}</Td><Td right bold>{num(data.months.reduce((a, m) => a + m.commission, 0))}</Td>
+            </tr>
+          )}
+        </tbody>
       </table>
     </div>
   );

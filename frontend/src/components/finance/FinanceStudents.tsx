@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Banknote, Link2, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Banknote, History, Link2, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { StudentHistoryModal } from './FinanceHistory';
 import api from '../../lib/api';
 import { Associate, Badge, dateLabel, errMsg, Field, Modal, monthLabel, mzn, num, phaseLabel, Td, Th, today, usePhases, WALLETS, inputSm } from './shared';
 
@@ -15,6 +16,7 @@ export type Student = {
   phases: Record<string, { status?: string; date?: string }>; notes: string | null; project: string | null; origin: string | null;
   totalValue: number; installments: number | null; paidAmount: number; installmentsPaid: number; nextDueDate: string | null;
   status: string; balance: number; associate: { id: string; code: string; name: string } | null; contactId: string | null;
+  completedAt: string | null;
 };
 
 function StudentModal({ student, associates, creditName, creditValue, onClose, onSaved }: { student: Student | null; associates: Associate[]; creditName: string; creditValue: number; onClose: () => void; onSaved: () => void }) {
@@ -24,7 +26,7 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
     faculty: s?.faculty || '', course: s?.course || '', theme: s?.theme || '', entryDate: s ? s.entryDate?.slice(0, 10) || '' : today(),
     currentPhase: s?.currentPhase ? String(s.currentPhase) : '', lastActivityAt: s?.lastActivityAt?.slice(0, 10) || '', notes: s?.notes || '',
     project: s?.project || '', origin: s?.origin || '', totalValue: s ? String(s.totalValue) : '', installments: s?.installments ? String(s.installments) : '',
-    nextDueDate: s?.nextDueDate?.slice(0, 10) || '',
+    nextDueDate: s?.nextDueDate?.slice(0, 10) || '', completedAt: s?.completedAt?.slice(0, 10) || '',
   });
   const [sellerCredit, setCredit] = useState(s ? (s.sellerCredit ?? !!s.entryDate) : false);
   const phaseList = usePhases() || [];
@@ -45,10 +47,12 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
     setBusy(true);
     try {
       // A fase so vai se mudou aqui, com a de origem: assim nao apaga uma mudanca feita no quadro.
-      const { currentPhase, ...rest } = f;
+      const { currentPhase, completedAt, ...rest } = f;
       const origPhase = s?.currentPhase ? String(s.currentPhase) : '';
       const phaseBody = !s ? { currentPhase } : currentPhase !== origPhase ? { currentPhase, currentPhaseFrom: origPhase } : {};
-      const body = { ...rest, ...phaseBody, associateId: f.associateId || null, phases, sellerCredit };
+      // A data de conclusao so vai se mudou: vazia, o CRM preenche quando a ultima fase fica "Entregue".
+      const doneBody = completedAt !== (s?.completedAt?.slice(0, 10) || '') ? { completedAt: completedAt || null } : {};
+      const body = { ...rest, ...phaseBody, ...doneBody, associateId: f.associateId || null, phases, sellerCredit };
       if (s) await api.patch(`/finance/students/${s.id}`, body);
       else await api.post('/finance/students', body);
       toast.success('Guardado');
@@ -98,7 +102,7 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
         </div>
         <div>
           <h4 className="text-sm font-semibold mb-2">Fases do Método M.E.T.A.</h4>
-          <div className="mb-2 max-w-xs">
+          <div className="mb-2 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg">
             <Field label="Fase actual">
               <select className="input-base" value={f.currentPhase} onChange={(e) => set('currentPhase', e.target.value)}>
                 <option value="">Sem fase</option>
@@ -106,7 +110,9 @@ function StudentModal({ student, associates, creditName, creditValue, onClose, o
                 {phaseList.map((p, i) => <option key={p.id} value={String(p.id)}>F{i + 1} · {p.name}</option>)}
               </select>
             </Field>
+            <Field label="Trabalho concluído em">{input('completedAt', 'date')}</Field>
           </div>
+          <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>Fica preenchido sozinho quando a última fase passa a "Entregue". Pode ser posto à mão (ex.: Simulação, Revisão).</p>
           <div className="space-y-1.5">
             {phaseList.map((p, i) => (
               <div key={p.id} className="grid grid-cols-[1fr_130px_140px] gap-2 items-center">
@@ -269,6 +275,7 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
   const [edit, setEdit] = useState<{ student: Student | null } | null>(null);
   const [pay, setPay] = useState<Student | null>(null);
   const [linking, setLinking] = useState(false);
+  const [history, setHistory] = useState<Student | null>(null);
   const phaseList = usePhases();
   const closeLink = useCallback(() => setLinking(false), []);
 
@@ -306,11 +313,16 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
     } catch (e) { toast.error(errMsg(e)); }
   };
 
-  const actions = (r: Student) => canEdit && (
+  const actions = (r: Student) => (
     <span className="flex gap-2">
-      <button onClick={() => setPay(r)} title="Registar pagamento" aria-label="Registar pagamento"><Banknote size={14} style={{ color: '#10B981' }} /></button>
-      <button onClick={() => setEdit({ student: r })} aria-label="Editar"><Pencil size={13} /></button>
-      <button onClick={() => remove(r)} aria-label="Eliminar"><Trash2 size={13} style={{ color: '#EF4444' }} /></button>
+      <button onClick={() => setHistory(r)} title="Histórico: revisões, questões, correcções, defesas" aria-label="Histórico"><History size={14} style={{ color: 'var(--primary)' }} /></button>
+      {canEdit && (
+        <>
+          <button onClick={() => setPay(r)} title="Registar pagamento" aria-label="Registar pagamento"><Banknote size={14} style={{ color: '#10B981' }} /></button>
+          <button onClick={() => setEdit({ student: r })} aria-label="Editar"><Pencil size={13} /></button>
+          <button onClick={() => remove(r)} aria-label="Eliminar"><Trash2 size={13} style={{ color: '#EF4444' }} /></button>
+        </>
+      )}
     </span>
   );
 
@@ -372,6 +384,7 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
       )}
       {edit && <StudentModal student={edit.student} associates={associates} creditName={creditName} creditValue={creditValue} onClose={() => setEdit(null)} onSaved={changed} />}
       {linking && <LinkModal onClose={closeLink} onSaved={changed} />}
+      {history && <StudentHistoryModal student={history} onClose={() => setHistory(null)} />}
       {pay && <PaymentModal student={pay} associates={associates} rate={rate} onClose={() => setPay(null)} onSaved={changed} />}
     </div>
   );

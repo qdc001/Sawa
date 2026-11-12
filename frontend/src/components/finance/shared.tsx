@@ -88,6 +88,31 @@ export const monthShort = (p: string) => `${monthName(p).slice(0, 3)}/${p.slice(
 export const dateLabel = (d: string | null | undefined) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '—');
 export const today = () => new Date().toISOString().slice(0, 10);
 export const errMsg = (e: any, fallback = 'Erro') => e?.response?.data?.message || fallback;
+export function addDays(day: string, n: number) {
+  const d = new Date(`${day}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+// Segunda-feira da semana do dia indicado.
+export const mondayOf = (day: string) => addDays(day, -((new Date(`${day}T00:00:00.000Z`).getUTCDay() + 6) % 7));
+// Dia de hoje em Maputo (UTC+2), igual ao do servidor.
+export const maputoToday = () => new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 10);
+// Baixa um ficheiro gerado pelo servidor. Se der erro, le a mensagem que vem dentro do blob.
+export async function downloadFile(url: string, params: Record<string, string>, filename: string) {
+  try {
+    const { data } = await api.get(url, { params, responseType: 'blob', timeout: 120000 });
+    const u = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = u;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(u), 1000);
+  } catch (e: any) {
+    let msg = 'Não foi possível baixar o ficheiro';
+    try { msg = JSON.parse(await e?.response?.data?.text())?.message || msg; } catch { /* sem mensagem */ }
+    throw new Error(msg);
+  }
+}
 
 export const CHART_GRID = 'var(--border)';
 export const CHART_TICK = { fontSize: 11, fill: 'var(--text-muted)' };

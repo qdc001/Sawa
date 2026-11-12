@@ -14,7 +14,14 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
-    const stage = await prisma.stage.update({ where: { id: req.params.id }, data: req.body });
+    const cur = await prisma.stage.findFirst({ where: { id: req.params.id, pipeline: { workspaceId: req.user!.workspaceId } }, select: { id: true } });
+    if (!cur) return res.status(404).json({ message: 'Etapa não encontrada' });
+    const data: any = {};
+    for (const k of ['name', 'color', 'position', 'type']) if (req.body?.[k] !== undefined) data[k] = req.body[k];
+    if (req.body?.moveMessage !== undefined) {
+      data.moveMessage = typeof req.body.moveMessage === 'string' ? req.body.moveMessage.trim().slice(0, 2000) || null : null;
+    }
+    const stage = await prisma.stage.update({ where: { id: cur.id }, data });
     res.json(stage);
   } catch (e) { next(e); }
 });

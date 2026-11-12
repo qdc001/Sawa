@@ -5,6 +5,7 @@ import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewLead } from '../lib/notify';
 import { propagateAssignee } from '../lib/propagateAssignee';
 import { notifyWhatsAppAssignment } from '../lib/dailyTaskDigest';
+import { fillTemplate, sendTextToContact } from '../lib/contactMessage';
 
 import prisma from '../lib/prisma';
 const router = Router();
@@ -232,10 +233,13 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
 // PATCH /api/leads/:id/move
 router.patch('/:id/move', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { stageId, pipelineId } = req.body;
+    const { stageId, pipelineId, sendMessage } = req.body;
 
+    const existing = await prisma.lead.findFirst({ where: { id: req.params.id, workspaceId: req.user!.workspaceId }, select: { stageId: true } });
+    if (!existing) throw new AppError('Lead não encontrado', 404);
     // Determinar novo status com base no tipo da nova etapa
-    const stage = await prisma.stage.findUnique({ where: { id: stageId } });
+    const stage = await prisma.stage.findFirst({ where: { id: stageId, pipeline: { workspaceId: req.user!.workspaceId } }, include: { pipeline: { select: { name: true } } } });
+    if (!stage) throw new AppError('Etapa não encontrada', 404);
     let statusUpdate: any = {};
     if (stage) {
       if (stage.type === 'WON') {
@@ -268,7 +272,23 @@ router.patch('/:id/move', async (req: AuthRequest, res: Response, next) => {
     if (stage?.type === 'WON') triggerAutomations({ type: 'lead_won', workspaceId: wsId, entityType: 'lead', entityId: lead.id }).catch(() => {});
     if (stage?.type === 'LOST') triggerAutomations({ type: 'lead_lost', workspaceId: wsId, entityType: 'lead', entityId: lead.id }).catch(() => {});
 
-    res.json(lead);
+    // Caixinha "Enviar mensagem ao mover" marcada no Pipeline: manda a mensagem configurada na etapa.
+    let messageResult: { sent: boolean; error?: string } | null = null;
+    if (sendMessage === true && existing.stageId !== stageId && stage.moveMessage?.trim()) {
+      if (!lead.contactId) messageResult = { sent: false, error: 'O lead não tem contacto' };
+      else {
+        const content = fillTemplate(stage.moveMessage, {
+          nome: lead.contact?.firstName, nome_completo: [lead.contact?.firstName, lead.contact?.lastName].filter(Boolean).join(' '),
+          etapa: stage.name, pipeline: stage.pipeline?.name,
+        });
+        const r = content
+          ? await sendTextToContact({ io, workspaceId: wsId, userId: req.user!.id, contactId: lead.contactId, leadId: lead.id, content })
+          : { ok: false, error: 'Mensagem vazia' };
+        messageResult = { sent: r.ok, error: r.error };
+      }
+    }
+
+    res.json(messageResult ? { ...lead, moveMessage: messageResult } : lead);
   } catch (error) { next(error); }
 });
 

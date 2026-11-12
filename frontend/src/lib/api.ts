@@ -230,6 +230,7 @@ export interface Stage {
   position: number;
   type: 'REGULAR' | 'WON' | 'LOST';
   pipelineId: string;
+  moveMessage?: string | null;
 }
 
 export interface Lead {

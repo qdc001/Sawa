@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import crypto from 'crypto';
@@ -9,70 +9,25 @@ import { computeFlow, computeMonths, FinanceConfig, FixedSalary, normalizeWallet
 import { ParsedWorkbook, parseFinanceWorkbook, reconcile, SalaryPaymentCandidate, suggestSalaryPayments } from '../lib/financeImport';
 import { buildXlsx, XlsxSheet } from '../lib/xlsxWriter';
 import { planStudentLinks } from '../lib/financeLink';
+import {
+  adminOnly, assertPhase, getSettings, metaOnly, optDate, parseDate, Phase, phaseId, phaseLabel, phaseList,
+  scopeStudents, studentDto, text,
+} from '../lib/financeCommon';
+import workRoutes, { recordPhaseMove, syncCompletion } from './financeWork';
 
 const router = Router();
 
-const ADMIN_ROLES = ['OWNER', 'ADMIN'];
 const FUNDS = ['Dono', 'Previdencia', 'Oportunidade', 'Expansao', 'Empresa'];
-const DEFAULT_FIXED: FixedSalary[] = [
-  { name: 'Director técnico', amount: 10000, startPeriod: '2025-10' },
-  { name: 'Directora comercial', amount: 10000, startPeriod: '2026-01' },
-  { name: 'Directora operacional', amount: 15000, startPeriod: '2026-11' },
-  { name: 'Director de marketing', amount: 10000, startPeriod: '2026-11' },
-];
-const DEFAULT_PHASES = ['Fundação Invisível', 'Engenharia da Pesquisa', 'Plano de Ataque', 'Base Científica', 'Análise e Discussão', 'Redacção Final', 'Defesa do TCC'];
-type Phase = { id: number; name: string };
-function phaseList(s: { studentPhases: any }): Phase[] {
-  const l = s.studentPhases;
-  return Array.isArray(l) && l.length ? (l as Phase[]) : DEFAULT_PHASES.map((name, i) => ({ id: i + 1, name }));
-}
-// "F2 · Nome" pela posicao actual; uma fase apagada continua a ter texto para as mensagens.
-function phaseLabel(list: Phase[], id: number | null) {
-  if (!id) return 'Sem fase';
-  const i = list.findIndex((p) => p.id === id);
-  return i >= 0 ? `F${i + 1} · ${list[i].name}` : 'uma fase que já não existe';
-}
-function phaseId(v: any): number | null {
-  const f = v === '' || v === null || v === undefined ? null : Number(v);
-  if (f !== null && !(Number.isInteger(f) && f >= 1)) throw new AppError('Fase inválida', 400);
-  return f;
-}
-async function assertPhase(workspaceId: string, id: number | null) {
-  if (id === null) return;
-  const list = phaseList(await getSettings(workspaceId));
-  if (!list.some((p) => p.id === id)) throw new AppError('Essa fase já não existe. Actualiza a página.', 400);
-}
 const ORDINALS = ['Primeira', 'Segunda', 'Terceira', 'Quarta', 'Quinta', 'Sexta', 'Sétima', 'Oitava'];
 
-// So existe no workspace M.E.T.A.
-router.use(async (req: AuthRequest, _res: Response, next: NextFunction) => {
-  try {
-    const ws = await prisma.workspace.findUnique({ where: { id: req.user!.workspaceId }, select: { name: true } });
-    if (ws?.name.replace(/[^a-z0-9]/gi, '').toLowerCase() !== 'meta') throw new AppError('Não encontrado', 404);
-    next();
-  } catch (e) { next(e); }
-});
+router.use(metaOnly);
+router.use('/work', workRoutes);
 
-function adminOnly(req: AuthRequest, _res: Response, next: NextFunction) {
-  if (!ADMIN_ROLES.includes(req.user!.role)) return next(new AppError('Só o dono e administradores têm acesso a esta área.', 403));
-  next();
-}
-
-const isAdmin = (req: AuthRequest) => ADMIN_ROLES.includes(req.user!.role);
-
-function parseDate(v: any, label = 'Data'): Date {
-  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(v)) throw new AppError(`${label} inválida`, 400);
-  const d = new Date(`${v.slice(0, 10)}T00:00:00.000Z`);
-  if (isNaN(d.getTime())) throw new AppError(`${label} inválida`, 400);
-  return d;
-}
-const optDate = (v: any, label?: string) => (v === null || v === '' || v === undefined ? null : parseDate(v, label));
 function money(v: any, label = 'Valor'): number {
   const n = v === null || v === undefined || v === '' ? 0 : Number(v);
   if (!Number.isFinite(n) || n < 0) throw new AppError(`${label} inválido`, 400);
   return n;
 }
-const text = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 function period(v: any): string {
   if (typeof v !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) throw new AppError('Mês inválido', 400);
   return v;
@@ -81,14 +36,6 @@ function wallet(v: any): string {
   const w = normalizeWallet(v);
   if (!w) throw new AppError(`Forma de pagamento inválida. Usa: ${WALLETS.join(', ')}`, 400);
   return w;
-}
-
-async function getSettings(workspaceId: string) {
-  return prisma.financeSettings.upsert({
-    where: { workspaceId },
-    create: { workspaceId, fixedSalaries: DEFAULT_FIXED as any },
-    update: {},
-  });
 }
 
 function toConfig(s: Awaited<ReturnType<typeof getSettings>>): FinanceConfig {
@@ -350,18 +297,6 @@ router.delete('/entries/:id', adminOnly, async (req: AuthRequest, res: Response,
 });
 
 // ---------- Estudantes ----------
-function studentDto(s: any) {
-  return { ...s, balance: s.totalValue - s.paidAmount };
-}
-
-async function scopeStudents(req: AuthRequest): Promise<any> {
-  const where: any = { workspaceId: req.user!.workspaceId };
-  if (isAdmin(req)) return where;
-  const a = await prisma.financeAssociate.findFirst({ where: { workspaceId: req.user!.workspaceId, userId: req.user!.id }, select: { id: true } });
-  where.associateId = a?.id || '__nenhum__';
-  return where;
-}
-
 router.get('/students', async (req: AuthRequest, res: Response, next) => {
   try {
     const list = await prisma.financeStudent.findMany({
@@ -379,6 +314,7 @@ function studentFields(b: any) {
   if (b.entryDate !== undefined) d.entryDate = optDate(b.entryDate, 'Data de entrada');
   if (b.sellerCredit !== undefined) d.sellerCredit = !!b.sellerCredit;
   if (b.lastActivityAt !== undefined) d.lastActivityAt = optDate(b.lastActivityAt, 'Última actividade');
+  if (b.completedAt !== undefined) d.completedAt = optDate(b.completedAt, 'Data de conclusão');
   if (b.nextDueDate !== undefined) d.nextDueDate = optDate(b.nextDueDate, 'Próxima parcela');
   if (b.totalValue !== undefined) d.totalValue = money(b.totalValue, 'Valor total');
   if (b.installments !== undefined) d.installments = b.installments === '' || b.installments === null ? null : Math.max(1, Math.floor(money(b.installments, 'Nº de parcelas')));
@@ -410,6 +346,8 @@ router.post('/students', adminOnly, async (req: AuthRequest, res: Response, next
       },
       include: { associate: { select: { id: true, code: true, name: true } } },
     });
+    if (created.currentPhase) await recordPhaseMove(req, created, null, created.currentPhase, null);
+    if (fields.completedAt === undefined && (await syncCompletion(workspaceId, created.id))) return res.status(201).json(studentDto(await reloadStudent(created.id)));
     res.status(201).json(studentDto(created));
   } catch (e) { next(e); }
 });
@@ -444,12 +382,18 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
     }
     if (b.paidAmount !== undefined) data.paidAmount = money(b.paidAmount, 'Valor pago');
     if (b.installmentsPaid !== undefined) data.installmentsPaid = Math.floor(money(b.installmentsPaid, 'Parcelas pagas'));
-    const up = await prisma.financeStudent.update({
+    let up = await prisma.financeStudent.update({
       where: { id: cur.id }, data, include: { associate: { select: { id: true, code: true, name: true } } },
     });
+    if (data.currentPhase !== undefined && up.currentPhase !== cur.currentPhase) await recordPhaseMove(req, up, cur.currentPhase, up.currentPhase, null);
+    if (data.phases !== undefined && data.completedAt === undefined && (await syncCompletion(workspaceId, cur.id))) up = await reloadStudent(cur.id);
     res.json(studentDto(up));
   } catch (e) { next(e); }
 });
+
+async function reloadStudent(id: string) {
+  return prisma.financeStudent.findUniqueOrThrow({ where: { id }, include: { associate: { select: { id: true, code: true, name: true } } } });
+}
 
 router.delete('/students/:id', adminOnly, async (req: AuthRequest, res: Response, next) => {
   try {
@@ -462,24 +406,28 @@ router.delete('/students/:id', adminOnly, async (req: AuthRequest, res: Response
 });
 
 // Quadro de fases: muda so a fase actual, e so se ainda estiver na fase de onde saiu.
-router.patch('/students/:id/phase', adminOnly, async (req: AuthRequest, res: Response, next) => {
+// O associado pode mover os seus estudantes; cada mudanca fica no historico (com a nota, se houver).
+router.patch('/students/:id/phase', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
     const to = phaseId(req.body?.phase);
     const from = phaseId(req.body?.from);
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 4000) || null : null;
     await assertPhase(workspaceId, to);
+    const scope = await scopeStudents(req);
     const { count } = await prisma.financeStudent.updateMany({
-      where: { id: req.params.id, workspaceId, currentPhase: from },
-      data: { currentPhase: to },
+      where: { ...scope, id: req.params.id, currentPhase: from },
+      data: { currentPhase: to, ...(from !== to ? { lastActivityAt: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`) } : {}) },
     });
     const st = await prisma.financeStudent.findFirst({
-      where: { id: req.params.id, workspaceId }, include: { associate: { select: { id: true, code: true, name: true } } },
+      where: { ...scope, id: req.params.id }, include: { associate: { select: { id: true, code: true, name: true } } },
     });
     if (!st) throw new AppError('Estudante não encontrado', 404);
     if (!count && st.currentPhase !== to) {
       const list = phaseList(await getSettings(workspaceId));
       throw new AppError(`${st.name} já tinha sido mudado para ${phaseLabel(list, st.currentPhase)} noutro lugar. O quadro foi actualizado.`, 409);
     }
+    if (count && from !== to) await recordPhaseMove(req, st, from, to, note);
     res.json(studentDto(st));
   } catch (e) { next(e); }
 });

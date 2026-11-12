@@ -1,9 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Loader2, RefreshCw, Search } from 'lucide-react';
+import { History, Loader2, RefreshCw, Search } from 'lucide-react';
 import api from '../../lib/api';
-import { Associate, errMsg, inputSm, reloadPhases, usePhases } from './shared';
+import { addDays, Associate, dateLabel, errMsg, inputSm, maputoToday, Modal, mondayOf, phaseLabel, reloadPhases, usePhases } from './shared';
 import { Student } from './FinanceStudents';
+import { StudentHistoryModal } from './FinanceHistory';
+import { DownloadButtons } from './FinanceReports';
+
+const NOTE_KEY = 'meta.phaseBoard.writeNote';
+const readNoteMode = () => { try { return localStorage.getItem(NOTE_KEY) === '1'; } catch { return false; } };
+
+// Ao mover com a caixinha marcada: nota (opcional) que vai para o relatorio da semana.
+function MoveNoteModal({ student, toLabel, fromLabel, onCancel, onConfirm }: { student: Student; toLabel: string; fromLabel: string; onCancel: () => void; onConfirm: (note: string) => void }) {
+  const [note, setNote] = useState('');
+  return (
+    <Modal title={`Mover ${student.name}`} onClose={onCancel}>
+      <div className="space-y-3">
+        <p className="text-sm"><span style={{ color: 'var(--text-muted)' }}>{fromLabel}</span> → <b>{toLabel}</b></p>
+        <label className="block">
+          <span className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>O que foi feito / observações para o relatório (opcional)</span>
+          <textarea className="input-base" rows={4} autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex.: entregou o capítulo 2 revisto; falta a parte metodológica" />
+        </label>
+        <div className="flex gap-2">
+          <button className="btn btn-primary flex-1 justify-center" onClick={() => onConfirm(note)}>Mover{note.trim() ? ' e guardar nota' : ''}</button>
+          <button className="btn btn-outline" onClick={onCancel}>Cancelar</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 const LIMIT = 40;
 
@@ -20,6 +45,11 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const phases = usePhases();
   const dragId = useRef<string | null>(null);
+  const [noteMode, setNoteModeState] = useState(readNoteMode);
+  const setNoteMode = (v: boolean) => { setNoteModeState(v); try { localStorage.setItem(NOTE_KEY, v ? '1' : '0'); } catch { /* sem armazenamento */ } };
+  const [asking, setAsking] = useState<{ student: Student; to: number | null } | null>(null);
+  const [history, setHistory] = useState<Student | null>(null);
+  const [week, setWeek] = useState(() => mondayOf(maputoToday()));
   const pending = useRef(0);
 
   const load = useCallback((quiet = false) => {
@@ -39,7 +69,13 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
     return () => { clearInterval(t); window.removeEventListener('focus', onFocus); };
   }, [load]);
 
-  const move = async (id: string, to: number | null) => {
+  const move = (id: string, to: number | null) => {
+    const st = rows.find((r) => r.id === id);
+    if (!st || st.currentPhase === to || saving.has(id)) return;
+    if (noteMode) setAsking({ student: st, to });
+    else save(id, to, '');
+  };
+  const save = async (id: string, to: number | null, note: string) => {
     const st = rows.find((r) => r.id === id);
     if (!st || st.currentPhase === to || saving.has(id)) return;
     const from = st.currentPhase;
@@ -47,7 +83,7 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
     setSaving((s) => new Set(s).add(id));
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, currentPhase: to } : r)));
     try {
-      const { data } = await api.patch<Student>(`/finance/students/${id}/phase`, { phase: to, from });
+      const { data } = await api.patch<Student>(`/finance/students/${id}/phase`, { phase: to, from, note: note.trim() || undefined });
       setRows((rs) => rs.map((r) => (r.id === id ? data : r)));
     } catch (e) {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, currentPhase: from } : r)));
@@ -104,6 +140,22 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
         </label>
         <button className="btn btn-outline ml-auto" onClick={() => load()} title="Actualizar"><RefreshCw size={13} /> Actualizar</button>
       </div>
+      {canEdit && (
+        <div className="card p-3 flex items-center gap-3 flex-wrap">
+          <label className="flex items-center gap-2 text-sm cursor-pointer font-medium">
+            <input type="checkbox" checked={noteMode} onChange={(e) => setNoteMode(e.target.checked)} /> Escrever relatório ao mover
+          </label>
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            {noteMode ? 'Ao mover um estudante abre um campo para escreveres o que foi feito (opcional).' : 'Marcada, cada mudança de fase pede uma nota para o relatório da semana.'}
+          </span>
+          <span className="flex items-center gap-1.5 ml-auto flex-wrap">
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Relatório da semana</span>
+            <input className="input-base" style={{ ...inputSm, width: 140 }} type="date" value={week} onChange={(e) => e.target.value && setWeek(mondayOf(e.target.value))} title="Qualquer dia da semana" />
+            <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{dateLabel(week)}–{dateLabel(addDays(week, 6))}</span>
+            <DownloadButtons url="/finance/work/reports/moves" params={{ week, ...(assoc ? { associateId: assoc } : {}) }} base={`quadro-de-fases-${week}`} formats={['docx', 'pdf']} />
+          </span>
+        </div>
+      )}
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
         {canEdit ? 'Arraste o cartão para outra coluna (ou escolha a fase no cartão). ' : ''}A fase é a mesma da ficha do estudante: o que muda aqui muda lá, e o contrário.
       </p>
@@ -138,7 +190,12 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
                     >
                       <div className="flex items-center justify-between gap-1">
                         <span className="font-semibold truncate">{r.name}</span>
-                        {saving.has(r.id) ? <Loader2 size={11} className="animate-spin" /> : <span style={{ color: 'var(--text-muted)' }}>{r.code}</span>}
+                        {saving.has(r.id) ? <Loader2 size={11} className="animate-spin" /> : (
+                          <span className="flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+                            {r.code}
+                            <button onClick={() => setHistory(r)} title="Histórico: revisões, questões, correcções, defesas" aria-label="Histórico"><History size={12} style={{ color: 'var(--primary)' }} /></button>
+                          </span>
+                        )}
                       </div>
                       <div className="truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>{r.associate?.name || 'Sem associado'}{r.project ? ` · ${r.project}` : ''}</div>
                       {canEdit && (
@@ -165,6 +222,16 @@ export default function FinancePhaseBoard({ associates, canEdit }: { associates:
           })}
         </div>
       )}
+      {asking && (
+        <MoveNoteModal
+          student={asking.student}
+          fromLabel={phaseLabel(phases, asking.student.currentPhase)}
+          toLabel={phaseLabel(phases, asking.to)}
+          onCancel={() => setAsking(null)}
+          onConfirm={(note) => { const a = asking; setAsking(null); save(a.student.id, a.to, note); }}
+        />
+      )}
+      {history && <StudentHistoryModal student={history} onClose={() => setHistory(null)} />}
     </div>
   );
 }

@@ -4,8 +4,9 @@ import {
   LayoutDashboard, GitBranch, Users, MessageSquare, CheckSquare,
   Zap, Bot, BarChart3, FileText, Plug, Settings, LogOut,
   Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2, Check, Phone,
-  ScrollText, Sparkles, Wallet
+  ScrollText, Sparkles, Wallet, CalendarClock
 } from 'lucide-react';
+import DefenseGate from '../defense/DefenseGate';
 import { useAuthStore, useUIStore } from '../../store';
 import { useTerminology } from '../../lib/terminology';
 import { useIsLegacy } from '../../lib/useUiMode';
@@ -26,15 +27,17 @@ import { useIsMobile } from '../../lib/useIsMobile';
 // Sidebar operacional. `legacyOnly: true` faz o item so aparecer em
 // workspaces em modo legacy (UI antiga). Novos workspaces (clinical)
 // veem menu enxuto sem Pipeline.
-const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean; legacyOnly?: boolean; metaOnly?: boolean }[] = [
+// `alsoMeta: true` mostra um item legacyOnly tambem no workspace M.E.T.A.
+const navConfig: { path: string; icon: any; key: string; exact?: boolean; desktopOnly?: boolean; legacyOnly?: boolean; metaOnly?: boolean; alsoMeta?: boolean }[] = [
   { path: '/', icon: LayoutDashboard, key: 'nav.dashboard', exact: true },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
-  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline', desktopOnly: true, legacyOnly: true },
+  { path: '/pipeline', icon: GitBranch, key: 'nav.pipeline', desktopOnly: true, legacyOnly: true, alsoMeta: true },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
   { path: '/automations', icon: Zap, key: 'nav.automations', desktopOnly: true },
   { path: '/analytics', icon: BarChart3, key: 'nav.analytics' },
   { path: '/finance', icon: Wallet, key: 'nav.finance', metaOnly: true },
+  { path: '/defesa', icon: CalendarClock, key: 'nav.defense', metaOnly: true },
 ];
 
 // Itens de menu para o dropdown do avatar (canto superior direito).
@@ -86,7 +89,7 @@ export default function AppLayout() {
   const isLegacy = useIsLegacy();
   const navItems = navConfig
     .filter((n) => !(isMobile && n.desktopOnly))
-    .filter((n) => !(n.legacyOnly && !isLegacy))
+    .filter((n) => !(n.legacyOnly && !isLegacy && !(n.alsoMeta && isMetaWorkspace(workspace?.name))))
     .filter((n) => !n.metaOnly || isMetaWorkspace(workspace?.name))
     .map((n) => {
       // Labels dinamicas por UI mode.
@@ -96,6 +99,7 @@ export default function AppLayout() {
       else if (n.key === 'nav.inbox') label = isLegacy ? 'Caixa de Entrada' : 'Mensagens';
       else if (n.key === 'nav.tasks') label = isLegacy ? 'Tarefas' : 'Agenda';
       else if (n.key === 'nav.automations') label = isLegacy ? 'Automatizações' : 'Rotinas Automáticas';
+      else if (n.key === 'nav.defense') label = 'Preparação para defesa';
       return { ...n, label };
     });
 
@@ -595,6 +599,7 @@ export default function AppLayout() {
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
+        {isMetaWorkspace(workspace?.name) && <DefenseGate />}
       </div>
 
       {/* Copilot Panel */}

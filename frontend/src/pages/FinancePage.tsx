@@ -10,9 +10,10 @@ import { FinanceCommissions, FinanceMonths, FinanceOverview } from '../component
 import FinanceLedger from '../components/finance/FinanceLedger';
 import FinanceStudents from '../components/finance/FinanceStudents';
 import FinancePhaseBoard from '../components/finance/FinancePhaseBoard';
+import FinanceReports from '../components/finance/FinanceReports';
 import { FinanceCoupons, FinanceDistribution, FinanceInvestments, FinanceMine, FinanceProgram, FinanceSettings } from '../components/finance/FinanceOther';
 
-type Tab = 'overview' | 'months' | 'ledger' | 'students' | 'installments' | 'phases' | 'program' | 'commissions' | 'investments' | 'distribution' | 'coupons' | 'settings' | 'mine';
+type Tab = 'overview' | 'months' | 'ledger' | 'students' | 'installments' | 'phases' | 'reports' | 'program' | 'commissions' | 'investments' | 'distribution' | 'coupons' | 'settings' | 'mine';
 
 const ADMIN_TABS: { v: Tab; label: string }[] = [
   { v: 'overview', label: 'Fluxo de caixa' },
@@ -21,6 +22,7 @@ const ADMIN_TABS: { v: Tab; label: string }[] = [
   { v: 'students', label: 'Estudantes' },
   { v: 'installments', label: 'Parcelamento' },
   { v: 'phases', label: 'Quadro de fases' },
+  { v: 'reports', label: 'Relatórios' },
   { v: 'program', label: 'Painel e Associados' },
   { v: 'commissions', label: 'Desempenho do lote' },
   { v: 'investments', label: 'Investimentos' },
@@ -28,11 +30,11 @@ const ADMIN_TABS: { v: Tab; label: string }[] = [
   { v: 'coupons', label: 'Cupões' },
   { v: 'settings', label: 'Definições' },
 ];
+// Abaixo de admin: so os seus estudantes, o quadro de fases e o seu desempenho do lote.
 const MEMBER_TABS: { v: Tab; label: string }[] = [
-  { v: 'mine', label: 'A minha comissão' },
   { v: 'students', label: 'Os meus estudantes' },
   { v: 'phases', label: 'Quadro de fases' },
-  { v: 'program', label: 'Painel' },
+  { v: 'mine', label: 'O meu desempenho do lote' },
 ];
 
 export default function FinancePage() {
@@ -108,7 +110,8 @@ export default function FinancePage() {
             <FinanceStudents mode={tab} associates={data?.associates || []} rate={data?.settings.commissionRate ?? 0.25} canEdit={isAdmin} onChanged={load}
               creditName={data?.settings.perNewStudentName ?? 'Lucília'} creditValue={data?.settings.perNewStudent ?? 250} />
           )}
-          {tab === 'phases' && <FinancePhaseBoard associates={data?.associates || []} canEdit={isAdmin} />}
+          {tab === 'phases' && <FinancePhaseBoard associates={data?.associates || []} canEdit />}
+          {tab === 'reports' && data && <FinanceReports associates={data.associates} />}
           {tab === 'program' && <FinanceProgram canEdit={isAdmin} onChanged={load} />}
           {tab === 'commissions' && data && <FinanceCommissions data={data} />}
           {tab === 'investments' && <FinanceInvestments reload={load} />}

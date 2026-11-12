@@ -65,6 +65,7 @@ model User {
   quotes                Quote[]
   aiSuggestionsDecided  AiSalesSuggestion[] @relation("AiSuggestionDecidedBy")
   appointments          Appointment[]       @relation("appointmentAssignedTo")
+  defenseParticipations DefenseParticipant[]
 
   @@map("users")
 }
@@ -132,6 +133,8 @@ model Workspace {
   financeSettings               FinanceSettings?
   financeAssociates             FinanceAssociate[]
   financeStudents               FinanceStudent[]
+  financeStudentEvents          FinanceStudentEvent[]
+  defenseSessions               DefenseSession[]
   financeEntries                FinanceEntry[]
   financeInvestments            FinanceInvestment[]
   financeCoupons                FinanceCoupon[]
@@ -296,6 +299,8 @@ model Stage {
   color     String    @default("#6B7280")
   position  Int
   type      StageType @default(REGULAR)
+  // Mensagem enviada ao contacto quando o lead entra nesta etapa (se a caixinha estiver marcada no Pipeline).
+  moveMessage String?  @db.Text
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
@@ -1549,6 +1554,13 @@ model FinanceSettings {
   // O id nunca muda nem se reutiliza: e o que fica gravado em FinanceStudent.currentPhase.
   studentPhases      Json     @default("[]")
   phaseNextId        Int      @default(8)
+  // Preparacao para defesa: numero de salas, quem tem de escolher sessoes (ids de User)
+  // e o maximo de colaboradores por sessao (0 = sem limite).
+  defenseRooms        Int      @default(2)
+  defenseParticipants Json     @default("[]")
+  defenseMaxPerSession Int     @default(0)
+  // Necessidades de formacao escritas no relatorio mensal: { "2026-11": { "<associateId>": "texto" } }
+  trainingNotes      Json     @default("{}")
   updatedAt          DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -1606,12 +1618,16 @@ model FinanceStudent {
   nextDueDate      DateTime?
   status           String    @default("Em aberto")
   source           String    @default("crm")
+  // Dia em que o trabalho ficou concluido (automatico quando a ultima fase fica "Entregue"; editavel).
+  completedAt      DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
   workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   associate FinanceAssociate? @relation(fields: [associateId], references: [id], onDelete: SetNull)
   entries   FinanceEntry[]
+  events    FinanceStudentEvent[]
+  defenseSessions DefenseSession[]
 
   @@unique([workspaceId, code])
   @@index([workspaceId, associateId])
@@ -1751,4 +1767,75 @@ model FinanceSalaryPayment {
 
   @@index([workspaceId, period])
   @@map("finance_salary_payments")
+}
+
+// Historico do trabalho de cada estudante. Alimenta os relatorios semanal e mensal.
+//   PHASE      mudanca de fase (automatica; fromPhase -> phaseId, com nota opcional)
+//   REVIEW     revisao tecnica de uma fase: result = Aprovado | Devolvido
+//   ISSUE      questao tecnica em aberto (resolvedAt quando fica resolvida)
+//   CORRECTION correccao pedida pelo estudante depois da entrega (resolvedAt quando fica feita)
+//   DEFENSE    defesa: result = Aprovado | Aprovado com correcções | Reprovado | Adiado, grade 0-20
+model FinanceStudentEvent {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  studentId     String
+  type          String
+  date          DateTime
+  phaseId       Int?
+  fromPhase     Int?
+  result        String?
+  grade         Float?
+  note          String?   @db.Text
+  resolvedAt    DateTime?
+  // Associado do estudante no momento do registo: o desempenho conta para quem fez o trabalho.
+  associateId   String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  student   FinanceStudent @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, type, date])
+  @@index([studentId, date])
+  @@map("finance_student_events")
+}
+
+// Preparacao para defesa: uma sessao de 1 hora numa sala (day em hora de Maputo, hour 8-19).
+model DefenseSession {
+  id          String   @id @default(cuid())
+  workspaceId String
+  day         String
+  hour        Int
+  room        Int
+  studentId   String?
+  contactId   String?
+  title       String
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  student      FinanceStudent?      @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  participants DefenseParticipant[]
+
+  @@unique([workspaceId, day, hour, room])
+  @@index([workspaceId, day])
+  @@map("defense_sessions")
+}
+
+model DefenseParticipant {
+  id        String   @id @default(cuid())
+  sessionId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  session DefenseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([userId])
+  @@map("defense_participants")
 }

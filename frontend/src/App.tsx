@@ -14,6 +14,7 @@ import LeadsPage from './pages/LeadsPage';
 import ContactsPage from './pages/ContactsPage';
 import InboxPage from './pages/InboxPage';
 import FinancePage from './pages/FinancePage';
+import DefensePage from './pages/DefensePage';
 import TasksPage from './pages/TasksPage';
 import AutomationsPage from './pages/AutomationsPage';
 import ChatbotsPage from './pages/ChatbotsPage';
@@ -149,6 +150,7 @@ export default function App() {
           <Route path="sales-agent" element={<SalesAgentPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="finance" element={<FinancePage />} />
+          <Route path="defesa" element={<DefensePage />} />
           <Route path="templates" element={<TemplatesPage />} />
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="team" element={<TeamPage />} />
