@@ -356,6 +356,21 @@ export default function DefensePage() {
     return cfg.users.filter((u) => cfg.participants.includes(u.id) || count.has(u.id)).map((u) => ({ name: u.name, n: count.get(u.id) || 0 })).sort((a, b) => b.n - a.n);
   }, [cfg, sessions]);
 
+  // Igual ao servidor: quem esta na lista so pode sair de uma sessao se ficar com o minimo nesse dia.
+  const lockedDays = useMemo(() => {
+    const locked = new Set<string>();
+    if (!cfg?.gateEnabled || !cfg.isParticipant || !sessions) return locked;
+    const byDay = new Map<string, DefenseSession[]>();
+    for (const x of sessions) byDay.set(x.day, [...(byDay.get(x.day) || []), x]);
+    for (const [day, list] of byDay) {
+      const mine = list.filter((x) => x.participants.some((p) => p.userId === user?.id));
+      if (!mine.length) continue;
+      const open = list.filter((x) => mine.includes(x) || !cfg.maxPerSession || x.participants.length < cfg.maxPerSession);
+      if (mine.length - 1 < Math.min(cfg.minChoices, open.length)) locked.add(day);
+    }
+    return locked;
+  }, [cfg, sessions, user?.id]);
+
   if (!isMetaWorkspace(workspace?.name)) return <Navigate to="/" replace />;
 
   const canJoin = !!cfg && (cfg.canManage || cfg.isParticipant);
@@ -439,7 +454,12 @@ export default function DefensePage() {
                           </div>
                           <div className="flex gap-1.5 mt-1">
                             {s.contactId && <button onClick={() => setChat(s)} title="Ver chat com o estudante" aria-label="Ver chat"><MessageSquare size={12} /></button>}
-                            {canJoin && !past && (
+                            {canJoin && !past && joined && lockedDays.has(d) && (
+                              <span title={`Tens de ficar com pelo menos ${cfg.minChoices} sessões neste dia. Para sair desta, escolhe primeiro outra.`} style={{ color: 'var(--text-muted)' }}>
+                                Mínimo
+                              </span>
+                            )}
+                            {canJoin && !past && !(joined && lockedDays.has(d)) && (
                               <button disabled={busy === s.id || full} onClick={() => toggleJoin(s, joined)} title={joined ? 'Sair desta sessão' : full ? 'Sessão cheia' : 'Participar nesta sessão'}
                                 className="flex items-center gap-0.5" style={{ color: joined ? '#B91C1C' : 'var(--primary)', opacity: full ? 0.4 : 1 }}>
                                 {joined ? <LogOut size={12} /> : <LogIn size={12} />} {joined ? 'Sair' : 'Participar'}

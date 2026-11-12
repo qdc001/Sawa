@@ -44,11 +44,16 @@ export default function FinancePage() {
   const [tab, setTab] = useState<Tab>(tabs[0].v);
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(isAdmin);
+  // Se o papel mudar (ex.: deixou de ser admin), volta para um separador que esta pessoa pode ver.
+  useEffect(() => {
+    if (!tabs.some((t) => t.v === tab)) setTab(tabs[0].v);
+  }, [tabs, tab]);
 
   const load = useCallback(() => {
     if (!isAdmin) return;
     api.get('/finance/summary').then(({ data: d }) => setData(d))
-      .catch((e) => toast.error(errMsg(e, 'Erro a carregar Finanças')))
+      // 403 = o papel mudou entretanto; o AppLayout actualiza o papel e o ecra passa para os separadores certos.
+      .catch((e) => { if (e?.response?.status !== 403) toast.error(errMsg(e, 'Erro a carregar Finanças')); })
       .finally(() => setLoading(false));
   }, [isAdmin]);
   useEffect(load, [load]);

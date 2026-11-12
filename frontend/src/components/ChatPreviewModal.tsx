@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, X, ExternalLink, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
+import { getSocket } from '../lib/socket';
 import toast from 'react-hot-toast';
 
 interface ChatMessage {
@@ -53,14 +54,26 @@ export default function ChatPreviewModal({ leadId, contactId, contactName, onClo
       else if (contactId) params.contactId = contactId;
       else return;
       const { data } = await api.get('/messages', { params });
-      // API devolve da mais recente para a mais antiga; queremos cronologica
-      const list = Array.isArray(data) ? data : (data.messages || []);
-      setMessages(list.slice().reverse());
+      // A API ja devolve as ultimas mensagens por ordem cronologica; ordenamos por seguranca
+      // (a mais recente fica em baixo, junto da caixa de resposta).
+      const list: ChatMessage[] = Array.isArray(data) ? data : (data.messages || []);
+      setMessages(list.slice().sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
     } catch { /* silencioso */ }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, [leadId, contactId]);
+  // Mensagens novas aparecem logo (socket) e, por seguranca, volta a ler de 15 em 15 segundos.
+  useEffect(() => {
+    load();
+    const socket = getSocket();
+    const onNew = (m: any) => {
+      if ((contactId && m?.contactId === contactId) || (leadId && m?.leadId === leadId)) load();
+    };
+    socket?.on('message:new', onNew);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 15000);
+    return () => { socket?.off('message:new', onNew); clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadId, contactId]);
 
   useEffect(() => {
     if (endRef.current) endRef.current.scrollIntoView({ behavior: 'auto' });

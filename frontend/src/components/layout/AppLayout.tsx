@@ -114,6 +114,20 @@ export default function AppLayout() {
     }
   };
 
+  // O papel (dono/admin/associado) pode mudar depois do login: le de novo do servidor ao abrir e ao voltar a janela,
+  // para os menus e permissoes no ecra serem sempre os mesmos que o servidor aplica.
+  useEffect(() => {
+    const refresh = () => {
+      api.get('/auth/me').then(({ data }) => {
+        if (data?.id) updateUser({ role: data.role, name: data.name, avatar: data.avatar });
+      }).catch(() => {});
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Banner de desconexão Evolution
   const [evoDown, setEvoDown] = useState<{ minutes: number; message: string; title?: string } | null>(null);
   useEffect(() => {

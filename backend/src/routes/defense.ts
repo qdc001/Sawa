@@ -279,6 +279,26 @@ router.delete('/sessions/:id/join', async (req: AuthRequest, res: Response, next
       userId = String(req.query.userId);
     }
     if (ses.day < maputoNow().day && !isAdmin(req)) throw new AppError('Essa sessão já passou', 400);
+    // Quem esta na lista tem de ficar sempre com o minimo de sessoes nesse dia: para sair de uma,
+    // precisa de ter mais do que o minimo (ex.: minimo 2 -> so sai se tiver 3 ou mais).
+    // Um administrador a tirar outra pessoa nao fica preso a esta regra.
+    if (userId === req.user!.id) {
+      const s = await getSettings(req.user!.workspaceId);
+      const cfg = defenseCfg(s);
+      if (cfg.gateEnabled && participantsOf(s).includes(userId)) {
+        const daySessions = await prisma.defenseSession.findMany({
+          where: { workspaceId: req.user!.workspaceId, day: ses.day }, include: { participants: { select: { userId: true } } },
+        });
+        const mine = daySessions.filter((x) => x.participants.some((p) => p.userId === userId));
+        if (mine.some((x) => x.id === ses.id)) {
+          const open = daySessions.filter((x) => mine.includes(x) || !s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession);
+          const required = Math.min(cfg.minChoices, open.length);
+          if (mine.length - 1 < required) {
+            throw new AppError(`Tens de ficar com pelo menos ${required} ${required === 1 ? 'sessão' : 'sessões'} neste dia. Para sair desta, escolhe primeiro outra.`, 409);
+          }
+        }
+      }
+    }
     await prisma.defenseParticipant.deleteMany({ where: { sessionId: ses.id, userId } });
     emit(req, ses.day);
     res.json(dto(await prisma.defenseSession.findUniqueOrThrow({ where: { id: ses.id }, include: sessionInclude })));
