@@ -8,6 +8,7 @@ import { notifyNewMessage } from '../lib/notify';
 import { analysePhone, nameFromPushOrPhone } from '../lib/phoneFormat';
 import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 
+import { newLeadTarget } from '../lib/leadTarget';
 import prisma from '../lib/prisma';
 import { getCreds, getCredsForUpdate, encryptForStore } from '../lib/integrationCrypto';
 import { checkLimit } from '../lib/planLimits';
@@ -547,10 +548,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
         };
 
         // Pipeline default + owner (uma vez)
-        const pipeline = await prisma.pipeline.findFirst({
-          where: { workspaceId, isDefault: true },
-          include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
-        });
+        const pipeline = await newLeadTarget(workspaceId);
         const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
 
         // Extrai (content, tipo, media) de uma mensagem crua da Evolution.

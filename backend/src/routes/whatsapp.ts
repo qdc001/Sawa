@@ -5,6 +5,7 @@ import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
 import { maybeTriggerSalesSuggestion } from '../lib/aiSalesAgent';
 
+import { newLeadTarget } from '../lib/leadTarget';
 import prisma from '../lib/prisma';
 import { getCreds, encryptForStore } from '../lib/integrationCrypto';
 const router = Router();
@@ -159,10 +160,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           });
 
           if (!lead) {
-            const pipeline = await prisma.pipeline.findFirst({
-              where: { workspaceId, isDefault: true },
-              include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
-            });
+            const pipeline = await newLeadTarget(workspaceId);
             if (pipeline && pipeline.stages[0]) {
               lead = await prisma.lead.create({
                 data: {

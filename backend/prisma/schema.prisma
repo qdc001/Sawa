@@ -84,6 +84,9 @@ model Workspace {
   logo                          String?
   timezone                      String                 @default("Africa/Maputo")
   currency                      String                 @default("MZN")
+  // Pipeline e fase onde caem os leads dos contactos novos (vazio = pipeline padrao, primeira fase).
+  newLeadPipelineId             String?
+  newLeadStageId                String?
   // Terminologia customizavel do workspace (Fase 3 da reconfiguracao).
   // Permite que uma clinica veja "Pacientes", uma ONG veja "Formandos", uma
   // empresa comercial veja "Clientes". A entidade tecnica continua a chamar-se

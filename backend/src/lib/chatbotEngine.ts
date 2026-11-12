@@ -15,6 +15,7 @@
  *   end        -> marca sessão como terminada.
  */
 
+import { newLeadTarget } from './leadTarget';
 import prisma from './prisma';
 import { propagateAssignee } from './propagateAssignee';
 import { getCreds, encryptForStore } from './integrationCrypto';
@@ -415,10 +416,12 @@ async function executeAction(node: FlowNode, ctx: RunContext) {
 
     case 'create_lead': {
       if (ctx.leadId) { ctx.log.push('action create_lead: já existe lead'); return; }
-      const pipeline = await prisma.pipeline.findFirst({
-        where: { workspaceId: ctx.workspaceId, ...(params.pipelineId ? { id: params.pipelineId } : { isDefault: true }) },
-        include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
-      });
+      const pipeline = params.pipelineId
+        ? await prisma.pipeline.findFirst({
+          where: { workspaceId: ctx.workspaceId, id: params.pipelineId },
+          include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
+        })
+        : await newLeadTarget(ctx.workspaceId);
       const stageId = params.stageId || pipeline?.stages[0]?.id;
       if (!pipeline || !stageId) { ctx.log.push('action create_lead: sem pipeline'); return; }
       const owner = await prisma.user.findFirst({ where: { workspaceId: ctx.workspaceId, role: 'OWNER' }, select: { id: true } });

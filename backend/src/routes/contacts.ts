@@ -4,6 +4,7 @@ import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
 import { propagateAssignee } from '../lib/propagateAssignee';
 import { notifyWhatsAppAssignment } from '../lib/dailyTaskDigest';
+import { leadForNewContact } from '../lib/leadTarget';
 import prisma from '../lib/prisma';
 import { checkLimit } from '../lib/planLimits';
 const router = Router();
@@ -190,6 +191,8 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       await propagateAssignee(req.user!.workspaceId, contact.id, contact.assignedToId, 'contact');
     }
     triggerAutomations({ type: 'contact_created', workspaceId: req.user!.workspaceId, entityType: 'contact', entityId: contact.id }).catch(() => {});
+    // Pipeline dos contactos novos (se o admin o escolheu).
+    await leadForNewContact(req.user!.workspaceId, contact, req.user!.id, 'Contacto novo').catch(() => null);
     res.status(201).json(contact);
   } catch (e) { next(e); }
 });
@@ -265,7 +268,8 @@ router.post('/bulk', async (req: AuthRequest, res: Response, next) => {
           await prisma.contact.update({ where: { id: existing.id }, data: updates });
           updated++;
         } else {
-          await prisma.contact.create({ data: { ...fields, workspaceId } });
+          const nc = await prisma.contact.create({ data: { ...fields, workspaceId } });
+          await leadForNewContact(workspaceId, nc, req.user!.id, 'Importação').catch(() => null);
           created++;
         }
       } catch (e: any) {

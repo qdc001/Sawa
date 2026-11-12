@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   DndContext,
@@ -19,12 +19,12 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, MoreVertical, Phone, Mail, Calendar, DollarSign,
-  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse, Layers, SlidersHorizontal, Sparkles,
+  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse, Layers, SlidersHorizontal, Sparkles, Users,
 } from 'lucide-react';
 import api, { Lead, Pipeline, Stage, CustomField, CustomFieldType, User } from '../lib/api';
 import { LeadScoreBadge } from '../lib/leadScore';
 import toast from 'react-hot-toast';
-import { useUIStore } from '../store';
+import { useAuthStore, useUIStore } from '../store';
 import { getSocket } from '../lib/socket';
 
 // ============== Hook: pan-scroll com botao do rato ==============
@@ -183,6 +183,10 @@ function StageColumn({
   onLeadClick,
   isExternal,
   isDimmed,
+  total,
+  value,
+  onLoadMore,
+  loadingMore,
 }: {
   stage: Stage;
   leads: Lead[];
@@ -190,9 +194,15 @@ function StageColumn({
   onLeadClick: (lead: Lead) => void;
   isExternal?: (lead: Lead) => boolean;
   isDimmed?: (lead: Lead) => boolean;
+  // Total e valor de todos os leads da coluna (o ecra so carrega os primeiros).
+  total?: number;
+  value?: number;
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
-  const totalValue = leads.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+  const totalValue = value ?? leads.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+  const count = Math.max(total ?? 0, leads.length);
 
   return (
     <div className="flex flex-col flex-shrink-0 w-72 h-full">
@@ -210,7 +220,7 @@ function StageColumn({
               className="text-xs px-1.5 py-0.5 rounded-full font-medium"
               style={{ background: stage.color, color: 'white' }}
             >
-              {leads.length}
+              {count}
             </span>
           </div>
           {totalValue > 0 && (
@@ -251,6 +261,17 @@ function StageColumn({
           ))}
         </SortableContext>
 
+        {count > leads.length && onLoadMore && (
+          <button
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="w-full text-xs py-2 mt-1 rounded"
+            style={{ color: 'var(--primary)', background: 'var(--surface)' }}
+          >
+            {loadingMore ? <Loader2 size={12} className="inline animate-spin" /> : `Carregar mais (${leads.length} de ${count})`}
+          </button>
+        )}
+
         {leads.length === 0 && (
           <div
             className="flex flex-col items-center justify-center py-8 text-center text-xs"
@@ -266,6 +287,100 @@ function StageColumn({
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============== Contactos no pipeline ==============
+// 1) Pipeline/etapa onde caem os contactos novos. 2) Pôr num pipeline todos os contactos que ainda nao tem lead.
+function PipelineStagePicker({ pipelines, pipelineId, stageId, onChange, emptyLabel }: {
+  pipelines: Pipeline[]; pipelineId: string; stageId: string; onChange: (p: string, s: string) => void; emptyLabel: string;
+}) {
+  const stages = pipelines.find((p) => p.id === pipelineId)?.stages || [];
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <select className="input-base" value={pipelineId} onChange={(e) => {
+        const p = pipelines.find((x) => x.id === e.target.value);
+        onChange(e.target.value, p?.stages[0]?.id || '');
+      }}>
+        <option value="">{emptyLabel}</option>
+        {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <select className="input-base" value={stageId} disabled={!pipelineId} onChange={(e) => onChange(pipelineId, e.target.value)}>
+        {!pipelineId && <option value="">—</option>}
+        {stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function ContactsPipelineModal({ pipelines, onClose, onDone }: { pipelines: Pipeline[]; onClose: () => void; onDone: () => void }) {
+  const [cur, setCur] = useState<{ pipelineId: string; stageId: string } | null>(null);
+  const [savingNew, setSavingNew] = useState(false);
+  const [bulk, setBulk] = useState({ pipelineId: '', stageId: '' });
+  const [count, setCount] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.get('/pipelines/new-contacts')
+      .then(({ data }) => setCur({ pipelineId: data.pipelineId || '', stageId: data.stageId || '' }))
+      .catch(() => setCur({ pipelineId: '', stageId: '' }));
+  }, []);
+  useEffect(() => {
+    setCount(null);
+    if (!bulk.pipelineId || !bulk.stageId) return;
+    api.post('/pipelines/add-contacts', { ...bulk, apply: false }).then(({ data }) => setCount(data.total)).catch(() => setCount(null));
+  }, [bulk]);
+  const saveNew = async () => {
+    if (!cur) return;
+    setSavingNew(true);
+    try {
+      await api.put('/pipelines/new-contacts', cur.pipelineId ? cur : { pipelineId: null });
+      toast.success('Guardado');
+    } catch (e: any) { toast.error(e?.response?.data?.message || 'Erro ao guardar'); } finally { setSavingNew(false); }
+  };
+  const addAll = async () => {
+    const p = pipelines.find((x) => x.id === bulk.pipelineId);
+    const st = p?.stages.find((x) => x.id === bulk.stageId);
+    if (!window.confirm(`Pôr ${count} contactos em "${p?.name}" → "${st?.name}"? Cada um fica com um lead nessa etapa; depois podes movê-los.`)) return;
+    setBusy(true);
+    try {
+      const { data } = await api.post('/pipelines/add-contacts', { ...bulk, apply: true }, { timeout: 600000 });
+      toast.success(`${data.created} contactos postos em "${p?.name}"`);
+      setCount(0);
+      onDone();
+    } catch (e: any) { toast.error(e?.response?.data?.message || 'Erro'); } finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div className="card p-5 w-full max-w-lg space-y-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Contactos no pipeline</h3>
+          <button onClick={onClose} aria-label="Fechar"><X size={18} /></button>
+        </div>
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Contactos novos entram em</h4>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Cada contacto novo (WhatsApp, Instagram, criado à mão ou importado) fica com um lead nesta etapa.
+          </p>
+          {!cur ? <Loader2 size={16} className="animate-spin" /> : (
+            <PipelineStagePicker pipelines={pipelines} pipelineId={cur.pipelineId} stageId={cur.stageId}
+              emptyLabel="Pipeline padrão, 1.ª etapa (como antes)" onChange={(pipelineId, stageId) => setCur({ pipelineId, stageId })} />
+          )}
+          <button className="btn btn-primary" disabled={!cur || savingNew || (!!cur.pipelineId && !cur.stageId)} onClick={saveNew}>Guardar</button>
+        </div>
+        <div className="space-y-2" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Pôr os contactos sem lead num pipeline</h4>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Os contactos que ainda não estão em nenhum pipeline (grupos de WhatsApp ficam de fora) passam a ter um lead na etapa escolhida.
+          </p>
+          <PipelineStagePicker pipelines={pipelines} pipelineId={bulk.pipelineId} stageId={bulk.stageId}
+            emptyLabel="Escolher pipeline" onChange={(pipelineId, stageId) => setBulk({ pipelineId, stageId })} />
+          {count !== null && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}><b>{count}</b> contactos sem lead</p>}
+          <button className="btn btn-primary" disabled={busy || !count} onClick={addAll}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />} Pôr {count || 0} contactos aqui
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1657,6 +1772,18 @@ export default function PipelinePage() {
     try { localStorage.setItem('pipeline:sendOnMove', v ? '1' : '0'); } catch { /* sem armazenamento */ }
   };
   const dragging = useRef(false);
+  // Quadro carregado por coluna: o servidor conta todos, o ecra so tem os primeiros de cada coluna.
+  const [colInfo, setColInfo] = useState<Record<string, { total: number; value: number }>>({});
+  const loadedRef = useRef<Record<string, number>>({});
+  const [loadingMore, setLoadingMore] = useState<string | null>(null);
+  const [managingContacts, setManagingContacts] = useState(false);
+  const isManager = ['OWNER', 'ADMIN'].includes(useAuthStore((st) => st.user?.role) || '');
+  // A pesquisa do topo procura em todos os leads (no servidor), com uma pequena pausa enquanto se escreve.
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(globalSearchQuery.trim()), 400);
+    return () => clearTimeout(t);
+  }, [globalSearchQuery]);
 
   const boardRef = useRef<HTMLDivElement>(null);
   useDragScroll(boardRef, scrollButton);
@@ -1721,33 +1848,64 @@ export default function PipelinePage() {
     load();
   }, []);
 
-  // Load leads when pipeline changes
   // Pipeline padrao (isDefault) agrega leads de TODOS os pipelines do workspace
   const isAggregated = activePipeline?.isDefault === true;
-  useEffect(() => {
-    if (!activePipelineId || !activePipeline) return;
-    const loadLeads = async () => {
-      try {
-        const url = isAggregated
-          ? `/leads?limit=500`
-          : `/leads?pipelineId=${activePipelineId}&limit=200`;
-        const { data } = await api.get(url);
-        setLeads(data.leads || []);
-      } catch {
-        toast.error('Erro ao carregar leads');
+  const boardSeq = useRef(0);
+  const loadBoard = useCallback(async (take = 50) => {
+    if (!activePipelineId) return;
+    const seq = ++boardSeq.current;
+    try {
+      const { data } = await api.get('/leads/board', { params: { pipelineId: activePipelineId, take, search: search || undefined } });
+      if (seq !== boardSeq.current || dragging.current) return;
+      const all: Lead[] = [];
+      const info: Record<string, { total: number; value: number }> = {};
+      const loaded: Record<string, number> = {};
+      for (const [id, c] of Object.entries<any>(data.columns || {})) {
+        info[id] = { total: c.total, value: c.value };
+        loaded[id] = c.leads.length;
+        all.push(...c.leads);
       }
-    };
-    loadLeads();
-  }, [activePipelineId, isAggregated]);
+      loadedRef.current = loaded;
+      setColInfo(info);
+      setLeads(all);
+    } catch {
+      toast.error('Erro ao carregar leads');
+    }
+  }, [activePipelineId, search]);
 
-  // Tempo real: o que outra pessoa muda aparece logo (socket) e, por seguranca, volta a ler tudo de 30 em 30s.
+  useEffect(() => { loadBoard(50); }, [loadBoard]);
+
+  // Volta a ler mantendo o que ja estava carregado em cada coluna.
+  const refreshBoard = useCallback(() => {
+    if (document.visibilityState !== 'visible' || dragging.current) return;
+    loadBoard(Math.min(500, Math.max(50, ...Object.values(loadedRef.current))));
+  }, [loadBoard]);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scheduleRefresh = useCallback(() => {
+    clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(refreshBoard, 1500);
+  }, [refreshBoard]);
+
+  const loadMore = async (colId: string) => {
+    setLoadingMore(colId);
+    try {
+      const skip = loadedRef.current[colId] || 0;
+      const { data } = await api.get('/leads/board/column', { params: { pipelineId: activePipelineId, columnId: colId, skip, search: search || undefined } });
+      loadedRef.current[colId] = skip + data.leads.length;
+      setLeads((prev) => {
+        const ids = new Set(prev.map((l) => l.id));
+        return [...prev, ...data.leads.filter((l: Lead) => !ids.has(l.id))];
+      });
+    } catch {
+      toast.error('Erro ao carregar mais leads');
+    } finally {
+      setLoadingMore(null);
+    }
+  };
+
+  // Tempo real: o que outra pessoa muda aparece logo (socket) e, por seguranca, volta a ler de 30 em 30s.
   useEffect(() => {
     if (!activePipelineId || !activePipeline) return;
-    const url = isAggregated ? `/leads?limit=500` : `/leads?pipelineId=${activePipelineId}&limit=200`;
-    const refresh = () => {
-      if (document.visibilityState !== 'visible' || dragging.current) return;
-      api.get(url).then(({ data }) => { if (!dragging.current) setLeads(data.leads || []); }).catch(() => {});
-    };
     const belongs = (l: Lead) => isAggregated || l.pipelineId === activePipelineId;
     const upsert = (raw: any) => {
       if (!raw?.id) return;
@@ -1757,25 +1915,28 @@ export default function PipelinePage() {
         if (!belongs(l)) return has ? prev.filter((x) => x.id !== l.id) : prev;
         return has ? prev.map((x) => (x.id === l.id ? l : x)) : [l, ...prev];
       });
+      scheduleRefresh();
     };
-    const remove = (d: any) => setLeads((prev) => prev.filter((x) => x.id !== d?.id));
+    const remove = (d: any) => { setLeads((prev) => prev.filter((x) => x.id !== d?.id)); scheduleRefresh(); };
     const socket = getSocket();
     socket?.on('lead:moved', upsert);
     socket?.on('lead:updated', upsert);
     socket?.on('lead:created', upsert);
     socket?.on('lead:deleted', remove);
-    const t = setInterval(refresh, 30000);
-    window.addEventListener('focus', refresh);
+    socket?.on('lead:bulk', scheduleRefresh);
+    const t = setInterval(refreshBoard, 30000);
+    window.addEventListener('focus', refreshBoard);
     return () => {
       clearInterval(t);
-      window.removeEventListener('focus', refresh);
+      window.removeEventListener('focus', refreshBoard);
       socket?.off('lead:moved', upsert);
       socket?.off('lead:updated', upsert);
       socket?.off('lead:created', upsert);
       socket?.off('lead:deleted', remove);
+      socket?.off('lead:bulk', scheduleRefresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePipelineId, isAggregated, !!activePipeline]);
+  }, [activePipelineId, isAggregated, !!activePipeline, refreshBoard, scheduleRefresh]);
 
   const afterMove = (data: any) => {
     const { moveMessage: m, ...lead } = data || {};
@@ -1909,6 +2070,7 @@ export default function PipelinePage() {
         // Sincronizar com resposta completa do backend
         const moved = afterMove(data);
         setLeads((prev) => prev.map((l) => (l.id === activeLeadId ? moved : l)));
+        scheduleRefresh();
         toast.success(`Movido em "${originalPipeline.name}"`);
       } catch {
         setLeads((prev) =>
@@ -1939,6 +2101,7 @@ export default function PipelinePage() {
       const { data } = await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId, sendMessage: sendOnMove });
       const moved = afterMove(data);
       setLeads((prev) => prev.map((l) => (l.id === activeLeadId ? moved : l)));
+      scheduleRefresh();
     } catch {
       setLeads((prev) =>
         prev.map((l) =>
@@ -2009,6 +2172,18 @@ export default function PipelinePage() {
           <span>Gerir Pipelines</span>
         </button>
 
+        {isManager && (
+          <button
+            onClick={() => setManagingContacts(true)}
+            className="btn"
+            style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+            title="Pipeline dos contactos novos e pôr contactos sem lead num pipeline"
+          >
+            <Users size={14} />
+            <span>Contactos</span>
+          </button>
+        )}
+
         <button
           onClick={() => setManagingStages(true)}
           className="btn"
@@ -2077,19 +2252,19 @@ export default function PipelinePage() {
         </div>
 
         <div className="ml-auto flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-          {globalSearchQuery.trim() && (
+          {search && (
             <span
               className="text-xs px-2 py-1 rounded font-medium"
               style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
             >
-              {leads.filter(matchesSearch).length} resultados de "{globalSearchQuery.trim()}"
+              {Object.values(colInfo).reduce((a, c) => a + c.total, 0)} resultados de "{search}"
             </span>
           )}
-          <span>Total: <strong style={{ color: 'var(--text-primary)' }}>{leads.length}</strong> leads</span>
+          <span>Total: <strong style={{ color: 'var(--text-primary)' }}>{Object.values(colInfo).reduce((a, c) => a + c.total, 0).toLocaleString()}</strong> leads</span>
           <span>•</span>
           <span>
             Valor: <strong style={{ color: 'var(--text-primary)' }}>
-              MZN {leads.reduce((s, l) => s + (Number(l.value) || 0), 0).toLocaleString()}
+              MZN {Object.values(colInfo).reduce((a, c) => a + c.value, 0).toLocaleString()}
             </strong>
           </span>
         </div>
@@ -2114,6 +2289,10 @@ export default function PipelinePage() {
                 onLeadClick={setSelectedLead}
                 isExternal={(lead) => isAggregated && lead.pipelineId !== activePipelineId}
                 isDimmed={(lead) => !matchesSearch(lead)}
+                total={colInfo[stage.id]?.total}
+                value={colInfo[stage.id]?.value}
+                onLoadMore={() => loadMore(stage.id)}
+                loadingMore={loadingMore === stage.id}
               />
             ))}
           </div>
@@ -2130,7 +2309,7 @@ export default function PipelinePage() {
           stageId={addingToStage}
           pipelineId={activePipelineId}
           onClose={() => setAddingToStage(null)}
-          onCreated={(lead) => setLeads((prev) => [...prev, lead])}
+          onCreated={(lead) => { setLeads((prev) => [...prev, lead]); scheduleRefresh(); }}
         />
       )}
 
@@ -2150,6 +2329,14 @@ export default function PipelinePage() {
           pipeline={activePipeline}
           onClose={() => setManagingStages(false)}
           onChanged={reloadPipelines}
+        />
+      )}
+
+      {managingContacts && (
+        <ContactsPipelineModal
+          pipelines={pipelines}
+          onClose={() => setManagingContacts(false)}
+          onDone={() => loadBoard(50)}
         />
       )}
 

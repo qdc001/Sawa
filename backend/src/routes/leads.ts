@@ -47,6 +47,85 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
   } catch (error) { next(error); }
 });
 
+// ---------- Quadro (kanban) carregado por coluna ----------
+// Leve: o cartao so precisa disto (o detalhe abre com GET /:id).
+const boardInclude = {
+  stage: true,
+  pipeline: true,
+  assignedTo: { select: { id: true, name: true, avatar: true } },
+  contact: true,
+  tags: { include: { tag: true } },
+  tasks: { where: { status: { not: 'COMPLETED' as const } }, orderBy: { dueAt: 'asc' as const } },
+  _count: { select: { messages: true, notes: true, files: true } },
+};
+
+// Colunas do quadro e as etapas que caem em cada uma.
+// Pipeline padrao = vista agregada: etapas dos outros pipelines vao para a coluna equivalente
+// (Ganho -> Ganho, Perdido -> Perdido, as outras pela posicao), igual ao que o ecra fazia.
+async function boardColumns(workspaceId: string, pipelineId: string) {
+  const p = await prisma.pipeline.findFirst({ where: { id: pipelineId, workspaceId }, include: { stages: { orderBy: { position: 'asc' } } } });
+  if (!p) throw new AppError('Pipeline não encontrado', 404);
+  const cols = new Map<string, string[]>(p.stages.map((s) => [s.id, [s.id]]));
+  if (p.isDefault) {
+    const regular = p.stages.filter((s) => s.type === 'REGULAR');
+    const won = p.stages.find((s) => s.type === 'WON')?.id;
+    const lost = p.stages.find((s) => s.type === 'LOST')?.id;
+    const others = await prisma.stage.findMany({ where: { pipeline: { workspaceId }, pipelineId: { not: p.id } }, select: { id: true, type: true, position: true } });
+    for (const s of others) {
+      const to = s.type === 'WON' ? won : s.type === 'LOST' ? lost
+        : regular.length ? regular[Math.min(Math.max(0, s.position), regular.length - 1)].id : undefined;
+      if (to) cols.get(to)!.push(s.id);
+    }
+  }
+  return cols;
+}
+
+function boardWhere(req: AuthRequest, stageIds: string[]) {
+  const where: any = { workspaceId: req.user!.workspaceId, stageId: { in: stageIds } };
+  if (req.user!.viewOnlyOwn && req.user!.role === 'AGENT') where.assignedToId = req.user!.id;
+  const q = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  if (q) {
+    const c = { contains: q, mode: 'insensitive' as const };
+    where.OR = [
+      { title: c },
+      { contact: { OR: [{ firstName: c }, { lastName: c }, { phone: c }, { whatsapp: c }, { email: c }] } },
+    ];
+  }
+  return where;
+}
+
+// GET /api/leads/board?pipelineId=&take=50&search= -> por coluna: total, valor e os primeiros leads
+router.get('/board', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const cols = await boardColumns(req.user!.workspaceId, String(req.query.pipelineId || ''));
+    const take = Math.min(Math.max(Number(req.query.take) || 50, 10), 500);
+    const out: Record<string, { total: number; value: number; leads: any[] }> = {};
+    await Promise.all([...cols].map(async ([colId, stageIds]) => {
+      const where = boardWhere(req, stageIds);
+      const [leads, agg] = await Promise.all([
+        prisma.lead.findMany({ where, include: boardInclude, take, orderBy: { createdAt: 'desc' } }),
+        prisma.lead.aggregate({ where, _count: { _all: true }, _sum: { value: true } }),
+      ]);
+      out[colId] = { total: agg._count._all, value: agg._sum.value || 0, leads };
+    }));
+    res.json({ columns: out });
+  } catch (error) { next(error); }
+});
+
+// GET /api/leads/board/column?pipelineId=&columnId=&skip=&search= -> mais leads de uma coluna
+router.get('/board/column', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const cols = await boardColumns(req.user!.workspaceId, String(req.query.pipelineId || ''));
+    const stageIds = cols.get(String(req.query.columnId || ''));
+    if (!stageIds) throw new AppError('Coluna não encontrada', 404);
+    const leads = await prisma.lead.findMany({
+      where: boardWhere(req, stageIds), include: boardInclude,
+      skip: Math.max(0, Number(req.query.skip) || 0), take: 50, orderBy: { createdAt: 'desc' },
+    });
+    res.json({ leads });
+  } catch (error) { next(error); }
+});
+
 // GET /api/leads/:id
 router.get('/:id', async (req: AuthRequest, res: Response, next) => {
   try {

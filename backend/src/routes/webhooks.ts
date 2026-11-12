@@ -8,6 +8,7 @@ import { applyEvoContactToCrm } from './integrations';
 import fs from 'fs';
 import path from 'path';
 
+import { newLeadTarget } from '../lib/leadTarget';
 import prisma from '../lib/prisma';
 import { getCreds } from '../lib/integrationCrypto';
 import { propagateAssignee } from '../lib/propagateAssignee';
@@ -333,10 +334,7 @@ router.post('/meta', async (req: Request, res: Response) => {
         // Encontrar/criar lead aberto
         let lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
         if (!lead) {
-          const pipeline = await prisma.pipeline.findFirst({
-            where: { workspaceId, isDefault: true },
-            include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
-          });
+          const pipeline = await newLeadTarget(workspaceId);
           const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
           if (pipeline?.stages[0] && owner) {
             lead = await prisma.lead.create({
@@ -470,10 +468,7 @@ router.post('/tiktok', async (req: Request, res: Response) => {
     }
 
     // Criar lead
-    const pipeline = await prisma.pipeline.findFirst({
-      where: { workspaceId, isDefault: true },
-      include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
-    });
+    const pipeline = await newLeadTarget(workspaceId);
     const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
     if (pipeline?.stages[0] && owner) {
       const lead = await prisma.lead.create({
@@ -863,10 +858,7 @@ router.post('/evolution', async (req: Request, res: Response) => {
           // Encontrar/criar lead aberto (só para contactos 1-1, não para grupos)
           lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
           if (!lead) {
-            const pipeline = await prisma.pipeline.findFirst({
-              where: { workspaceId, isDefault: true },
-              include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
-            });
+            const pipeline = await newLeadTarget(workspaceId);
             if (pipeline?.stages[0]) {
               const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
               if (owner) {

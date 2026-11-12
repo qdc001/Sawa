@@ -3,7 +3,72 @@ import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 
 import prisma from '../lib/prisma';
+import { contactTitle, notGroup } from '../lib/leadTarget';
 const router = Router();
+
+const isAdmin = (req: AuthRequest) => ['OWNER', 'ADMIN'].includes(req.user!.role);
+
+async function checkStage(workspaceId: string, pipelineId: any, stageId: any) {
+  const st = await prisma.stage.findFirst({
+    where: { id: String(stageId || ''), pipelineId: String(pipelineId || ''), pipeline: { workspaceId } },
+    include: { pipeline: { select: { id: true, name: true } } },
+  });
+  if (!st) throw new AppError('Escolhe um pipeline e uma etapa válidos', 400);
+  return st;
+}
+
+// Pipeline/etapa onde caem os contactos novos (WhatsApp, Instagram, criados a mao, importados).
+router.get('/new-contacts', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.user!.workspaceId }, select: { newLeadPipelineId: true, newLeadStageId: true } });
+    res.json({ pipelineId: ws?.newLeadPipelineId || null, stageId: ws?.newLeadStageId || null, canManage: isAdmin(req) });
+  } catch (e) { next(e); }
+});
+
+router.put('/new-contacts', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!isAdmin(req)) throw new AppError('Só o dono e administradores podem mudar isto', 403);
+    const workspaceId = req.user!.workspaceId;
+    const { pipelineId, stageId } = req.body || {};
+    if (!pipelineId) {
+      await prisma.workspace.update({ where: { id: workspaceId }, data: { newLeadPipelineId: null, newLeadStageId: null } });
+      return res.json({ pipelineId: null, stageId: null });
+    }
+    const st = await checkStage(workspaceId, pipelineId, stageId);
+    await prisma.workspace.update({ where: { id: workspaceId }, data: { newLeadPipelineId: st.pipelineId, newLeadStageId: st.id } });
+    res.json({ pipelineId: st.pipelineId, stageId: st.id });
+  } catch (e) { next(e); }
+});
+
+// Poe num pipeline/etapa todos os contactos que ainda nao tem nenhum lead. apply=false so conta.
+router.post('/add-contacts', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!isAdmin(req)) throw new AppError('Só o dono e administradores podem fazer isto', 403);
+    const workspaceId = req.user!.workspaceId;
+    const st = await checkStage(workspaceId, req.body?.pipelineId, req.body?.stageId);
+    const where = { workspaceId, leads: { none: {} }, ...notGroup };
+    const total = await prisma.contact.count({ where });
+    if (req.body?.apply !== true) return res.json({ total, created: 0 });
+    let created = 0;
+    // Aos blocos, para nao prender a base de dados com milhares de uma vez.
+    for (;;) {
+      const batch = await prisma.contact.findMany({
+        where, select: { id: true, firstName: true, lastName: true, whatsapp: true, phone: true }, take: 500,
+      });
+      if (!batch.length) break;
+      const r = await prisma.lead.createMany({
+        data: batch.map((c) => ({
+          title: contactTitle(c), source: 'Contactos', workspaceId, pipelineId: st.pipelineId, stageId: st.id, contactId: c.id, createdById: req.user!.id,
+        })),
+      });
+      created += r.count;
+      if (batch.length < 500) break;
+    }
+    const io = req.app.get('io');
+    if (io) io.to(`workspace:${workspaceId}`).emit('lead:bulk', { pipelineId: st.pipelineId });
+    res.json({ total, created });
+  } catch (e) { next(e); }
+});
 
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
