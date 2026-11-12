@@ -22,7 +22,7 @@ function validDay(v: any): string {
 }
 
 const sessionInclude = {
-  student: { select: { id: true, code: true, name: true, project: true, whatsapp: true } },
+  student: { select: { id: true, code: true, name: true, project: true, whatsapp: true, contactId: true } },
   participants: { include: { user: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' as const } },
 };
 function dto(s: any) {
@@ -38,25 +38,16 @@ function emit(req: AuthRequest, day?: string) {
 
 const participantsOf = (s: { defenseParticipants: any }): string[] => (Array.isArray(s.defenseParticipants) ? s.defenseParticipants : []);
 
-// O estudante tem de estar nos contactos para se poder abrir o chat a partir da agenda.
-async function ensureContact(workspaceId: string, st: { id: string; name: string; whatsapp: string | null; contactId: string | null }, override?: string | null) {
-  if (st.contactId && !override) {
-    const c = await prisma.contact.findFirst({ where: { id: st.contactId, workspaceId }, select: { id: true } });
-    if (c) return c.id;
+// O estudante tem de estar ligado a um contacto que ja existe (para abrir o chat a partir da agenda).
+// contactId enviado = liga (ou muda) a ligacao; sem ele usa a ligacao que ja estava na ficha.
+async function ensureContact(workspaceId: string, st: { id: string; name: string; whatsapp: string | null; contactId: string | null }, contactId?: string | null) {
+  const id = contactId || st.contactId;
+  if (!id) throw new AppError(`Associa ${st.name} a um contacto existente.`, 400);
+  const c = await prisma.contact.findFirst({ where: { id, workspaceId }, select: { id: true, whatsapp: true, phone: true } });
+  if (!c) throw new AppError(contactId ? 'Contacto não encontrado' : `O contacto ligado a ${st.name} já não existe. Associa outro.`, 400);
+  if (st.contactId !== c.id || (!st.whatsapp && (c.whatsapp || c.phone))) {
+    await prisma.financeStudent.update({ where: { id: st.id }, data: { contactId: c.id, ...(!st.whatsapp && (c.whatsapp || c.phone) ? { whatsapp: c.whatsapp || c.phone } : {}) } });
   }
-  let digits = String(override || st.whatsapp || '').replace(/\D/g, '');
-  if (digits.length === 9 && digits.startsWith('8')) digits = `258${digits}`;
-  if (digits.length < 9 || digits.length > 15) throw new AppError(`${st.name} não tem um número de WhatsApp válido na ficha. Indica o número.`, 400);
-  const tail = digits.slice(-9);
-  let c = await prisma.contact.findFirst({
-    where: { workspaceId, OR: [{ whatsapp: digits }, { whatsapp: { endsWith: tail } }, { phone: { endsWith: tail } }] },
-    select: { id: true },
-  });
-  if (!c) {
-    const [firstName, ...rest] = st.name.trim().split(/\s+/);
-    c = await prisma.contact.create({ data: { workspaceId, firstName: firstName || st.name, lastName: rest.join(' ') || null, whatsapp: digits }, select: { id: true } });
-  }
-  await prisma.financeStudent.update({ where: { id: st.id }, data: { contactId: c.id, ...(override || !st.whatsapp ? { whatsapp: digits } : {}) } });
   return c.id;
 }
 
@@ -129,7 +120,7 @@ async function slotFields(workspaceId: string, b: any, cur?: { day: string; hour
 async function studentFor(workspaceId: string, b: any) {
   const st = await prisma.financeStudent.findFirst({ where: { id: String(b.studentId || ''), workspaceId } });
   if (!st) throw new AppError('Escolhe o estudante', 400);
-  const contactId = await ensureContact(workspaceId, st, text(b.whatsapp));
+  const contactId = await ensureContact(workspaceId, st, text(b.contactId));
   return { studentId: st.id, contactId, title: st.name };
 }
 
@@ -160,7 +151,7 @@ router.patch('/sessions/:id', adminOnly, async (req: AuthRequest, res: Response,
     const b = req.body || {};
     const data: any = await slotFields(workspaceId, b, cur);
     if (b.studentId !== undefined && b.studentId !== cur.studentId) Object.assign(data, await studentFor(workspaceId, b));
-    else if (b.whatsapp && cur.studentId) Object.assign(data, await studentFor(workspaceId, { ...b, studentId: cur.studentId }));
+    else if (b.contactId && cur.studentId) Object.assign(data, await studentFor(workspaceId, { ...b, studentId: cur.studentId }));
     if (b.notes !== undefined) data.notes = text(b.notes);
     const up = await prisma.defenseSession.update({ where: { id: cur.id }, data, include: sessionInclude }).catch((e) => { throw conflict(e); });
     emit(req, up.day);

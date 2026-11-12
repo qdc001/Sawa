@@ -10,19 +10,68 @@ import ChatPreviewModal from '../components/ChatPreviewModal';
 import { addDays, errMsg, Field, maputoToday, Modal, mondayOf } from '../components/finance/shared';
 import { DefenseConfig, DefenseSession, hourLabel, hoursFor, shortDay, weekdayName } from '../components/defense/types';
 
-type StudentLite = { id: string; code: string; name: string; project: string | null; whatsapp: string | null };
+type StudentLite = { id: string; code: string; name: string; project: string | null; whatsapp: string | null; contactId: string | null };
+type ContactLite = { id: string; firstName: string; lastName: string | null; whatsapp: string | null; phone: string | null };
+const contactName = (c: ContactLite) => [c.firstName, c.lastName].filter(Boolean).join(' ');
+
+// Escolha obrigatoria de um contacto que ja existe (para abrir o chat a partir da agenda).
+function ContactPicker({ value, onChange, hint }: { value: ContactLite | null; onChange: (c: ContactLite | null) => void; hint: string }) {
+  const [q, setQ] = useState(hint);
+  const [list, setList] = useState<ContactLite[] | null>(null);
+  useEffect(() => setQ(hint), [hint]);
+  useEffect(() => {
+    if (value) return;
+    const term = q.trim();
+    if (term.length < 2) { setList([]); return; }
+    const t = setTimeout(() => {
+      api.get<{ contacts: ContactLite[] }>('/contacts', { params: { search: term, limit: 10 } })
+        .then(({ data }) => setList(data.contacts || [])).catch(() => setList([]));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q, value]);
+  if (value) {
+    return (
+      <div className="flex items-center gap-2 text-sm p-2 rounded" style={{ background: 'var(--surface-2)' }}>
+        <span className="flex-1"><b>{contactName(value)}</b>{value.whatsapp || value.phone ? <span style={{ color: 'var(--text-muted)' }}> · {value.whatsapp || value.phone}</span> : null}</span>
+        <button onClick={() => onChange(null)} aria-label="Mudar contacto"><X size={14} /></button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      <input className="input-base" placeholder="Procurar contacto por nome ou número" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="rounded" style={{ border: '1px solid var(--border)', maxHeight: 160, overflowY: 'auto' }}>
+        {list === null ? <p className="text-xs p-2" style={{ color: 'var(--text-muted)' }}>A procurar...</p> : list.length === 0 ? (
+          <p className="text-xs p-2" style={{ color: 'var(--text-muted)' }}>{q.trim().length < 2 ? 'Escreve pelo menos 2 letras.' : 'Nenhum contacto encontrado. Procura de outra forma (nome ou número).'}</p>
+        ) : list.map((c) => (
+          <button key={c.id} className="w-full text-left text-sm px-2 py-1.5 hover:bg-slate-100" onClick={() => onChange(c)}>
+            {contactName(c)}<span style={{ color: 'var(--text-muted)' }}>{c.whatsapp || c.phone ? ` · ${c.whatsapp || c.phone}` : ''}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 const ALL_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
 
 function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
   cfg: DefenseConfig; initial: { day: string; hour: number; room: number }; session: DefenseSession | null; students: StudentLite[];
   onClose: () => void; onSaved: () => void;
 }) {
-  const [f, setF] = useState({ ...initial, studentId: session?.studentId || '', notes: session?.notes || '', whatsapp: '' });
+  const [f, setF] = useState({ ...initial, studentId: session?.studentId || '', notes: session?.notes || '' });
+  const [contact, setContact] = useState<ContactLite | null>(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [addUser, setAddUser] = useState('');
   const set = (k: keyof typeof f, v: any) => setF((p) => ({ ...p, [k]: v }));
-  const chosen = students.find((s) => s.id === f.studentId);
+  const chosen = students.find((s) => s.id === f.studentId) || (session?.student && session.student.id === f.studentId ? { ...session.student, contactId: session.contactId } as StudentLite : undefined);
+  // Contacto ja ligado ao estudante (ou a sessao): mostra-o; senao fica por escolher.
+  const linkedId = chosen ? (session && session.studentId === chosen.id ? session.contactId : null) || chosen.contactId : null;
+  useEffect(() => {
+    setContact(null);
+    if (!linkedId) return;
+    api.get<ContactLite>(`/contacts/${linkedId}`).then(({ data }) => setContact(data)).catch(() => setContact(null));
+  }, [linkedId]);
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
     return students.filter((x) => !s || `${x.code} ${x.name}`.toLowerCase().includes(s)).slice(0, 60);
@@ -30,9 +79,10 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
 
   const save = async () => {
     if (!f.studentId) { toast.error('Escolhe o estudante'); return; }
+    if (!contact) { toast.error('Associa o estudante a um contacto'); return; }
     setBusy(true);
     try {
-      const body = { day: f.day, hour: f.hour, room: f.room, studentId: f.studentId, notes: f.notes, whatsapp: f.whatsapp || undefined };
+      const body = { day: f.day, hour: f.hour, room: f.room, studentId: f.studentId, notes: f.notes, contactId: contact.id };
       if (session) await api.patch(`/defense/sessions/${session.id}`, body);
       else await api.post('/defense/sessions', body);
       toast.success('Sessão guardada');
@@ -89,12 +139,12 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
             </div>
           )}
         </Field>
-        {chosen && !chosen.whatsapp && (
-          <Field label="WhatsApp do estudante (falta na ficha)">
-            <input className="input-base" placeholder="84 123 4567" value={f.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} />
+        {chosen && (
+          <Field label="Contacto do estudante (obrigatório)">
+            <ContactPicker value={contact} onChange={setContact} hint={chosen.whatsapp ? chosen.whatsapp.replace(/\D/g, '').slice(-9) : chosen.name} />
           </Field>
         )}
-        <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>O estudante fica nos Contactos (se ainda não estava), para se poder abrir o chat a partir da agenda.</p>
+        {chosen && <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>A ligação fica gravada na ficha do estudante e serve para abrir o chat a partir da agenda e do popup.</p>}
         <Field label="Notas (opcional)"><textarea className="input-base" rows={2} value={f.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
         {session && (
           <div className="space-y-1.5">
@@ -116,7 +166,7 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
           </div>
         )}
         <div className="flex gap-2">
-          <button className="btn btn-primary flex-1 justify-center" disabled={busy} onClick={save}>{busy && <Loader2 size={14} className="animate-spin" />} Guardar</button>
+          <button className="btn btn-primary flex-1 justify-center" disabled={busy || !f.studentId || !contact} onClick={save}>{busy && <Loader2 size={14} className="animate-spin" />} Guardar</button>
           {session && <button className="btn btn-outline" onClick={remove} style={{ color: '#EF4444' }}><Trash2 size={14} /> Apagar</button>}
         </div>
       </div>
