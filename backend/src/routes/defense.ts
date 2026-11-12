@@ -1,6 +1,6 @@
-// Preparacao para defesa (so M.E.T.A.): agenda de simulacoes por sala, em sessoes de 1 hora
-// (8h-20h nos dias de semana, 8h-12h ao fim de semana). A partir das 16h30, quem esta na lista
-// de participantes tem de escolher pelo menos 2 sessoes do dia seguinte antes de usar o CRM.
+// Preparacao para defesa (so M.E.T.A.): agenda de simulacoes por sala, em sessoes de 1 hora.
+// Os dias e horarios, a hora do popup, o minimo de sessoes a escolher e se o popup bloqueia o CRM
+// configuram-se nas Definicoes da pagina (FinanceSettings.defenseConfig).
 import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
@@ -10,12 +10,38 @@ import { addDays, adminOnly, getSettings, isAdmin, maputoNow, metaOnly, text, we
 const router = Router();
 router.use(metaOnly);
 
-export const GATE_MINUTES = 16 * 60 + 30;
-const MIN_CHOICES = 2;
 const MAX_ROOMS = 6;
+const WEEKDAYS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 
-const isWeekend = (day: string) => [0, 6].includes(new Date(`${day}T00:00:00.000Z`).getUTCDay());
-export const hoursFor = (day: string) => (isWeekend(day) ? [8, 9, 10, 11] : [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+// Dia da semana 0 = domingo ... 6 = sabado. end e a hora em que termina a ultima sessao.
+export type DaySchedule = { on: boolean; start: number; end: number };
+export type DefenseCfg = {
+  schedule: DaySchedule[]; gateEnabled: boolean; gateTime: string; minChoices: number; gateMode: 'block' | 'remind'; roomNames: string[];
+};
+const DEFAULT_SCHEDULE: DaySchedule[] = [0, 1, 2, 3, 4, 5, 6].map((d) => (d === 0 || d === 6 ? { on: true, start: 8, end: 12 } : { on: true, start: 8, end: 20 }));
+
+export function defenseCfg(s: { defenseConfig: any }): DefenseCfg {
+  const c = (s.defenseConfig && typeof s.defenseConfig === 'object' ? s.defenseConfig : {}) as any;
+  const schedule = DEFAULT_SCHEDULE.map((d, i) => {
+    const x = Array.isArray(c.schedule) ? c.schedule[i] : null;
+    return x && Number.isInteger(x.start) && Number.isInteger(x.end) ? { on: !!x.on, start: x.start, end: x.end } : d;
+  });
+  return {
+    schedule,
+    gateEnabled: c.gateEnabled !== false,
+    gateTime: typeof c.gateTime === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(c.gateTime) ? c.gateTime : '16:30',
+    minChoices: Number.isInteger(c.minChoices) ? c.minChoices : 2,
+    gateMode: c.gateMode === 'remind' ? 'remind' : 'block',
+    roomNames: Array.isArray(c.roomNames) ? c.roomNames.map((n: any) => (typeof n === 'string' ? n : '')) : [],
+  };
+}
+const dow = (day: string) => new Date(`${day}T00:00:00.000Z`).getUTCDay();
+export function hoursFor(day: string, cfg: DefenseCfg): number[] {
+  const d = cfg.schedule[dow(day)];
+  if (!d.on) return [];
+  return Array.from({ length: Math.max(0, d.end - d.start) }, (_, i) => d.start + i);
+}
+const gateMinutes = (cfg: DefenseCfg) => Number(cfg.gateTime.slice(0, 2)) * 60 + Number(cfg.gateTime.slice(3, 5));
 function validDay(v: any): string {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(new Date(`${v}T00:00:00.000Z`).getTime())) throw new AppError('Dia inválido', 400);
   return v;
@@ -59,7 +85,7 @@ router.get('/config', async (req: AuthRequest, res: Response, next) => {
     const parts = participantsOf(s);
     res.json({
       rooms: s.defenseRooms, maxPerSession: s.defenseMaxPerSession, participants: parts.filter((id) => users.some((u) => u.id === id)),
-      users, canManage: isAdmin(req), isParticipant: parts.includes(req.user!.id), minChoices: MIN_CHOICES, gateTime: '16:30',
+      users, canManage: isAdmin(req), isParticipant: parts.includes(req.user!.id), ...defenseCfg(s),
     });
   } catch (e) { next(e); }
 });
@@ -81,6 +107,38 @@ router.put('/config', adminOnly, async (req: AuthRequest, res: Response, next) =
       if (!Number.isInteger(n) || n < 0 || n > 20) throw new AppError('Máximo por sessão entre 0 (sem limite) e 20', 400);
       data.defenseMaxPerSession = n;
     }
+    // Horario, popup e nomes das salas
+    const cur = defenseCfg(await getSettings(workspaceId));
+    const cfg: DefenseCfg = { ...cur };
+    if (b.schedule !== undefined) {
+      if (!Array.isArray(b.schedule) || b.schedule.length !== 7) throw new AppError('Horário inválido', 400);
+      cfg.schedule = b.schedule.map((d: any, i: number) => {
+        const start = Number(d?.start), end = Number(d?.end), on = !!d?.on;
+        if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > 24 || (on && end <= start)) {
+          throw new AppError(`Horário de ${WEEKDAYS[i]}: a hora de fim tem de ser depois da de início`, 400);
+        }
+        return { on, start, end };
+      });
+    }
+    if (b.gateEnabled !== undefined) cfg.gateEnabled = !!b.gateEnabled;
+    if (b.gateTime !== undefined) {
+      if (typeof b.gateTime !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(b.gateTime)) throw new AppError('Hora do aviso inválida (ex.: 16:30)', 400);
+      cfg.gateTime = b.gateTime;
+    }
+    if (b.minChoices !== undefined) {
+      const n = Number(b.minChoices);
+      if (!Number.isInteger(n) || n < 1 || n > 12) throw new AppError('Número mínimo de sessões entre 1 e 12', 400);
+      cfg.minChoices = n;
+    }
+    if (b.gateMode !== undefined) {
+      if (!['block', 'remind'].includes(b.gateMode)) throw new AppError('Modo do aviso inválido', 400);
+      cfg.gateMode = b.gateMode;
+    }
+    if (b.roomNames !== undefined) {
+      if (!Array.isArray(b.roomNames)) throw new AppError('Nomes das salas inválidos', 400);
+      cfg.roomNames = b.roomNames.slice(0, MAX_ROOMS).map((n: any) => (typeof n === 'string' ? n.trim().slice(0, 40) : ''));
+    }
+    data.defenseConfig = cfg;
     if (b.participants !== undefined) {
       if (!Array.isArray(b.participants)) throw new AppError('Lista de participantes inválida', 400);
       const ids: string[] = [...new Set<string>(b.participants.map(String))];
@@ -88,10 +146,11 @@ router.put('/config', adminOnly, async (req: AuthRequest, res: Response, next) =
       if (found !== ids.length) throw new AppError('Há participantes que não são deste workspace', 400);
       data.defenseParticipants = ids;
     }
-    await getSettings(workspaceId);
     await prisma.financeSettings.update({ where: { workspaceId }, data });
     emit(req);
-    res.json({ ok: true });
+    // Sessoes ja marcadas que ficaram fora do novo horario (nao sao apagadas).
+    const future = await prisma.defenseSession.findMany({ where: { workspaceId, day: { gte: maputoNow().day } }, select: { day: true, hour: true } });
+    res.json({ ok: true, outside: future.filter((x) => !hoursFor(x.day, cfg).includes(x.hour)).length });
   } catch (e) { next(e); }
 });
 
@@ -109,10 +168,16 @@ router.get('/week', async (req: AuthRequest, res: Response, next) => {
 
 async function slotFields(workspaceId: string, b: any, cur?: { day: string; hour: number; room: number }) {
   const s = await getSettings(workspaceId);
+  const cfg = defenseCfg(s);
   const day = b.day !== undefined ? validDay(b.day) : cur!.day;
   const hour = b.hour !== undefined ? Number(b.hour) : cur!.hour;
   const room = b.room !== undefined ? Number(b.room) : cur!.room;
-  if (!hoursFor(day).includes(hour)) throw new AppError(isWeekend(day) ? 'Ao fim de semana as sessões são das 8h às 12h' : 'Nos dias de semana as sessões são das 8h às 20h', 400);
+  // Uma sessao que ja existia pode continuar onde estava, mesmo que o horario tenha mudado depois.
+  const unchanged = cur && cur.day === day && cur.hour === hour;
+  if (!unchanged && !hoursFor(day, cfg).includes(hour)) {
+    const d = cfg.schedule[dow(day)];
+    throw new AppError(d.on ? `À ${WEEKDAYS[dow(day)]} as sessões são das ${d.start}h às ${d.end}h` : `Não há sessões à ${WEEKDAYS[dow(day)]}`, 400);
+  }
   if (!Number.isInteger(room) || room < 1 || room > s.defenseRooms) throw new AppError('Sala inválida', 400);
   return { day, hour, room };
 }
@@ -220,20 +285,21 @@ router.delete('/sessions/:id/join', async (req: AuthRequest, res: Response, next
   } catch (e) { next(e); }
 });
 
-// ---------- Escolha obrigatoria das 16h30 ----------
+// ---------- Escolha das sessoes do dia seguinte (a partir da hora do aviso) ----------
 async function pendingFor(req: AuthRequest) {
   const workspaceId = req.user!.workspaceId;
   const s = await getSettings(workspaceId);
   const { day, minutes } = maputoNow();
   const tomorrow = addDays(day, 1);
-  const none = { required: 0, day: tomorrow, sessions: [] as any[], mine: [] as string[], maxPerSession: s.defenseMaxPerSession };
-  if (!participantsOf(s).includes(req.user!.id) || minutes < GATE_MINUTES) return none;
+  const cfg = defenseCfg(s);
+  const none = { required: 0, day: tomorrow, sessions: [] as any[], mine: [] as string[], maxPerSession: s.defenseMaxPerSession, mode: cfg.gateMode, gateTime: cfg.gateTime, roomNames: cfg.roomNames };
+  if (!cfg.gateEnabled || !participantsOf(s).includes(req.user!.id) || minutes < gateMinutes(cfg)) return none;
   const sessions = await prisma.defenseSession.findMany({
     where: { workspaceId, day: tomorrow }, include: sessionInclude, orderBy: [{ hour: 'asc' }, { room: 'asc' }],
   });
   const mine = sessions.filter((x) => x.participants.some((p) => p.userId === req.user!.id)).map((x) => x.id);
   const open = sessions.filter((x) => mine.includes(x.id) || !s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession);
-  const required = Math.min(MIN_CHOICES, open.length);
+  const required = Math.min(cfg.minChoices, open.length);
   if (mine.length >= required) return { ...none, mine };
   return { ...none, required, sessions: sessions.map(dto), mine };
 }

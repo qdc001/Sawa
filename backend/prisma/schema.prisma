@@ -1559,6 +1559,8 @@ model FinanceSettings {
   defenseRooms        Int      @default(2)
   defenseParticipants Json     @default("[]")
   defenseMaxPerSession Int     @default(0)
+  // Horario por dia da semana, popup (hora, minimo, bloquear ou lembrar) e nomes das salas. Vazio = valores por defeito.
+  defenseConfig       Json     @default("{}")
   // Necessidades de formacao escritas no relatorio mensal: { "2026-11": { "<associateId>": "texto" } }
   trainingNotes      Json     @default("{}")
   updatedAt          DateTime @updatedAt

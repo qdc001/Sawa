@@ -8,7 +8,7 @@ import { getSocket } from '../lib/socket';
 import { isMetaWorkspace } from '../lib/useFinanceAccess';
 import ChatPreviewModal from '../components/ChatPreviewModal';
 import { addDays, errMsg, Field, maputoToday, Modal, mondayOf } from '../components/finance/shared';
-import { DefenseConfig, DefenseSession, hourLabel, hoursFor, shortDay, weekdayName } from '../components/defense/types';
+import { DaySchedule, DefenseConfig, DefenseSession, hourLabel, hoursFor, roomLabel, shortDay, weekdayName, WEEKDAYS } from '../components/defense/types';
 
 type StudentLite = { id: string; code: string; name: string; project: string | null; whatsapp: string | null; contactId: string | null };
 type ContactLite = { id: string; firstName: string; lastName: string | null; whatsapp: string | null; phone: string | null };
@@ -52,7 +52,6 @@ function ContactPicker({ value, onChange, hint }: { value: ContactLite | null; o
     </div>
   );
 }
-const ALL_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
 
 function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
   cfg: DefenseConfig; initial: { day: string; hour: number; room: number }; session: DefenseSession | null; students: StudentLite[];
@@ -110,12 +109,14 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
           <Field label="Dia"><input className="input-base" type="date" value={f.day} onChange={(e) => set('day', e.target.value)} /></Field>
           <Field label="Hora">
             <select className="input-base" value={f.hour} onChange={(e) => set('hour', Number(e.target.value))}>
-              {hoursFor(f.day).map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+              {[...new Set([...hoursFor(f.day, cfg.schedule), ...(session && session.day === f.day ? [session.hour] : [])])].sort((a, b) => a - b)
+                .map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+              {!hoursFor(f.day, cfg.schedule).length && <option value="">Sem sessões neste dia</option>}
             </select>
           </Field>
           <Field label="Sala">
             <select className="input-base" value={f.room} onChange={(e) => set('room', Number(e.target.value))}>
-              {Array.from({ length: cfg.rooms }, (_, i) => i + 1).map((r) => <option key={r} value={r}>Sala {r}</option>)}
+              {Array.from({ length: cfg.rooms }, (_, i) => i + 1).map((r) => <option key={r} value={r}>{roomLabel(cfg, r)}</option>)}
             </select>
           </Field>
         </div>
@@ -174,37 +175,124 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
   );
 }
 
+// Ordem de segunda a domingo (o servidor guarda 0 = domingo).
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const HOURS_24 = Array.from({ length: 25 }, (_, i) => i);
+
 function SettingsBox({ cfg, onSaved }: { cfg: DefenseConfig; onSaved: () => void }) {
   const [rooms, setRooms] = useState(cfg.rooms);
   const [max, setMax] = useState(cfg.maxPerSession);
   const [parts, setParts] = useState<Set<string>>(new Set(cfg.participants));
+  const [schedule, setSchedule] = useState<DaySchedule[]>(cfg.schedule);
+  const [gateEnabled, setGateEnabled] = useState(cfg.gateEnabled);
+  const [gateTime, setGateTime] = useState(cfg.gateTime);
+  const [minChoices, setMinChoices] = useState(cfg.minChoices);
+  const [gateMode, setGateMode] = useState(cfg.gateMode);
+  const [roomNames, setRoomNames] = useState<string[]>(Array.from({ length: 6 }, (_, i) => cfg.roomNames[i] || ''));
   const [busy, setBusy] = useState(false);
+  const setDay = (d: number, k: keyof DaySchedule, v: any) => setSchedule((s) => s.map((x, i) => (i === d ? { ...x, [k]: v } : x)));
+  const copyWeekdays = () => setSchedule((s) => s.map((x, i) => (i >= 1 && i <= 5 ? { ...s[1] } : x)));
+
   const save = async () => {
+    const bad = schedule.findIndex((d) => d.on && d.end <= d.start);
+    if (bad >= 0) { toast.error(`${WEEKDAYS[bad]}: a hora de fim tem de ser depois da de início`); return; }
     setBusy(true);
     try {
-      await api.put('/defense/config', { rooms, maxPerSession: max, participants: [...parts] });
+      const { data } = await api.put<{ outside: number }>('/defense/config', {
+        rooms, maxPerSession: max, participants: [...parts], schedule, gateEnabled, gateTime, minChoices, gateMode, roomNames: roomNames.slice(0, rooms),
+      });
       toast.success('Definições guardadas');
+      if (data.outside) toast(`${data.outside} sessão(ões) já marcada(s) ficam fora do novo horário. Continuam na agenda; mude-as se for preciso.`, { duration: 7000 });
       onSaved();
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   };
+
+  const section = (title: string, hint?: string) => (
+    <div className="mb-2">
+      <h4 className="text-sm font-semibold">{title}</h4>
+      {hint && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{hint}</p>}
+    </div>
+  );
+
   return (
-    <div className="card p-4 space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <Field label="Número de salas">
-          <select className="input-base" value={rooms} onChange={(e) => setRooms(Number(e.target.value))}>
-            {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </Field>
-        <Field label="Máximo de pessoas por sessão">
-          <select className="input-base" value={max} onChange={(e) => setMax(Number(e.target.value))}>
-            <option value={0}>Sem limite</option>{[1, 2, 3, 4, 5, 6, 8, 10].map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </Field>
-      </div>
+    <div className="card p-4 space-y-5">
       <div>
-        <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
-          Quem tem de escolher sessões às {cfg.gateTime} (pelo menos {cfg.minChoices} do dia seguinte)
-        </p>
+        {section('Dias e horários', 'Sessões de 1 hora. Desmarque os dias sem sessões. "Até" é a hora em que termina a última sessão.')}
+        <div className="space-y-1.5">
+          {WEEK_ORDER.map((d) => (
+            <div key={d} className="flex items-center gap-2 flex-wrap text-sm">
+              <label className="flex items-center gap-2 w-28 cursor-pointer">
+                <input type="checkbox" checked={schedule[d].on} onChange={(e) => setDay(d, 'on', e.target.checked)} /> {WEEKDAYS[d]}
+              </label>
+              {schedule[d].on ? (
+                <>
+                  <span style={{ color: 'var(--text-muted)' }}>das</span>
+                  <select className="input-base" style={{ width: 'auto', padding: '4px 8px' }} value={schedule[d].start} onChange={(e) => setDay(d, 'start', Number(e.target.value))}>
+                    {HOURS_24.slice(0, 24).map((h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+                  </select>
+                  <span style={{ color: 'var(--text-muted)' }}>até</span>
+                  <select className="input-base" style={{ width: 'auto', padding: '4px 8px' }} value={schedule[d].end} onChange={(e) => setDay(d, 'end', Number(e.target.value))}>
+                    {HOURS_24.slice(1).map((h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+                  </select>
+                  <span className="text-xs" style={{ color: schedule[d].end > schedule[d].start ? 'var(--text-muted)' : '#DC2626' }}>
+                    {schedule[d].end > schedule[d].start ? `${schedule[d].end - schedule[d].start} sessões por sala` : 'o fim tem de ser depois do início'}
+                  </span>
+                  {d === 1 && <button className="text-xs underline" style={{ color: 'var(--primary)' }} onClick={copyWeekdays}>Copiar para terça a sexta</button>}
+                </>
+              ) : <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Sem sessões</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        {section('Salas')}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Field label="Número de salas">
+            <select className="input-base" value={rooms} onChange={(e) => setRooms(Number(e.target.value))}>
+              {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </Field>
+          <Field label="Máximo de pessoas por sessão">
+            <select className="input-base" value={max} onChange={(e) => setMax(Number(e.target.value))}>
+              <option value={0}>Sem limite</option>{[1, 2, 3, 4, 5, 6, 8, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </Field>
+          {Array.from({ length: rooms }, (_, i) => (
+            <Field key={i} label={`Nome da sala ${i + 1}`}>
+              <input className="input-base" maxLength={40} placeholder={`Sala ${i + 1}`} value={roomNames[i]} onChange={(e) => setRoomNames((r) => r.map((x, j) => (j === i ? e.target.value : x)))} />
+            </Field>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        {section('Aviso para escolher sessões', 'Quem está na lista abaixo recebe o aviso a partir desta hora e tem de escolher sessões do dia seguinte.')}
+        <label className="flex items-center gap-2 text-sm cursor-pointer mb-2">
+          <input type="checkbox" checked={gateEnabled} onChange={(e) => setGateEnabled(e.target.checked)} /> Mostrar o aviso
+        </label>
+        {gateEnabled && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <Field label="A partir das">
+              <input className="input-base" type="time" value={gateTime} onChange={(e) => e.target.value && setGateTime(e.target.value)} />
+            </Field>
+            <Field label="Mínimo de sessões a escolher">
+              <select className="input-base" value={minChoices} onChange={(e) => setMinChoices(Number(e.target.value))}>
+                {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </Field>
+            <Field label="Tipo de aviso">
+              <select className="input-base" value={gateMode} onChange={(e) => setGateMode(e.target.value as 'block' | 'remind')}>
+                <option value="block">Bloqueia o CRM até escolher</option>
+                <option value="remind">Só lembra (pode adiar 30 min)</option>
+              </select>
+            </Field>
+          </div>
+        )}
+      </div>
+
+      <div>
+        {section('Quem participa', `Estas pessoas recebem o aviso${gateEnabled ? ` a partir das ${gateTime}` : ''} e podem entrar nas sessões.`)}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
           {cfg.users.map((u) => (
             <label key={u.id} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -251,6 +339,14 @@ export default function DefensePage() {
   }, [cfg?.canManage]);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(start, i)), [start]);
+  // Linhas da grelha: todas as horas com sessoes em algum dia desta semana (e sessoes antigas fora do horario).
+  const gridHours = useMemo(() => {
+    if (!cfg) return [];
+    const set = new Set<number>();
+    for (const d of days) for (const h of hoursFor(d, cfg.schedule)) set.add(h);
+    for (const x of sessions || []) set.add(x.hour);
+    return [...set].sort((a, b) => a - b);
+  }, [cfg, days, sessions]);
   const bySlot = useMemo(() => new Map((sessions || []).map((s) => [`${s.day}|${s.hour}|${s.room}`, s])), [sessions]);
   // Para ver se a distribuicao e equitativa: quantas sessoes cada pessoa escolheu nesta semana.
   const fairness = useMemo(() => {
@@ -278,8 +374,8 @@ export default function DefensePage() {
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}><CalendarClock size={20} /> Preparação para defesa</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Simulações por sala, em sessões de 1 hora: 8h–20h nos dias de semana, 8h–12h ao fim de semana.
-            {cfg ? ` Às ${cfg.gateTime}, cada pessoa da lista escolhe pelo menos ${cfg.minChoices} sessões do dia seguinte.` : ''}
+            Simulações por sala, em sessões de 1 hora.
+            {cfg?.gateEnabled ? ` A partir das ${cfg.gateTime}, cada pessoa da lista escolhe pelo menos ${cfg.minChoices} ${cfg.minChoices === 1 ? 'sessão' : 'sessões'} do dia seguinte.` : ''}
           </p>
         </div>
         {cfg?.canManage && <button className="btn btn-outline" onClick={() => setShowSettings((v) => !v)}><Settings size={14} /> Definições</button>}
@@ -301,7 +397,7 @@ export default function DefensePage() {
       {!cfg || !sessions ? <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin" /></div> : (
         Array.from({ length: cfg.rooms }, (_, i) => i + 1).map((room) => (
           <div key={room} className="card p-3 overflow-x-auto">
-            <h3 className="font-semibold text-sm mb-2">Sala {room}</h3>
+            <h3 className="font-semibold text-sm mb-2">{roomLabel(cfg, room)}</h3>
             <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 3, minWidth: 900 }}>
               <thead>
                 <tr>
@@ -314,11 +410,11 @@ export default function DefensePage() {
                 </tr>
               </thead>
               <tbody>
-                {ALL_HOURS.map((h) => (
+                {gridHours.map((h) => (
                   <tr key={h}>
                     <td className="text-[11px] whitespace-nowrap pr-1" style={{ color: 'var(--text-muted)' }}>{hourLabel(h)}</td>
                     {days.map((d) => {
-                      if (!hoursFor(d).includes(h)) return <td key={d} style={{ background: 'var(--surface-3)', opacity: 0.35, borderRadius: 4 }} />;
+                      if (!hoursFor(d, cfg.schedule).includes(h) && !bySlot.get(`${d}|${h}|${room}`)) return <td key={d} style={{ background: 'var(--surface-3)', opacity: 0.35, borderRadius: 4 }} />;
                       const s = bySlot.get(`${d}|${h}|${room}`);
                       const past = d < today;
                       if (!s) {

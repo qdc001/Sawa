@@ -5,11 +5,16 @@ import api from '../../lib/api';
 import { getSocket } from '../../lib/socket';
 import { useAuthStore } from '../../store';
 import ChatPreviewModal from '../ChatPreviewModal';
-import { DefensePending, DefenseSession, hourLabel, shortDay, weekdayName } from './types';
+import { DefensePending, DefenseSession, hourLabel, roomLabel, shortDay, weekdayName } from './types';
 
-// A partir das 16h30 (hora de Maputo), quem esta na lista de participantes tem de escolher
-// pelo menos 2 sessoes de preparacao para defesa do dia seguinte. Ate escolher, este ecra
-// tapa o CRM; so da para ver o chat de cada estudante.
+// Modo "so lembra": adiar 30 minutos (guardado neste computador).
+const SNOOZE_KEY = 'meta.defense.snoozeUntil';
+const snoozed = () => { try { return Number(localStorage.getItem(SNOOZE_KEY) || 0) > Date.now(); } catch { return false; } };
+const snooze = () => { try { localStorage.setItem(SNOOZE_KEY, String(Date.now() + 30 * 60000)); } catch { /* sem armazenamento */ } };
+
+// A partir da hora definida (hora de Maputo), quem esta na lista de participantes tem de escolher
+// sessoes de preparacao para defesa do dia seguinte. No modo "bloquear" este ecra tapa o CRM ate
+// escolher (so da para ver o chat de cada estudante); no modo "lembrar" pode adiar 30 minutos.
 export default function DefenseGate() {
   const { user } = useAuthStore();
   const [pending, setPending] = useState<DefensePending | null>(null);
@@ -19,7 +24,7 @@ export default function DefenseGate() {
 
   const check = useCallback(() => {
     api.get<DefensePending>('/defense/pending').then(({ data }) => {
-      setPending(data.required > 0 ? data : null);
+      setPending(data.required > 0 && !(data.mode === 'remind' && snoozed()) ? data : null);
       if (data.required === 0) setPicked(new Set());
     }).catch(() => {});
   }, []);
@@ -68,7 +73,8 @@ export default function DefenseGate() {
           <div>
             <h2 id="defense-gate-title" className="text-lg font-bold">Preparação para defesa · {weekdayName(pending.day)} {shortDay(pending.day)}</h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Escolhe <b>pelo menos {pending.required} sessões</b> de amanhã em que vais participar. Só depois podes continuar a usar o CRM.
+              Escolhe <b>pelo menos {pending.required} {pending.required === 1 ? 'sessão' : 'sessões'}</b> de amanhã em que vais participar.
+              {pending.mode === 'block' ? ' Só depois podes continuar a usar o CRM.' : ''}
               Podes abrir o chat de cada estudante para te preparares.
             </p>
           </div>
@@ -84,7 +90,7 @@ export default function DefenseGate() {
                 <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
                   <input type="checkbox" checked={on} disabled={disabled} onChange={() => toggle(s.id)} />
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold">{hourLabel(s.hour)} · Sala {s.room}</div>
+                    <div className="text-sm font-semibold">{hourLabel(s.hour)} · {roomLabel(pending, s.room)}</div>
                     <div className="text-sm truncate">{s.title}{s.student ? ` (${s.student.code}${s.student.project ? ` · ${s.student.project}` : ''})` : ''}</div>
                     <div className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
                       {s.participants.length ? `Com: ${s.participants.map((p) => p.name).join(', ')}` : 'Ainda ninguém escolheu'}
@@ -104,7 +110,10 @@ export default function DefenseGate() {
         </div>
         <div className="flex items-center gap-3 mt-4">
           <span className="text-sm" style={{ color: total >= pending.required ? '#059669' : 'var(--text-secondary)' }}>{total}/{pending.required} escolhidas</span>
-          <button className="btn btn-primary ml-auto" disabled={busy || total < pending.required || picked.size === 0} onClick={confirm}>
+          {pending.mode === 'remind' && (
+            <button className="btn btn-outline ml-auto" onClick={() => { snooze(); setPending(null); setPicked(new Set()); }}>Lembrar daqui a 30 min</button>
+          )}
+          <button className={`btn btn-primary ${pending.mode === 'remind' ? '' : 'ml-auto'}`} disabled={busy || total < pending.required || picked.size === 0} onClick={confirm}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Confirmar sessões
           </button>
         </div>
