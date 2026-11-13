@@ -10,13 +10,16 @@ import { addDays, adminOnly, getSettings, isAdmin, maputoNow, metaOnly, text, we
 const router = Router();
 router.use(metaOnly);
 
-const MAX_ROOMS = 6;
+const MAX_ROOMS = 20;
 const WEEKDAYS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 
 // Dia da semana 0 = domingo ... 6 = sabado. end e a hora em que termina a ultima sessao.
 export type DaySchedule = { on: boolean; start: number; end: number };
 export type DefenseCfg = {
   schedule: DaySchedule[]; gateEnabled: boolean; gateTime: string; minChoices: number; gateMode: 'block' | 'remind'; roomNames: string[];
+  // Enchimento equilibrado: enquanto houver sessoes do dia com menos de fillMin associados,
+  // so se entra nas que tem menos gente. 0 = desligado.
+  fillMin: number;
 };
 const DEFAULT_SCHEDULE: DaySchedule[] = [0, 1, 2, 3, 4, 5, 6].map((d) => (d === 0 || d === 6 ? { on: true, start: 8, end: 12 } : { on: true, start: 8, end: 20 }));
 
@@ -33,6 +36,7 @@ export function defenseCfg(s: { defenseConfig: any }): DefenseCfg {
     minChoices: Number.isInteger(c.minChoices) ? c.minChoices : 2,
     gateMode: c.gateMode === 'remind' ? 'remind' : 'block',
     roomNames: Array.isArray(c.roomNames) ? c.roomNames.map((n: any) => (typeof n === 'string' ? n : '')) : [],
+    fillMin: Number.isInteger(c.fillMin) ? c.fillMin : 2,
   };
 }
 const dow = (day: string) => new Date(`${day}T00:00:00.000Z`).getUTCDay();
@@ -49,12 +53,14 @@ function validDay(v: any): string {
 
 const sessionInclude = {
   student: { select: { id: true, code: true, name: true, project: true, whatsapp: true, contactId: true } },
+  associate: { select: { id: true, name: true, userId: true } },
   participants: { include: { user: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' as const } },
 };
 function dto(s: any) {
   return {
     id: s.id, day: s.day, hour: s.hour, room: s.room, title: s.title, notes: s.notes, studentId: s.studentId, contactId: s.contactId,
     student: s.student, participants: s.participants.map((p: any) => ({ userId: p.userId, name: p.user?.name || '' })),
+    associateId: s.associateId, associate: s.associate || null, slidesUrl: s.slidesUrl, slidesName: s.slidesName, slidesAt: s.slidesAt,
   };
 }
 
@@ -81,11 +87,14 @@ async function ensureContact(workspaceId: string, st: { id: string; name: string
 router.get('/config', async (req: AuthRequest, res: Response, next) => {
   try {
     const s = await getSettings(req.user!.workspaceId);
-    const users = await prisma.user.findMany({ where: { workspaceId: req.user!.workspaceId }, select: { id: true, name: true, role: true }, orderBy: { name: 'asc' } });
+    const [users, associates] = await Promise.all([
+      prisma.user.findMany({ where: { workspaceId: req.user!.workspaceId }, select: { id: true, name: true, role: true }, orderBy: { name: 'asc' } }),
+      prisma.financeAssociate.findMany({ where: { workspaceId: req.user!.workspaceId, isActive: true }, select: { id: true, name: true, userId: true }, orderBy: { name: 'asc' } }),
+    ]);
     const parts = participantsOf(s);
     res.json({
       rooms: s.defenseRooms, maxPerSession: s.defenseMaxPerSession, participants: parts.filter((id) => users.some((u) => u.id === id)),
-      users, canManage: isAdmin(req), isParticipant: parts.includes(req.user!.id), ...defenseCfg(s),
+      users, associates, canManage: isAdmin(req), canCreate: true, isParticipant: parts.includes(req.user!.id), ...defenseCfg(s),
     });
   } catch (e) { next(e); }
 });
@@ -133,6 +142,11 @@ router.put('/config', adminOnly, async (req: AuthRequest, res: Response, next) =
     if (b.gateMode !== undefined) {
       if (!['block', 'remind'].includes(b.gateMode)) throw new AppError('Modo do aviso inválido', 400);
       cfg.gateMode = b.gateMode;
+    }
+    if (b.fillMin !== undefined) {
+      const n = Number(b.fillMin);
+      if (!Number.isInteger(n) || n < 0 || n > 10) throw new AppError('Equilíbrio: número entre 0 (desligado) e 10', 400);
+      cfg.fillMin = n;
     }
     if (b.roomNames !== undefined) {
       if (!Array.isArray(b.roomNames)) throw new AppError('Nomes das salas inválidos', 400);
@@ -186,7 +200,23 @@ async function studentFor(workspaceId: string, b: any) {
   const st = await prisma.financeStudent.findFirst({ where: { id: String(b.studentId || ''), workspaceId } });
   if (!st) throw new AppError('Escolhe o estudante', 400);
   const contactId = await ensureContact(workspaceId, st, text(b.contactId));
-  return { studentId: st.id, contactId, title: st.name };
+  return { studentId: st.id, contactId, title: st.name, studentAssociateId: st.associateId };
+}
+
+async function associateFor(workspaceId: string, v: any): Promise<string | null> {
+  if (!v) return null;
+  const a = await prisma.financeAssociate.findFirst({ where: { id: String(v), workspaceId }, select: { id: true } });
+  if (!a) throw new AppError('Associado não encontrado', 400);
+  return a.id;
+}
+
+// Slides: so ficheiros enviados pelo CRM (/uploads/...).
+function slidesFields(b: any) {
+  if (b.slidesUrl === undefined) return {};
+  if (!b.slidesUrl) return { slidesUrl: null, slidesName: null, slidesAt: null };
+  const url = String(b.slidesUrl);
+  if (!/^\/uploads\/[^/]+$/.test(url)) throw new AppError('Ficheiro dos slides inválido', 400);
+  return { slidesUrl: url, slidesName: text(b.slidesName) || 'Slides', slidesAt: new Date() };
 }
 
 const conflict = (e: any) => {
@@ -194,14 +224,17 @@ const conflict = (e: any) => {
   return e;
 };
 
-router.post('/sessions', adminOnly, async (req: AuthRequest, res: Response, next) => {
+// Qualquer pessoa do M.E.T.A. cria sessoes; so administradores editam e apagam.
+router.post('/sessions', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;
     const b = req.body || {};
     const slot = await slotFields(workspaceId, b);
-    const st = await studentFor(workspaceId, b);
+    const { studentAssociateId, ...st } = await studentFor(workspaceId, b);
+    // Sem escolha, o responsavel e o associado do estudante.
+    const associateId = b.associateId !== undefined ? await associateFor(workspaceId, b.associateId) : studentAssociateId;
     const created = await prisma.defenseSession.create({
-      data: { workspaceId, ...slot, ...st, notes: text(b.notes), createdById: req.user!.id }, include: sessionInclude,
+      data: { workspaceId, ...slot, ...st, associateId, ...slidesFields(b), notes: text(b.notes), createdById: req.user!.id }, include: sessionInclude,
     }).catch((e) => { throw conflict(e); });
     emit(req, slot.day);
     res.status(201).json(dto(created));
@@ -215,8 +248,16 @@ router.patch('/sessions/:id', adminOnly, async (req: AuthRequest, res: Response,
     if (!cur) throw new AppError('Sessão não encontrada', 404);
     const b = req.body || {};
     const data: any = await slotFields(workspaceId, b, cur);
-    if (b.studentId !== undefined && b.studentId !== cur.studentId) Object.assign(data, await studentFor(workspaceId, b));
-    else if (b.contactId && cur.studentId) Object.assign(data, await studentFor(workspaceId, { ...b, studentId: cur.studentId }));
+    if (b.studentId !== undefined && b.studentId !== cur.studentId) {
+      const { studentAssociateId, ...st } = await studentFor(workspaceId, b);
+      Object.assign(data, st);
+      if (b.associateId === undefined) data.associateId = studentAssociateId;
+    } else if (b.contactId && cur.studentId) {
+      const { studentAssociateId: _a, ...st } = await studentFor(workspaceId, { ...b, studentId: cur.studentId });
+      Object.assign(data, st);
+    }
+    if (b.associateId !== undefined) data.associateId = await associateFor(workspaceId, b.associateId);
+    Object.assign(data, slidesFields(b));
     if (b.notes !== undefined) data.notes = text(b.notes);
     const up = await prisma.defenseSession.update({ where: { id: cur.id }, data, include: sessionInclude }).catch((e) => { throw conflict(e); });
     emit(req, up.day);
@@ -234,8 +275,25 @@ router.delete('/sessions/:id', adminOnly, async (req: AuthRequest, res: Response
   } catch (e) { next(e); }
 });
 
+// Anexar / tirar os slides: administrador, o associado responsavel (a conta dele) ou quem criou a sessao.
+router.put('/sessions/:id/slides', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const cur = await prisma.defenseSession.findFirst({ where: { id: req.params.id, workspaceId }, include: { associate: { select: { userId: true } } } });
+    if (!cur) throw new AppError('Sessão não encontrada', 404);
+    if (!isAdmin(req) && cur.associate?.userId !== req.user!.id && cur.createdById !== req.user!.id) {
+      throw new AppError('Só o associado responsável pelo estudante (ou um administrador) anexa os slides', 403);
+    }
+    const data = slidesFields({ slidesUrl: req.body?.slidesUrl ?? null, slidesName: req.body?.slidesName });
+    const up = await prisma.defenseSession.update({ where: { id: cur.id }, data, include: sessionInclude });
+    emit(req, up.day);
+    res.json(dto(up));
+  } catch (e) { next(e); }
+});
+
 // Entrar numa sessao (com o limite por sessao). Admin pode por outra pessoa (userId).
-async function join(req: AuthRequest, sessionId: string, userId: string, tx: any = prisma) {
+// balance: aplica o enchimento equilibrado (quem entra por si; um administrador a por alguem nao).
+async function join(req: AuthRequest, sessionId: string, userId: string, tx: any = prisma, balance = false) {
   const workspaceId = req.user!.workspaceId;
   const s = await getSettings(workspaceId);
   const ses = await tx.defenseSession.findFirst({ where: { id: sessionId, workspaceId }, include: { participants: true } });
@@ -244,6 +302,20 @@ async function join(req: AuthRequest, sessionId: string, userId: string, tx: any
   if (ses.participants.some((p: any) => p.userId === userId)) return ses;
   if (s.defenseMaxPerSession && ses.participants.length >= s.defenseMaxPerSession) {
     throw new AppError(`A sessão das ${ses.hour}h (sala ${ses.room}) já está cheia. Escolhe outra.`, 409);
+  }
+  if (balance) {
+    const cfg = defenseCfg(s);
+    const day = await tx.defenseSession.findMany({ where: { workspaceId, day: ses.day }, include: { participants: { select: { userId: true } } } });
+    const isMine = (x: any) => x.participants.some((p: any) => p.userId === userId);
+    const myHours = new Set(day.filter(isMine).map((x: any) => x.hour));
+    if (myHours.has(ses.hour)) throw new AppError(`Já estás noutra sessão às ${ses.hour}h.`, 409);
+    if (cfg.fillMin > 0) {
+      const cands = day.filter((x: any) => !isMine(x) && !myHours.has(x.hour) && (!s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession));
+      const min = Math.min(...cands.map((x: any) => x.participants.length));
+      if (min < cfg.fillMin && ses.participants.length > min) {
+        throw new AppError(`Ainda há sessões neste dia com ${min} ${min === 1 ? 'associado' : 'associados'}. Escolhe primeiro uma dessas: só se entra numa sessão com mais gente quando todas tiverem ${cfg.fillMin}.`, 409);
+      }
+    }
   }
   await tx.defenseParticipant.create({ data: { sessionId, userId } }).catch((e: any) => { if (e?.code !== 'P2002') throw e; });
   return ses;
@@ -263,7 +335,7 @@ router.post('/sessions/:id/join', async (req: AuthRequest, res: Response, next) 
       if (!u) throw new AppError('Colaborador não encontrado', 404);
       userId = u.id;
     } else canJoin(req, s);
-    const ses = await join(req, req.params.id, userId);
+    const ses = await join(req, req.params.id, userId, prisma, userId === req.user!.id);
     emit(req, ses.day);
     res.json(dto(await prisma.defenseSession.findUniqueOrThrow({ where: { id: ses.id }, include: sessionInclude })));
   } catch (e) { next(e); }
@@ -312,16 +384,22 @@ async function pendingFor(req: AuthRequest) {
   const { day, minutes } = maputoNow();
   const tomorrow = addDays(day, 1);
   const cfg = defenseCfg(s);
-  const none = { required: 0, day: tomorrow, sessions: [] as any[], mine: [] as string[], maxPerSession: s.defenseMaxPerSession, mode: cfg.gateMode, gateTime: cfg.gateTime, roomNames: cfg.roomNames };
-  if (!cfg.gateEnabled || !participantsOf(s).includes(req.user!.id) || minutes < gateMinutes(cfg)) return none;
+  const none = {
+    required: 0, day: tomorrow, sessions: [] as any[], mine: [] as string[], slides: [] as any[], maxPerSession: s.defenseMaxPerSession,
+    mode: cfg.gateMode, gateTime: cfg.gateTime, roomNames: cfg.roomNames, fillMin: cfg.fillMin,
+  };
+  if (!cfg.gateEnabled || minutes < gateMinutes(cfg)) return none;
   const sessions = await prisma.defenseSession.findMany({
     where: { workspaceId, day: tomorrow }, include: sessionInclude, orderBy: [{ hour: 'asc' }, { room: 'asc' }],
   });
+  // O associado responsavel pelo estudante tem de anexar os slides das sessoes de amanha.
+  const slides = sessions.filter((x) => x.associate?.userId === req.user!.id && !x.slidesUrl).map(dto);
   const mine = sessions.filter((x) => x.participants.some((p) => p.userId === req.user!.id)).map((x) => x.id);
+  if (!participantsOf(s).includes(req.user!.id)) return { ...none, mine, slides };
   const open = sessions.filter((x) => mine.includes(x.id) || !s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession);
   const required = Math.min(cfg.minChoices, open.length);
-  if (mine.length >= required) return { ...none, mine };
-  return { ...none, required, sessions: sessions.map(dto), mine };
+  if (mine.length >= required) return { ...none, mine, slides };
+  return { ...none, required, sessions: sessions.map(dto), mine, slides };
 }
 
 router.get('/pending', async (req: AuthRequest, res: Response, next) => {
@@ -336,9 +414,11 @@ router.post('/choose', async (req: AuthRequest, res: Response, next) => {
     const ids: string[] = Array.isArray(req.body?.sessionIds) ? [...new Set<string>(req.body.sessionIds.map(String))] : [];
     if (!ids.length) throw new AppError('Escolhe as sessões', 400);
     const tomorrow = addDays(maputoNow().day, 1);
-    const found = await prisma.defenseSession.findMany({ where: { workspaceId, id: { in: ids } }, select: { id: true, day: true } });
+    const found = await prisma.defenseSession.findMany({ where: { workspaceId, id: { in: ids } }, select: { id: true, day: true, _count: { select: { participants: true } } } });
     if (found.length !== ids.length || found.some((f) => f.day !== tomorrow)) throw new AppError('Só podes escolher sessões de amanhã aqui', 400);
-    await prisma.$transaction(async (tx) => { for (const id of ids) await join(req, id, req.user!.id, tx); });
+    // As com menos gente primeiro, para o equilibrio aceitar a escolha toda.
+    const ordered = [...found].sort((a, b) => a._count.participants - b._count.participants).map((f) => f.id);
+    await prisma.$transaction(async (tx) => { for (const id of ordered) await join(req, id, req.user!.id, tx, true); });
     emit(req, tomorrow);
     res.json(await pendingFor(req));
   } catch (e) { next(e); }

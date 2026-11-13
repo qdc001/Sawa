@@ -1586,12 +1586,13 @@ model FinanceAssociate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace       Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  students        FinanceStudent[]
-  entries         FinanceEntry[]
-  salaryPayments  FinanceSalaryPayment[]
-  defenseStudents FinanceStudent[]       @relation("DefenseStudents")
-  defenseEntries  FinanceEntry[]         @relation("DefenseEntries")
+  workspace          Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  students           FinanceStudent[]
+  entries            FinanceEntry[]
+  salaryPayments     FinanceSalaryPayment[]
+  defenseStudents    FinanceStudent[]       @relation("DefenseStudents")
+  defenseEntries     FinanceEntry[]         @relation("DefenseEntries")
+  defenseSessionsLed DefenseSession[]       @relation("DefenseSessionAssociate")
 
   @@unique([workspaceId, code])
   @@index([workspaceId, userId])
@@ -1830,7 +1831,7 @@ model FinanceStudentEvent {
 
 // Preparacao para defesa: uma sessao de 1 hora numa sala (day em hora de Maputo, hour 8-19).
 model DefenseSession {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   day         String
   hour        Int
@@ -1840,11 +1841,18 @@ model DefenseSession {
   title       String
   notes       String?
   createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // Associado responsavel pelo estudante: e quem tem de anexar os slides.
+  associateId String?
+  // Slides da apresentacao (ficheiro em /uploads).
+  slidesUrl   String?
+  slidesName  String?
+  slidesAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   student      FinanceStudent?      @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  associate    FinanceAssociate?    @relation("DefenseSessionAssociate", fields: [associateId], references: [id], onDelete: SetNull)
   participants DefenseParticipant[]
 
   @@unique([workspaceId, day, hour, room])

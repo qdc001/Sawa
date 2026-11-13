@@ -229,6 +229,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     // Sincronizar status com tipo da etapa quando a etapa muda (excepto se o utilizador
     // também enviou status explicitamente — nesse caso respeita a escolha)
     let stageStatusSync: any = {};
+    // A etapa pode ser de outro pipeline: o lead muda de pipeline com ela.
+    let pipelineMove: any = {};
+    if (stageId) {
+      const target = await prisma.stage.findFirst({ where: { id: stageId, pipeline: { workspaceId: req.user!.workspaceId } }, select: { pipelineId: true } });
+      if (!target) throw new AppError('Etapa não encontrada', 400);
+      if (target.pipelineId !== existing.pipelineId) pipelineMove = { pipelineId: target.pipelineId };
+    }
     if (stageId && !status) {
       const stage = await prisma.stage.findUnique({ where: { id: stageId } });
       if (stage) {
@@ -244,6 +251,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
         ...(title && { title }),
         ...(value !== undefined && { value: Number(value) }),
         ...(stageId && { stageId }),
+        ...pipelineMove,
         ...(assignedToId !== undefined && { assignedToId }),
         ...(contactId !== undefined && { contactId }),
         ...(priority && { priority }),

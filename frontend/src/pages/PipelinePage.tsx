@@ -1207,6 +1207,14 @@ export function LeadDetailModal({
   const [status, setStatus] = useState<string>(lead.status);
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
+  // Pipeline e etapa: escolher outro pipeline mostra as etapas dele.
+  const [allPipelines, setAllPipelines] = useState<Pipeline[]>([]);
+  const [pipelineId, setPipelineId] = useState(lead.pipelineId);
+  const [stageId, setStageId] = useState(lead.stageId);
+  useEffect(() => {
+    api.get('/pipelines').then(({ data }) => setAllPipelines(Array.isArray(data) ? data : [])).catch(() => setAllPipelines([]));
+  }, []);
+  const stagesOf = allPipelines.find((p) => p.id === pipelineId)?.stages || [];
   const [builtinConfig] = useBuiltinConfig();
   const [nextAction, setNextAction] = useState<{ action: string; why?: string } | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
@@ -1237,7 +1245,9 @@ export function LeadDetailModal({
         value: value ? Number(value) : null,
         priority,
         assignedToId: assignedToId || null,
-        status,
+        // Estado so vai se foi mudado aqui; ao mudar de etapa o servidor acerta-o (Ganho/Perdido).
+        ...(status !== lead.status ? { status } : {}),
+        ...(stageId !== lead.stageId ? { stageId } : {}),
       });
       toast.success('Lead actualizado');
       onUpdated(data);
@@ -1352,6 +1362,35 @@ export function LeadDetailModal({
                 <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Pipeline
+              </label>
+              <select
+                value={pipelineId}
+                onChange={(e) => {
+                  setPipelineId(e.target.value);
+                  const first = allPipelines.find((p) => p.id === e.target.value)?.stages[0];
+                  setStageId(e.target.value === lead.pipelineId ? lead.stageId : first?.id || '');
+                }}
+                className="input-base"
+              >
+                {!allPipelines.some((p) => p.id === pipelineId) && <option value={pipelineId}>{lead.pipeline?.name || 'Pipeline actual'}</option>}
+                {allPipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Etapa
+              </label>
+              <select value={stageId} onChange={(e) => setStageId(e.target.value)} className="input-base">
+                {!stagesOf.some((st) => st.id === stageId) && <option value={stageId}>{lead.stage?.name || 'Etapa actual'}</option>}
+                {stagesOf.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+              </select>
+            </div>
           </div>
 
           <div>

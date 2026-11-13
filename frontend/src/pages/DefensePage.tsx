@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { CalendarClock, ChevronLeft, ChevronRight, Loader2, LogIn, LogOut, MessageSquare, Plus, Settings, Trash2, X } from 'lucide-react';
+import { CalendarClock, ChevronLeft, ChevronRight, FileText, Loader2, LogIn, LogOut, MessageSquare, Paperclip, Plus, Settings, Trash2, X } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store';
 import { getSocket } from '../lib/socket';
 import { isMetaWorkspace } from '../lib/useFinanceAccess';
 import ChatPreviewModal from '../components/ChatPreviewModal';
 import { addDays, errMsg, Field, maputoToday, Modal, mondayOf } from '../components/finance/shared';
-import { DaySchedule, DefenseConfig, DefenseSession, hourLabel, hoursFor, roomLabel, shortDay, weekdayName, WEEKDAYS } from '../components/defense/types';
+import { balanceBlock, DaySchedule, DefenseConfig, DefenseSession, hourLabel, hoursFor, roomLabel, shortDay, weekdayName, WEEKDAYS } from '../components/defense/types';
+import { openSlides, SLIDES_ACCEPT, uploadSlides } from '../components/defense/slides';
 
-type StudentLite = { id: string; code: string; name: string; project: string | null; whatsapp: string | null; contactId: string | null };
+type StudentLite = { id: string; code: string; name: string; project: string | null; whatsapp: string | null; contactId: string | null; associate?: { id: string } | null };
 type ContactLite = { id: string; firstName: string; lastName: string | null; whatsapp: string | null; phone: string | null };
 const contactName = (c: ContactLite) => [c.firstName, c.lastName].filter(Boolean).join(' ');
 
@@ -57,7 +58,14 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
   cfg: DefenseConfig; initial: { day: string; hour: number; room: number }; session: DefenseSession | null; students: StudentLite[];
   onClose: () => void; onSaved: () => void;
 }) {
-  const [f, setF] = useState({ ...initial, studentId: session?.studentId || '', notes: session?.notes || '' });
+  const [f, setF] = useState({ ...initial, studentId: session?.studentId || '', notes: session?.notes || '', associateId: session?.associateId || '' });
+  const [slides, setSlides] = useState<{ slidesUrl: string; slidesName: string } | null>(session?.slidesUrl ? { slidesUrl: session.slidesUrl, slidesName: session.slidesName || 'Slides' } : null);
+  const [uploading, setUploading] = useState(false);
+  const pickFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    try { setSlides(await uploadSlides(file)); } catch (e) { toast.error(errMsg(e, 'Não foi possível enviar o ficheiro')); } finally { setUploading(false); }
+  };
   const [contact, setContact] = useState<ContactLite | null>(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
@@ -71,6 +79,8 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
     if (!linkedId) return;
     api.get<ContactLite>(`/contacts/${linkedId}`).then(({ data }) => setContact(data)).catch(() => setContact(null));
   }, [linkedId]);
+  // Ao escolher o estudante, o responsavel passa a ser o associado dele (pode mudar-se).
+  const pickStudent = (st: StudentLite) => setF((p) => ({ ...p, studentId: st.id, associateId: st.associate?.id || p.associateId }));
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
     return students.filter((x) => !s || `${x.code} ${x.name}`.toLowerCase().includes(s)).slice(0, 60);
@@ -81,7 +91,10 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
     if (!contact) { toast.error('Associa o estudante a um contacto'); return; }
     setBusy(true);
     try {
-      const body = { day: f.day, hour: f.hour, room: f.room, studentId: f.studentId, notes: f.notes, contactId: contact.id };
+      const body = {
+        day: f.day, hour: f.hour, room: f.room, studentId: f.studentId, notes: f.notes, contactId: contact.id, associateId: f.associateId || null,
+        slidesUrl: slides?.slidesUrl || null, slidesName: slides?.slidesName || null,
+      };
       if (session) await api.patch(`/defense/sessions/${session.id}`, body);
       else await api.post('/defense/sessions', body);
       toast.success('Sessão guardada');
@@ -131,7 +144,7 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
               <input className="input-base" placeholder="Procurar por nome ou ID" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
               <div className="rounded" style={{ border: '1px solid var(--border)', maxHeight: 180, overflowY: 'auto' }}>
                 {list.map((s) => (
-                  <button key={s.id} className="w-full text-left text-sm px-2 py-1.5 hover:bg-slate-100" onClick={() => set('studentId', s.id)}>
+                  <button key={s.id} className="w-full text-left text-sm px-2 py-1.5 hover:bg-slate-100" onClick={() => pickStudent(s)}>
                     {s.code} · {s.name}{s.project ? <span style={{ color: 'var(--text-muted)' }}> · {s.project}</span> : null}
                   </button>
                 ))}
@@ -146,8 +159,29 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
           </Field>
         )}
         {chosen && <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>A ligação fica gravada na ficha do estudante e serve para abrir o chat a partir da agenda e do popup.</p>}
+        <Field label="Associado responsável pelo estudante">
+          <select className="input-base" value={f.associateId} onChange={(e) => set('associateId', e.target.value)}>
+            <option value="">Sem responsável</option>
+            {cfg.associates.map((a) => <option key={a.id} value={a.id}>{a.name}{a.userId ? '' : ' (sem conta no CRM)'}</option>)}
+          </select>
+        </Field>
+        <p className="text-[11px] -mt-2" style={{ color: 'var(--text-muted)' }}>É quem tem de anexar os slides: o aviso da véspera pede-lhos se faltarem.</p>
+        <Field label="Slides (opcional agora)">
+          {slides ? (
+            <div className="flex items-center gap-2 text-sm p-2 rounded" style={{ background: 'var(--surface-2)' }}>
+              <FileText size={14} />
+              <button className="flex-1 text-left underline truncate" onClick={() => openSlides(slides.slidesUrl, slides.slidesName)}>{slides.slidesName}</button>
+              <button onClick={() => setSlides(null)} aria-label="Tirar os slides"><X size={14} /></button>
+            </div>
+          ) : (
+            <label className="btn btn-outline cursor-pointer" style={{ display: 'inline-flex' }}>
+              {uploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />} Anexar slides
+              <input type="file" accept={SLIDES_ACCEPT} className="hidden" disabled={uploading} onChange={(e) => pickFile(e.target.files?.[0])} />
+            </label>
+          )}
+        </Field>
         <Field label="Notas (opcional)"><textarea className="input-base" rows={2} value={f.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
-        {session && (
+        {session && cfg.canManage && (
           <div className="space-y-1.5">
             <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Participantes</p>
             {session.participants.length === 0 && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Ainda ninguém.</p>}
@@ -167,14 +201,15 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
           </div>
         )}
         <div className="flex gap-2">
-          <button className="btn btn-primary flex-1 justify-center" disabled={busy || !f.studentId || !contact} onClick={save}>{busy && <Loader2 size={14} className="animate-spin" />} Guardar</button>
-          {session && <button className="btn btn-outline" onClick={remove} style={{ color: '#EF4444' }}><Trash2 size={14} /> Apagar</button>}
+          <button className="btn btn-primary flex-1 justify-center" disabled={busy || uploading || !f.studentId || !contact} onClick={save}>{busy && <Loader2 size={14} className="animate-spin" />} Guardar</button>
+          {session && cfg.canManage && <button className="btn btn-outline" onClick={remove} style={{ color: '#EF4444' }}><Trash2 size={14} /> Apagar</button>}
         </div>
       </div>
     </Modal>
   );
 }
 
+const MAX_ROOMS = 20;
 // Ordem de segunda a domingo (o servidor guarda 0 = domingo).
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const HOURS_24 = Array.from({ length: 25 }, (_, i) => i);
@@ -188,7 +223,8 @@ function SettingsBox({ cfg, onSaved }: { cfg: DefenseConfig; onSaved: () => void
   const [gateTime, setGateTime] = useState(cfg.gateTime);
   const [minChoices, setMinChoices] = useState(cfg.minChoices);
   const [gateMode, setGateMode] = useState(cfg.gateMode);
-  const [roomNames, setRoomNames] = useState<string[]>(Array.from({ length: 6 }, (_, i) => cfg.roomNames[i] || ''));
+  const [roomNames, setRoomNames] = useState<string[]>(Array.from({ length: MAX_ROOMS }, (_, i) => cfg.roomNames[i] || ''));
+  const [fillMin, setFillMin] = useState(cfg.fillMin);
   const [busy, setBusy] = useState(false);
   const setDay = (d: number, k: keyof DaySchedule, v: any) => setSchedule((s) => s.map((x, i) => (i === d ? { ...x, [k]: v } : x)));
   const copyWeekdays = () => setSchedule((s) => s.map((x, i) => (i >= 1 && i <= 5 ? { ...s[1] } : x)));
@@ -199,7 +235,7 @@ function SettingsBox({ cfg, onSaved }: { cfg: DefenseConfig; onSaved: () => void
     setBusy(true);
     try {
       const { data } = await api.put<{ outside: number }>('/defense/config', {
-        rooms, maxPerSession: max, participants: [...parts], schedule, gateEnabled, gateTime, minChoices, gateMode, roomNames: roomNames.slice(0, rooms),
+        rooms, maxPerSession: max, participants: [...parts], schedule, gateEnabled, gateTime, minChoices, gateMode, roomNames: roomNames.slice(0, rooms), fillMin,
       });
       toast.success('Definições guardadas');
       if (data.outside) toast(`${data.outside} sessão(ões) já marcada(s) ficam fora do novo horário. Continuam na agenda; mude-as se for preciso.`, { duration: 7000 });
@@ -246,16 +282,22 @@ function SettingsBox({ cfg, onSaved }: { cfg: DefenseConfig; onSaved: () => void
       </div>
 
       <div>
-        {section('Salas')}
+        {section('Salas', fillMin ? `Equilíbrio: enquanto houver sessões do dia com menos de ${fillMin} ${fillMin === 1 ? 'associado' : 'associados'}, só se entra nas que têm menos gente.` : undefined)}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <Field label="Número de salas">
             <select className="input-base" value={rooms} onChange={(e) => setRooms(Number(e.target.value))}>
-              {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+              {Array.from({ length: MAX_ROOMS }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
           </Field>
           <Field label="Máximo de pessoas por sessão">
             <select className="input-base" value={max} onChange={(e) => setMax(Number(e.target.value))}>
               <option value={0}>Sem limite</option>{[1, 2, 3, 4, 5, 6, 8, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </Field>
+          <Field label="Equilíbrio entre sessões">
+            <select className="input-base" value={fillMin} onChange={(e) => setFillMin(Number(e.target.value))}>
+              <option value={0}>Desligado (escolha livre)</option>
+              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>Encher todas até {n}</option>)}
             </select>
           </Field>
           {Array.from({ length: rooms }, (_, i) => (
@@ -333,10 +375,21 @@ export default function DefensePage() {
     const t = setInterval(() => { if (document.visibilityState === 'visible') loadWeek(); }, 30000);
     return () => { socket?.off('defense:changed', onChange); clearInterval(t); };
   }, [loadWeek]);
+  // Estudantes para marcar sessoes (o associado ve os seus).
   useEffect(() => {
-    if (!cfg?.canManage) return;
+    if (!cfg?.canCreate) return;
     api.get<StudentLite[]>('/finance/students').then(({ data }) => setStudents(data)).catch(() => {});
-  }, [cfg?.canManage]);
+  }, [cfg?.canCreate]);
+  const [attaching, setAttaching] = useState<string | null>(null);
+  const attach = async (s: DefenseSession, file: File | undefined) => {
+    if (!file) return;
+    setAttaching(s.id);
+    try {
+      await api.put(`/defense/sessions/${s.id}/slides`, await uploadSlides(file));
+      toast.success('Slides anexados');
+      loadWeek();
+    } catch (e) { toast.error(errMsg(e)); } finally { setAttaching(null); }
+  };
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(start, i)), [start]);
   // Linhas da grelha: todas as horas com sessoes em algum dia desta semana (e sessoes antigas fora do horario).
@@ -435,7 +488,7 @@ export default function DefensePage() {
                       if (!s) {
                         return (
                           <td key={d} style={{ border: '1px dashed var(--border)', borderRadius: 4, height: 34 }}>
-                            {cfg.canManage && !past && (
+                            {cfg.canCreate && !past && (
                               <button className="w-full h-full flex items-center justify-center opacity-40 hover:opacity-100" aria-label={`Marcar sessão ${weekdayName(d)} ${hourLabel(h)} sala ${room}`}
                                 onClick={() => setEditing({ initial: { day: d, hour: h, room }, session: null })}><Plus size={13} /></button>
                             )}
@@ -444,6 +497,8 @@ export default function DefensePage() {
                       }
                       const joined = s.participants.some((p) => p.userId === user?.id);
                       const full = !!cfg.maxPerSession && s.participants.length >= cfg.maxPerSession && !joined;
+                      const blocked = !joined && !cfg.canManage ? balanceBlock(s, (sessions || []).filter((x) => x.day === d), user?.id, new Set(), cfg.fillMin, cfg.maxPerSession) : null;
+                      const canAttach = cfg.canManage || (!!user?.id && s.associate?.userId === user.id);
                       return (
                         <td key={d} className="align-top p-1.5 text-[11px]" style={{ background: joined ? 'var(--primary-light)' : 'var(--surface-2)', border: `1px solid ${joined ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 4, opacity: past ? 0.6 : 1 }}>
                           <button className="font-semibold text-left w-full truncate block" style={{ fontSize: 12 }} disabled={!cfg.canManage}
@@ -452,16 +507,25 @@ export default function DefensePage() {
                             {s.participants.length ? s.participants.map((p) => p.name.split(' ')[0]).join(', ') : 'Ninguém ainda'}
                             {cfg.maxPerSession ? ` (${s.participants.length}/${cfg.maxPerSession})` : ''}
                           </div>
-                          <div className="flex gap-1.5 mt-1">
+                          {s.associate && <div className="truncate" style={{ color: 'var(--text-muted)' }}>Resp.: {s.associate.name.split(' ')[0]}</div>}
+                          <div className="flex gap-1.5 mt-1 flex-wrap">
                             {s.contactId && <button onClick={() => setChat(s)} title="Ver chat com o estudante" aria-label="Ver chat"><MessageSquare size={12} /></button>}
+                            {s.slidesUrl ? (
+                              <button onClick={() => openSlides(s.slidesUrl!, s.slidesName)} title={`Slides: ${s.slidesName || ''}`} aria-label="Ver slides" style={{ color: '#059669' }}><FileText size={12} /></button>
+                            ) : canAttach && !past ? (
+                              <label className="cursor-pointer flex items-center" title="Anexar os slides" style={{ color: '#D97706' }}>
+                                {attaching === s.id ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />}
+                                <input type="file" accept={SLIDES_ACCEPT} className="hidden" disabled={attaching === s.id} onChange={(e) => attach(s, e.target.files?.[0])} />
+                              </label>
+                            ) : null}
                             {canJoin && !past && joined && lockedDays.has(d) && (
                               <span title={`Tens de ficar com pelo menos ${cfg.minChoices} sessões neste dia. Para sair desta, escolhe primeiro outra.`} style={{ color: 'var(--text-muted)' }}>
                                 Mínimo
                               </span>
                             )}
                             {canJoin && !past && !(joined && lockedDays.has(d)) && (
-                              <button disabled={busy === s.id || full} onClick={() => toggleJoin(s, joined)} title={joined ? 'Sair desta sessão' : full ? 'Sessão cheia' : 'Participar nesta sessão'}
-                                className="flex items-center gap-0.5" style={{ color: joined ? '#B91C1C' : 'var(--primary)', opacity: full ? 0.4 : 1 }}>
+                              <button disabled={busy === s.id || full || !!blocked} onClick={() => toggleJoin(s, joined)} title={joined ? 'Sair desta sessão' : full ? 'Sessão cheia' : blocked || 'Participar nesta sessão'}
+                                className="flex items-center gap-0.5" style={{ color: joined ? '#B91C1C' : 'var(--primary)', opacity: full || blocked ? 0.4 : 1 }}>
                                 {joined ? <LogOut size={12} /> : <LogIn size={12} />} {joined ? 'Sair' : 'Participar'}
                               </button>
                             )}
