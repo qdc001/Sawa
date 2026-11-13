@@ -50,6 +50,10 @@ export async function recalcStudentLedger(tx: Tx, studentId: string) {
   if (!st) return;
   const settings = await tx.financeSettings.findUnique({ where: { workspaceId: st.workspaceId } });
   const rate = settings?.commissionRate ?? 0.25;
+  // IVA incluido: a comissao conta so o valor sem IVA.
+  const vatRate = st.vat ? settings?.vatRate ?? 0.16 : 0;
+  const vatOf = (v: number) => (vatRate ? round2((v * vatRate) / (1 + vatRate)) : 0);
+  const net = 1 / (1 + vatRate);
   const entries = await tx.financeEntry.findMany({
     where: { studentId, type: 'RECEITA' },
     orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
@@ -57,10 +61,11 @@ export async function recalcStudentLedger(tx: Tx, studentId: string) {
 
   if (!st.ledgerBalance) {
     for (const e of entries) {
-      if (!e.defenseAmount && !e.defenseCommission && !e.defenseAssociateId) continue;
+      const vatAmount = vatOf(e.revenue);
+      if (!e.defenseAmount && !e.defenseCommission && !e.defenseAssociateId && vatAmount === e.vatAmount) continue;
       await tx.financeEntry.update({
         where: { id: e.id },
-        data: { defenseAmount: 0, defenseCommission: 0, defenseAssociateId: null, commission: e.associateId ? round2(e.revenue * rate) : 0 },
+        data: { defenseAmount: 0, defenseCommission: 0, defenseAssociateId: null, vatAmount, commission: e.associateId ? round2((e.revenue - vatAmount) * rate) : 0 },
       });
     }
     return;
@@ -70,16 +75,21 @@ export async function recalcStudentLedger(tx: Tx, studentId: string) {
   const parts = splitDefense(st.totalValue, share, entries.map((e) => e.revenue), st.openingPaid);
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
-    // Pagamentos antes de "ledgerSince" ficam como estavam: a comissao desses meses ja foi paga.
-    if (st.ledgerSince && (!e.date || e.date < st.ledgerSince)) continue;
+    const vatAmount = vatOf(e.revenue);
+    // Pagamentos antes de "ledgerSince" ficam com a comissao que tinham (ja foi paga); so o IVA se acerta.
+    if (st.ledgerSince && (!e.date || e.date < st.ledgerSince)) {
+      if (vatAmount !== e.vatAmount) await tx.financeEntry.update({ where: { id: e.id }, data: { vatAmount } });
+      continue;
+    }
     const d = parts[i];
     const want = {
       defenseAmount: d,
-      defenseCommission: d > 0 ? round2(d * rate) : 0,
+      defenseCommission: d > 0 ? round2(d * net * rate) : 0,
       defenseAssociateId: d > 0 ? st.defenseAssociateId : null,
-      commission: e.associateId ? round2((e.revenue - d) * rate) : 0,
+      commission: e.associateId ? round2((e.revenue - d) * net * rate) : 0,
+      vatAmount,
     };
-    if (want.defenseAmount !== e.defenseAmount || want.defenseCommission !== e.defenseCommission
+    if (want.defenseAmount !== e.defenseAmount || want.defenseCommission !== e.defenseCommission || want.vatAmount !== e.vatAmount
       || want.defenseAssociateId !== e.defenseAssociateId || want.commission !== round2(e.commission)) {
       await tx.financeEntry.update({ where: { id: e.id }, data: want });
     }

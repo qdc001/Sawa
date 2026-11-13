@@ -115,7 +115,7 @@ export default function FinancePage() {
           {(tab === 'students' || tab === 'installments') && (
             <FinanceStudents mode={tab} associates={data?.associates || []} rate={data?.settings.commissionRate ?? 0.25} canEdit={isAdmin} onChanged={load}
               creditName={data?.settings.perNewStudentName ?? 'Lucília'} creditValue={data?.settings.perNewStudent ?? 250}
-              shares={data?.settings.defenseShares ?? DEFAULT_DEFENSE_SHARES} />
+              shares={data?.settings.defenseShares ?? DEFAULT_DEFENSE_SHARES} vatRate={data?.settings.vatRate ?? 0.16} />
           )}
           {tab === 'phases' && <FinancePhaseBoard associates={data?.associates || []} canEdit />}
           {tab === 'reports' && data && <FinanceReports associates={data.associates} />}

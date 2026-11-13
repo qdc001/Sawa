@@ -575,6 +575,7 @@ export function FinanceSettings({ data, reload }: { data: Summary; reload: () =>
     workingCapital: String(s.workingCapital), proLabore: String(s.proLabore), proLaboreFrom: s.proLaboreFrom,
     sealPrevidencia: String(s.sealPrevidencia * 100), sealOportunidade: String(s.sealOportunidade * 100), sealDono: String(s.sealDono * 100), sealExpansao: String(s.sealExpansao * 100),
     couponValidityDays: String(s.couponValidityDays), couponDiscount: String(s.couponDiscount),
+    vatRate: String(Math.round((s.vatRate ?? 0.16) * 10000) / 100),
   });
   const [fixed, setFixed] = useState<FixedSalary[]>(s.fixedSalaries);
   const [shares, setShares] = useState<Record<string, string>>(() => Object.fromEntries(PACKAGE_TIERS.map((t) => [t, String(s.defenseShares?.[t] ?? DEFAULT_DEFENSE_SHARES[t])])));
@@ -587,7 +588,7 @@ export function FinanceSettings({ data, reload }: { data: Summary; reload: () =>
     try {
       const pctToRate = (v: string) => (Number(v) || 0) / 100;
       await api.put('/finance/settings', {
-        ...f, commissionRate: pctToRate(f.commissionRate), sealPrevidencia: pctToRate(f.sealPrevidencia), sealOportunidade: pctToRate(f.sealOportunidade),
+        ...f, commissionRate: pctToRate(f.commissionRate), vatRate: pctToRate(f.vatRate), sealPrevidencia: pctToRate(f.sealPrevidencia), sealOportunidade: pctToRate(f.sealOportunidade),
         sealDono: pctToRate(f.sealDono), sealExpansao: pctToRate(f.sealExpansao), fixedSalaries: fixed,
         defenseShares: Object.fromEntries(PACKAGE_TIERS.map((t) => [t, Number(shares[t]) || 0])),
       });
@@ -601,6 +602,7 @@ export function FinanceSettings({ data, reload }: { data: Summary; reload: () =>
       <div className="card p-4 space-y-4">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Field label="Comissão (%)">{input('commissionRate')}</Field>
+          <Field label="IVA (%)">{input('vatRate')}</Field>
           <Field label="Valor por venda (fixo)">{input('perNewStudent')}</Field>
           <Field label="Quem recebe">{input('perNewStudentName', 'text')}</Field>
           <Field label="Desde (mês)">{input('perNewStudentFrom', 'month')}</Field>

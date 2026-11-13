@@ -63,7 +63,7 @@ async function loadSummary(workspaceId: string) {
   const [entries, payrolls, students, investments, associates, salaryPayments] = await Promise.all([
     prisma.financeEntry.findMany({
       where: { workspaceId },
-      select: { period: true, revenue: true, expense: true, potentialRevenue: true, commission: true, associateId: true, paymentMethod: true, defenseCommission: true, defenseAssociateId: true },
+      select: { period: true, revenue: true, expense: true, potentialRevenue: true, commission: true, associateId: true, paymentMethod: true, defenseCommission: true, defenseAssociateId: true, vatAmount: true },
     }),
     prisma.financePayroll.findMany({ where: { workspaceId } }),
     prisma.financeStudent.findMany({ where: { workspaceId }, select: { entryDate: true, sellerCredit: true } }),
@@ -334,6 +334,8 @@ router.patch('/entries/:id', adminOnly, async (req: AuthRequest, res: Response, 
           const s2 = await tx.financeStudent.update({ where: { id: st.id }, data: { paidAmount: { increment: revenue - cur.revenue } } });
           await tx.financeStudent.update({ where: { id: st.id }, data: { status: studentAfterPayment(s2) } });
         }
+        // IVA: o lancamento passou a ser (ou deixou de ser) deste estudante, ou mudou de valor.
+        await recalcStudentLedger(tx, st.id);
       }
       return tx.financeEntry.findUniqueOrThrow({ where: { id: up.id }, include: entryInclude });
     });
@@ -391,6 +393,7 @@ function studentFields(b: any) {
     d.packageTier = t;
   }
   if (b.ledgerBalance !== undefined) d.ledgerBalance = !!b.ledgerBalance;
+  if (b.vat !== undefined) d.vat = !!b.vat;
   if (b.openingPaid !== undefined) d.openingPaid = money(b.openingPaid, 'Pago antes dos lançamentos');
   if (b.openingInstallments !== undefined) d.openingInstallments = Math.floor(money(b.openingInstallments, 'Parcelas pagas antes'));
   if (b.phases !== undefined) {
@@ -473,7 +476,7 @@ router.patch('/students/:id', adminOnly, async (req: AuthRequest, res: Response,
     let up = await prisma.financeStudent.update({
       where: { id: cur.id }, data, include: studentInclude,
     });
-    if (['totalValue', 'packageTier', 'defenseAssociateId', 'ledgerBalance', 'openingPaid', 'openingInstallments'].some((k) => data[k] !== undefined)) {
+    if (['totalValue', 'packageTier', 'defenseAssociateId', 'ledgerBalance', 'openingPaid', 'openingInstallments', 'vat'].some((k) => data[k] !== undefined)) {
       await recalcStudentLedger(prisma, cur.id);
       up = await reloadStudent(cur.id);
     }
@@ -654,6 +657,7 @@ async function addStudentPayment(req: AuthRequest, st: StudentRow, o: {
         where: { id: st.id },
         data: { paidAmount: paid, installmentsPaid: st.installmentsPaid + 1, ...due, status: studentAfterPayment({ totalValue: st.totalValue, paidAmount: paid }) },
       });
+      if (st.vat) await recalcStudentLedger(tx, st.id);
     }
     return {
       entry: await tx.financeEntry.findUniqueOrThrow({ where: { id: entry.id }, include: entryInclude }),
@@ -982,6 +986,11 @@ router.put('/settings', adminOnly, async (req: AuthRequest, res: Response, next)
         data[k] = v;
       }
     }
+    if (b.vatRate !== undefined) {
+      const v = money(b.vatRate, 'IVA');
+      if (v > 1) throw new AppError('O IVA tem de estar entre 0 e 100%', 400);
+      data.vatRate = v;
+    }
     if (b.perNewStudentName !== undefined) data.perNewStudentName = text(b.perNewStudentName) || 'Lucília';
     if (b.perNewStudentFrom !== undefined) data.perNewStudentFrom = period(b.perNewStudentFrom);
     if (b.proLaboreFrom !== undefined) data.proLaboreFrom = period(b.proLaboreFrom);
@@ -1002,8 +1011,10 @@ router.put('/settings', adminOnly, async (req: AuthRequest, res: Response, next)
     }
     const saved = await prisma.financeSettings.update({ where: { workspaceId }, data });
     // A parte da defesa (ou a comissao) mudou: recalcula os estudantes com saldo automatico.
-    if (data.defenseShares !== undefined || data.commissionRate !== undefined) {
-      const list = await prisma.financeStudent.findMany({ where: { workspaceId, ledgerBalance: true }, select: { id: true } });
+    if (data.defenseShares !== undefined || data.commissionRate !== undefined || data.vatRate !== undefined) {
+      const list = await prisma.financeStudent.findMany({
+        where: { workspaceId, OR: [{ ledgerBalance: true }, ...(data.vatRate !== undefined ? [{ vat: true }] : [])] }, select: { id: true },
+      });
       for (const st of list) await recalcStudentLedger(prisma, st.id);
     }
     res.json({ ...saved, defenseShares: defenseShares(saved) });
@@ -1024,8 +1035,8 @@ router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) =
     const credit = settings.perNewStudentName;
     const sheets: XlsxSheet[] = [
       { name: 'Resumo mensal', rows: [
-        ['Mês', 'DRE', 'Receita', 'Despesa', 'Saldo', 'Comissões', `Vendas ${credit}`, 'Salários fixos', 'Total salários', 'Pró-labore', 'Reinvestimento', 'Imprevistos', 'Lucro líquido', '% Lucro', 'Situação', 'Pago'],
-        ...months.map((m) => [m.period, m.dre, m.revenue, m.expense, m.balance, m.commissionTotal, m.newStudentFee, m.fixedSalaries, m.salary, m.proLabore, m.reinvestment, m.reserve, m.profit, m.profitPct, m.status, m.paid]),
+        ['Mês', 'DRE', 'Receita (sem IVA)', 'IVA', 'Despesa', 'Saldo', 'Comissões', `Vendas ${credit}`, 'Salários fixos', 'Total salários', 'Pró-labore', 'Reinvestimento', 'Imprevistos', 'Lucro líquido', '% Lucro', 'Situação', 'Pago'],
+        ...months.map((m) => [m.period, m.dre, m.revenue, m.vat, m.expense, m.balance, m.commissionTotal, m.newStudentFee, m.fixedSalaries, m.salary, m.proLabore, m.reinvestment, m.reserve, m.profit, m.profitPct, m.status, m.paid]),
       ] },
       { name: 'Fluxo anual', rows: [
         ['Ano', 'DRE', 'Receita', 'Despesa', 'Saldo', 'Salários', 'Pró-labore', 'Lucro líquido', '% Lucro', ...WALLETS, 'Total carteiras'],
@@ -1044,12 +1055,12 @@ router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) =
         ...months.map((m) => [m.period, m.newStudentFee, ...associates.map((a) => m.commissions[a.id] || 0), m.commissionTotal + m.newStudentFee]),
       ] },
       { name: 'Lançamentos', rows: [
-        ['Mês', 'Data', 'Descrição', 'Tipo', 'Categoria', 'Receita potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma de pagamento', 'Observações', 'Estudante', 'Parte da defesa', 'Associado de defesa', 'Comissão da defesa'],
-        ...entries.map((e) => [e.period, e.date, e.description, e.type, e.category, e.potentialRevenue, e.expense, e.revenue, e.associate?.name || e.commissionistRaw, e.commission, e.paymentMethod, e.notes, e.student?.code, e.defenseAmount || null, e.defenseAssociate?.name, e.defenseCommission || null]),
+        ['Mês', 'Data', 'Descrição', 'Tipo', 'Categoria', 'Receita potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma de pagamento', 'Observações', 'Estudante', 'Parte da defesa', 'Associado de defesa', 'Comissão da defesa', 'IVA incluído'],
+        ...entries.map((e) => [e.period, e.date, e.description, e.type, e.category, e.potentialRevenue, e.expense, e.revenue, e.associate?.name || e.commissionistRaw, e.commission, e.paymentMethod, e.notes, e.student?.code, e.defenseAmount || null, e.defenseAssociate?.name, e.defenseCommission || null, e.vatAmount || null]),
       ] },
       { name: 'Estudantes', rows: [
-        ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas', 'Pacote', 'Associado de defesa', 'Saldo pelos lançamentos'],
-        ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase ? phaseLabel(phaseList(settings), s.currentPhase) : null, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes, s.packageTier, s.defenseAssociate?.name, s.ledgerBalance ? 'Sim' : 'Não']),
+        ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas', 'Pacote', 'Associado de defesa', 'Saldo pelos lançamentos', 'Paga IVA'],
+        ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase ? phaseLabel(phaseList(settings), s.currentPhase) : null, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes, s.packageTier, s.defenseAssociate?.name, s.ledgerBalance ? 'Sim' : 'Não', s.vat ? 'Sim' : 'Não']),
       ] },
       { name: 'Pagamentos de salários', rows: [
         ['Mês do salário', 'Pessoa', 'Valor', 'Carteira', 'Data', 'Observação'],

@@ -10,12 +10,13 @@ type Entry = {
   potentialRevenue: number; expense: number; revenue: number; commission: number; commissionistRaw: string | null;
   paymentMethod: string | null; notes: string | null; associate: { id: string; name: string } | null; student: { id: string; code: string; name: string } | null;
   defenseAmount: number; defenseCommission: number; defenseAssociate: { id: string; name: string } | null;
+  vatAmount: number;
 };
 
 const studentLabel = (s: { code: string; name: string }) => `${s.code} · ${s.name}`;
 
-function EntryModal({ entry, associates, students, rate, shares, creditName, creditValue, onStudentCreated, onClose, onSaved }: {
-  entry: Entry | null; associates: Associate[]; students: Student[]; rate: number; shares: Record<string, number>;
+function EntryModal({ entry, associates, students, rate, shares, vatRate, creditName, creditValue, onStudentCreated, onClose, onSaved }: {
+  entry: Entry | null; associates: Associate[]; students: Student[]; rate: number; shares: Record<string, number>; vatRate: number;
   creditName: string; creditValue: number; onStudentCreated: (s: Student) => void; onClose: () => void; onSaved: () => void;
 }) {
   const [type, setType] = useState(entry?.type || 'RECEITA');
@@ -134,7 +135,7 @@ function EntryModal({ entry, associates, students, rate, shares, creditName, cre
         </div>
         <Field label="Observações"><input className="input-base" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={student ? 'Automática (ex.: Segunda parcela)' : ''} /></Field>
         {!entry && student && Number(amount) > 0 && date.length === 10 && (
-          <SplitPreview student={student} value={Number(amount)} rate={rate} shares={shares} associateName={associates.find((a) => a.id === associateId)?.name || null} period={date.slice(0, 7)} />
+          <SplitPreview student={student} value={Number(amount)} rate={rate} shares={shares} vatRate={vatRate} associateName={associates.find((a) => a.id === associateId)?.name || null} period={date.slice(0, 7)} />
         )}
         {entry && (entry.defenseAmount > 0) && (
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{mzn(entry.defenseAmount)} deste pagamento são da parte da defesa ({entry.defenseAssociate?.name}).</p>
@@ -143,7 +144,7 @@ function EntryModal({ entry, associates, students, rate, shares, creditName, cre
       </div>
     </Modal>
     {creating && (
-      <StudentModal student={null} associates={associates} creditName={creditName} creditValue={creditValue} shares={shares}
+      <StudentModal student={null} associates={associates} creditName={creditName} creditValue={creditValue} shares={shares} vatRate={vatRate}
         initialName={typedName} onClose={() => setCreating(false)} onSaved={studentCreated} />
     )}
     </>
@@ -217,7 +218,7 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
       {month && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Kpi label="Receita potencial" value={mzn(month.dre)} />
-          <Kpi label="Receita" value={mzn(month.revenue)} color="#10B981" />
+          <Kpi label={month.vat ? `Receita (sem IVA ${mzn(month.vat)})` : 'Receita'} value={mzn(month.revenue)} color="#10B981" />
           <Kpi label="Despesas" value={mzn(month.expense)} color="#EF4444" />
           <Kpi label="Comissões" value={mzn(month.commissionTotal)} />
         </div>
@@ -238,7 +239,10 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
                   <Td>{e.category || '—'}</Td>
                   <Td right>{e.potentialRevenue ? num(e.potentialRevenue) : ''}</Td>
                   <Td right color="#EF4444">{e.expense ? num(e.expense) : ''}</Td>
-                  <Td right color="#10B981">{e.revenue ? num(e.revenue) : ''}</Td>
+                  <Td right color="#10B981">
+                    {e.revenue ? num(e.revenue) : ''}
+                    {e.vatAmount > 0 && <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>IVA {num(e.vatAmount)}</div>}
+                  </Td>
                   <Td>
                     {e.associate?.name || e.commissionistRaw || '—'}
                     {e.defenseAssociate && e.defenseCommission > 0 && <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Defesa: {e.defenseAssociate.name}</div>}
@@ -281,7 +285,7 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
       )}
       {modal && (
         <EntryModal entry={modal.entry} associates={data.associates} students={students} rate={data.settings.commissionRate}
-          creditName={data.settings.perNewStudentName} creditValue={data.settings.perNewStudent}
+          creditName={data.settings.perNewStudentName} creditValue={data.settings.perNewStudent} vatRate={data.settings.vatRate ?? 0.16}
           onStudentCreated={(st) => { setStudents((p) => [st, ...p]); reload(); }}
           shares={data.settings.defenseShares ?? DEFAULT_DEFENSE_SHARES} onClose={() => setModal(null)} onSaved={changed} />
       )}

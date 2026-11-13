@@ -1539,6 +1539,8 @@ model KnowledgeChunk {
 model FinanceSettings {
   workspaceId          String   @id
   commissionRate       Float    @default(0.25)
+  // IVA (fraccao, ex.: 0.16). Nos estudantes que pagam IVA ja esta incluido no valor.
+  vatRate              Float    @default(0.16)
   perNewStudent        Float    @default(250)
   perNewStudentName    String   @default("Lucília")
   perNewStudentFrom    String   @default("2026-01")
@@ -1636,6 +1638,8 @@ model FinanceStudent {
   defenseAssociateId  String?
   // true = valor pago, parcelas e estado calculados sozinhos a partir dos lancamentos ligados (novos estudantes).
   ledgerBalance       Boolean   @default(false)
+  // Paga IVA: o IVA ja esta incluido no valor; receita e comissoes contam so o valor sem IVA.
+  vat                 Boolean   @default(false)
   // Estudantes vindos da planilha: o que ja estava pago fora dos lancamentos ligados, e desde quando
   // a divisao da defesa se aplica (pagamentos anteriores ficam com a comissao que ja tinham).
   openingPaid         Float     @default(0)
@@ -1676,6 +1680,8 @@ model FinanceEntry {
   studentId          String?
   // Parte deste pagamento que cai na parte final do pacote (preparacao para defesa) e a comissao dela.
   defenseAmount      Float     @default(0)
+  // Parte deste pagamento que e IVA (estudantes que pagam IVA). Nao conta como receita nem para comissoes.
+  vatAmount          Float     @default(0)
   defenseCommission  Float     @default(0)
   defenseAssociateId String?
   source             String    @default("crm")

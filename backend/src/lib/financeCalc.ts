@@ -29,6 +29,8 @@ export type CalcEntry = {
   commission: number; associateId: string | null; paymentMethod: string | null;
   // Parte final do pacote (preparacao para defesa): comissao que vai para o associado de defesa.
   defenseCommission?: number; defenseAssociateId?: string | null;
+  // IVA incluido no pagamento: sai da receita (as carteiras recebem o valor todo).
+  vatAmount?: number;
 };
 export type CalcPayroll = {
   period: string; proLabore: number; reinvestment: number; reserve: number; status: string;
@@ -45,7 +47,7 @@ export type WalletLine = { in: number; out: number; salaries: number; net: numbe
 export type MonthSummary = {
   period: string;
   dre: number; revenue: number; expense: number; balance: number;
-  commissions: Record<string, number>; commissionTotal: number;
+  commissions: Record<string, number>; commissionTotal: number; vat: number;
   newStudents: number; newStudentFee: number; fixedSalaries: number;
   salary: number; proLabore: number; reinvestment: number; reserve: number;
   profit: number; profitPct: number | null;
@@ -114,10 +116,10 @@ export function computeMonths(
   return periods.map((period) => {
     const list = entriesBy.get(period) || [];
     const wallets = emptyWallets();
-    let dre = 0, revenue = 0, expense = 0, commissionTotal = 0;
+    let dre = 0, revenue = 0, expense = 0, commissionTotal = 0, vat = 0;
     const commissions: Record<string, number> = {};
     for (const e of list) {
-      dre += e.potentialRevenue; revenue += e.revenue; expense += e.expense;
+      dre += e.potentialRevenue; revenue += e.revenue - (e.vatAmount || 0); expense += e.expense; vat += e.vatAmount || 0;
       if (e.associateId) {
         commissions[e.associateId] = (commissions[e.associateId] || 0) + e.commission;
         commissionTotal += e.commission;
@@ -157,7 +159,7 @@ export function computeMonths(
       walletTotal += wallets[w].net;
     }
     return {
-      period, dre, revenue, expense, balance, commissions, commissionTotal, newStudents, newStudentFee, fixedSalaries,
+      period, dre, revenue, expense, balance, commissions, commissionTotal, vat, newStudents, newStudentFee, fixedSalaries,
       salary, proLabore, reinvestment, reserve, profit, profitPct: revenue ? profit / revenue : null,
       toPay, paid, status, wallets, walletTotal,
       hasActivity: revenue !== 0 || expense !== 0,

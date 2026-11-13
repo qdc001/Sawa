@@ -19,10 +19,11 @@ export type Student = {
   completedAt: string | null;
   packageTier: string | null; ledgerBalance: boolean; defenseAssociate: { id: string; code: string; name: string } | null;
   openingPaid: number; openingInstallments: number; ledgerSince: string | null;
+  vat: boolean;
 };
 
-export function StudentModal({ student, associates, creditName, creditValue, shares, onClose, onSaved, initialName }: {
-  student: Student | null; associates: Associate[]; creditName: string; creditValue: number; shares: Record<string, number>;
+export function StudentModal({ student, associates, creditName, creditValue, shares, vatRate = 0.16, onClose, onSaved, initialName }: {
+  student: Student | null; associates: Associate[]; creditName: string; creditValue: number; shares: Record<string, number>; vatRate?: number;
   onClose: () => void; onSaved: (created?: Student) => void; initialName?: string;
 }) {
   const s = student;
@@ -35,6 +36,7 @@ export function StudentModal({ student, associates, creditName, creditValue, sha
     packageTier: s?.packageTier || '', defenseAssociateId: s?.defenseAssociate?.id || '',
   });
   const [ledger, setLedger] = useState(s ? s.ledgerBalance : true);
+  const [vat, setVat] = useState(s ? !!s.vat : false);
   const [openingPaid, setOpening] = useState(s ? String(s.openingPaid || 0) : '0');
   const [sellerCredit, setCredit] = useState(s ? (s.sellerCredit ?? !!s.entryDate) : false);
   const phaseList = usePhases() || [];
@@ -62,7 +64,7 @@ export function StudentModal({ student, associates, creditName, creditValue, sha
       const doneBody = completedAt !== (s?.completedAt?.slice(0, 10) || '') ? { completedAt: completedAt || null } : {};
       if (s && ledger && !s.ledgerBalance && !window.confirm(`O valor pago de ${s.name} fica igual (${mzn(s.paidAmount)}): o que não está nos lançamentos fica como "pago antes". Daqui para a frente o saldo actualiza sozinho e a parte da defesa conta só para pagamentos a partir de hoje. Continuar?`)) { setBusy(false); return; }
       const openingBody = s && s.ledgerBalance && ledger && Number(openingPaid) !== s.openingPaid ? { openingPaid: Number(openingPaid) || 0 } : {};
-      const body = { ...openingBody, ...rest, ...phaseBody, ...doneBody, associateId: f.associateId || null, defenseAssociateId: f.defenseAssociateId || null, packageTier: f.packageTier || null, ledgerBalance: ledger, phases, sellerCredit };
+      const body = { ...openingBody, ...rest, ...phaseBody, ...doneBody, associateId: f.associateId || null, defenseAssociateId: f.defenseAssociateId || null, packageTier: f.packageTier || null, ledgerBalance: ledger, vat, phases, sellerCredit };
       let created: Student | undefined;
       if (s) await api.patch(`/finance/students/${s.id}`, body);
       else created = (await api.post('/finance/students', body)).data;
@@ -123,6 +125,15 @@ export function StudentModal({ student, associates, creditName, creditValue, sha
             </div>
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer mt-2">
+            <input type="checkbox" checked={vat} onChange={(e) => setVat(e.target.checked)} />
+            Paga IVA ({Math.round(vatRate * 1000) / 10}%, já incluído no valor)
+          </label>
+          {vat && Number(f.totalValue) > 0 && (
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Dos {mzn(Number(f.totalValue))}, {mzn(Math.round((Number(f.totalValue) * vatRate) / (1 + vatRate) * 100) / 100)} são IVA: a receita e as comissões contam só {mzn(Math.round(Number(f.totalValue) / (1 + vatRate) * 100) / 100)}.
+            </p>
+          )}
+          <label className="flex items-center gap-2 text-sm cursor-pointer mt-2">
             <input type="checkbox" checked={ledger} onChange={(e) => setLedger(e.target.checked)} />
             Saldo pelos lançamentos (o valor pago e as parcelas vêm dos pagamentos ligados a este estudante)
           </label>
@@ -176,7 +187,7 @@ export function StudentModal({ student, associates, creditName, creditValue, sha
   );
 }
 
-function PaymentModal({ student, associates, rate, shares, onClose, onSaved }: { student: Student; associates: Associate[]; rate: number; shares: Record<string, number>; onClose: () => void; onSaved: () => void }) {
+function PaymentModal({ student, associates, rate, shares, vatRate, onClose, onSaved }: { student: Student; associates: Associate[]; rate: number; shares: Record<string, number>; vatRate: number; onClose: () => void; onSaved: () => void }) {
   const [date, setDate] = useState(today());
   const [amount, setAmount] = useState('');
   const [paymentMethod, setMethod] = useState('');
@@ -216,7 +227,7 @@ function PaymentModal({ student, associates, rate, shares, onClose, onSaved }: {
           <Field label="Próxima parcela"><input className="input-base" type="date" value={nextDueDate} onChange={(e) => setNext(e.target.value)} /></Field>
           <Field label="Observação"><input className="input-base" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Automática" /></Field>
         </div>
-        {value > 0 && date.length === 10 && <SplitPreview student={student} value={value} rate={rate} shares={shares} associateName={associates.find((a) => a.id === associateId)?.name || null} period={date.slice(0, 7)} />}
+        {value > 0 && date.length === 10 && <SplitPreview student={student} value={value} rate={rate} shares={shares} vatRate={vatRate} associateName={associates.find((a) => a.id === associateId)?.name || null} period={date.slice(0, 7)} />}
         <button className="btn btn-primary w-full justify-center" disabled={busy} onClick={save}>Registar pagamento</button>
       </div>
     </Modal>
@@ -224,17 +235,20 @@ function PaymentModal({ student, associates, rate, shares, onClose, onSaved }: {
 }
 
 // Mostra para quem vai a comissao deste pagamento (normal e, na parte final do pacote, defesa).
-export function SplitPreview({ student, value, rate, shares, associateName, period }: {
-  student: Pick<Student, 'packageTier' | 'ledgerBalance' | 'defenseAssociate' | 'totalValue' | 'paidAmount'>; value: number; rate: number;
-  shares: Record<string, number>; associateName: string | null; period: string;
+export function SplitPreview({ student, value, rate, shares, vatRate = 0.16, associateName, period }: {
+  student: Pick<Student, 'packageTier' | 'ledgerBalance' | 'defenseAssociate' | 'totalValue' | 'paidAmount' | 'vat'>; value: number; rate: number;
+  shares: Record<string, number>; vatRate?: number; associateName: string | null; period: string;
 }) {
   const d = defensePart(student.totalValue, studentShare(student, shares), student.paidAmount, value);
   const main = value - d;
-  if (!associateName && !d) return null;
+  // IVA incluido: a comissao conta so o valor sem IVA.
+  const net = student.vat ? 1 / (1 + vatRate) : 1;
+  if (!associateName && !d && !student.vat) return null;
   return (
     <p className="text-xs p-2 rounded" style={{ background: 'var(--surface-2)' }}>
-      {associateName && main > 0 && <>A comissão de <b>{mzn(main * rate)}</b> ({Math.round(rate * 100)}%) vai para <b>{associateName}</b>. </>}
-      {d > 0 && <><b>{mzn(d)}</b> deste pagamento já é da parte da defesa: <b>{mzn(d * rate)}</b> vão para <b>{student.defenseAssociate?.name}</b>. </>}
+      {student.vat && <>Inclui <b>{mzn(Math.round(value * (1 - net) * 100) / 100)}</b> de IVA. </>}
+      {associateName && main > 0 && <>A comissão de <b>{mzn(Math.round(main * net * rate * 100) / 100)}</b> ({Math.round(rate * 100)}%{student.vat ? ' sem IVA' : ''}) vai para <b>{associateName}</b>. </>}
+      {d > 0 && <><b>{mzn(d)}</b> deste pagamento já é da parte da defesa: <b>{mzn(Math.round(d * net * rate * 100) / 100)}</b> vão para <b>{student.defenseAssociate?.name}</b>. </>}
       Entra no salário de <b>{monthLabel(period)}</b>.
     </p>
   );
@@ -456,9 +470,9 @@ function statusBadge(s: Student) {
   return s.status === 'Pago' ? <Badge text="Pago" tone="green" /> : <Badge text="Em aberto" tone="amber" />;
 }
 
-export default function FinanceStudents({ mode, associates, rate, canEdit, onChanged, creditName, creditValue, shares }: {
+export default function FinanceStudents({ mode, associates, rate, canEdit, onChanged, creditName, creditValue, shares, vatRate }: {
   mode: 'students' | 'installments'; associates: Associate[]; rate: number; canEdit: boolean; onChanged: () => void; creditName: string; creditValue: number;
-  shares: Record<string, number>;
+  shares: Record<string, number>; vatRate: number;
 }) {
   const [rows, setRows] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -589,11 +603,11 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
           <button className="btn" disabled={page === pages} onClick={() => setPage(page + 1)}>Seguinte</button>
         </div>
       )}
-      {edit && <StudentModal student={edit.student} associates={associates} creditName={creditName} creditValue={creditValue} shares={shares} onClose={() => setEdit(null)} onSaved={changed} />}
+      {edit && <StudentModal student={edit.student} associates={associates} creditName={creditName} creditValue={creditValue} shares={shares} vatRate={vatRate} onClose={() => setEdit(null)} onSaved={changed} />}
       {linking && <LinkModal onClose={closeLink} onSaved={changed} />}
       {converting && <ConvertModal onClose={closeConvert} onSaved={changed} />}
       {history && <StudentHistoryModal student={history} onClose={() => setHistory(null)} />}
-      {pay && <PaymentModal student={pay} associates={associates} rate={rate} shares={shares} onClose={() => setPay(null)} onSaved={changed} />}
+      {pay && <PaymentModal student={pay} associates={associates} rate={rate} shares={shares} vatRate={vatRate} onClose={() => setPay(null)} onSaved={changed} />}
     </div>
   );
 }
