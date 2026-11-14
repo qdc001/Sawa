@@ -8,7 +8,7 @@ import { getSocket } from '../lib/socket';
 import { isMetaWorkspace } from '../lib/useFinanceAccess';
 import ChatPreviewModal from '../components/ChatPreviewModal';
 import { addDays, errMsg, Field, maputoToday, Modal, mondayOf } from '../components/finance/shared';
-import { balanceBlock, DaySchedule, DefenseConfig, DefenseSession, hourLabel, hoursFor, roomLabel, shortDay, weekdayName, WEEKDAYS } from '../components/defense/types';
+import { balanceBlock, DaySchedule, DefenseConfig, DefenseSession, hourLabel, hoursFor, roomLabel, sessionTitle, shortDay, weekdayName, WEEKDAYS } from '../components/defense/types';
 import { openSlides, SLIDES_ACCEPT, uploadSlides } from '../components/defense/slides';
 
 type StudentLite = { id: string; code: string; name: string; project: string | null; whatsapp: string | null; contactId: string | null; associate?: { id: string } | null };
@@ -61,10 +61,14 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
   const [f, setF] = useState({ ...initial, studentId: session?.studentId || '', notes: session?.notes || '', associateId: session?.associateId || '' });
   const [slides, setSlides] = useState<{ slidesUrl: string; slidesName: string } | null>(session?.slidesUrl ? { slidesUrl: session.slidesUrl, slidesName: session.slidesName || 'Slides' } : null);
   const [uploading, setUploading] = useState(false);
+  // Numero da sessao (por defeito o seguinte do estudante) e slides vindos da sessao anterior.
+  const [number, setNumber] = useState(session?.number ? String(session.number) : '');
+  const [slidesFromPrev, setSlidesFromPrev] = useState(false);
+  const [slidesRemoved, setSlidesRemoved] = useState(false);
   const pickFile = async (file: File | undefined) => {
     if (!file) return;
     setUploading(true);
-    try { setSlides(await uploadSlides(file)); } catch (e) { toast.error(errMsg(e, 'Não foi possível enviar o ficheiro')); } finally { setUploading(false); }
+    try { setSlides(await uploadSlides(file)); setSlidesFromPrev(false); } catch (e) { toast.error(errMsg(e, 'Não foi possível enviar o ficheiro')); } finally { setUploading(false); }
   };
   const [contact, setContact] = useState<ContactLite | null>(null);
   const [q, setQ] = useState('');
@@ -80,7 +84,18 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
     api.get<ContactLite>(`/contacts/${linkedId}`).then(({ data }) => setContact(data)).catch(() => setContact(null));
   }, [linkedId]);
   // Ao escolher o estudante, o responsavel passa a ser o associado dele (pode mudar-se).
-  const pickStudent = (st: StudentLite) => setF((p) => ({ ...p, studentId: st.id, associateId: st.associate?.id || p.associateId }));
+  const pickStudent = (st: StudentLite) => {
+    setF((p) => ({ ...p, studentId: st.id, associateId: st.associate?.id || p.associateId }));
+    if (session) return;
+    api.get<{ number: number; slidesUrl: string | null; slidesName: string | null }>(`/defense/students/${st.id}/next`).then(({ data }) => {
+      setNumber(String(data.number));
+      if (data.slidesUrl) {
+        setSlides((cur) => cur || { slidesUrl: data.slidesUrl!, slidesName: data.slidesName || 'Slides' });
+        setSlidesFromPrev(true);
+        setSlidesRemoved(false);
+      }
+    }).catch(() => {});
+  };
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
     return students.filter((x) => !s || `${x.code} ${x.name}`.toLowerCase().includes(s)).slice(0, 60);
@@ -94,6 +109,9 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
       const body = {
         day: f.day, hour: f.hour, room: f.room, studentId: f.studentId, notes: f.notes, contactId: contact.id, associateId: f.associateId || null,
         slidesUrl: slides?.slidesUrl || null, slidesName: slides?.slidesName || null,
+        number: number ? Number(number) : null,
+        // Sessao nova sem slides de proposito: nao puxa os da sessao anterior.
+        ...(!session && !slides && slidesRemoved ? { noSlides: true } : {}),
       };
       if (session) await api.patch(`/defense/sessions/${session.id}`, body);
       else await api.post('/defense/sessions', body);
@@ -159,6 +177,10 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
           </Field>
         )}
         {chosen && <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>A ligação fica gravada na ficha do estudante e serve para abrir o chat a partir da agenda e do popup.</p>}
+        <Field label="Nº da sessão">
+          <input className="input-base" type="number" min={1} max={999} style={{ maxWidth: 120 }} value={number} placeholder="Automático"
+            onChange={(e) => setNumber(e.target.value)} />
+        </Field>
         <Field label="Associado responsável pelo estudante">
           <select className="input-base" value={f.associateId} onChange={(e) => set('associateId', e.target.value)}>
             <option value="">Sem responsável</option>
@@ -171,7 +193,8 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
             <div className="flex items-center gap-2 text-sm p-2 rounded" style={{ background: 'var(--surface-2)' }}>
               <FileText size={14} />
               <button className="flex-1 text-left underline truncate" onClick={() => openSlides(slides.slidesUrl, slides.slidesName)}>{slides.slidesName}</button>
-              <button onClick={() => setSlides(null)} aria-label="Tirar os slides"><X size={14} /></button>
+              {slidesFromPrev && <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>da sessão anterior</span>}
+              <button onClick={() => { setSlides(null); setSlidesFromPrev(false); setSlidesRemoved(true); }} aria-label="Tirar os slides"><X size={14} /></button>
             </div>
           ) : (
             <label className="btn btn-outline cursor-pointer" style={{ display: 'inline-flex' }}>
@@ -225,6 +248,8 @@ function SettingsBox({ cfg, onSaved }: { cfg: DefenseConfig; onSaved: () => void
   const [gateMode, setGateMode] = useState(cfg.gateMode);
   const [roomNames, setRoomNames] = useState<string[]>(Array.from({ length: MAX_ROOMS }, (_, i) => cfg.roomNames[i] || ''));
   const [fillMin, setFillMin] = useState(cfg.fillMin);
+  const [rules, setRules] = useState(cfg.gateRules);
+  const setRule = (d: number, k: 'daysBefore' | 'time', v: any) => setRules((r) => r.map((x, i) => (i === d ? { ...x, [k]: v } : x)));
   const [busy, setBusy] = useState(false);
   const setDay = (d: number, k: keyof DaySchedule, v: any) => setSchedule((s) => s.map((x, i) => (i === d ? { ...x, [k]: v } : x)));
   const copyWeekdays = () => setSchedule((s) => s.map((x, i) => (i >= 1 && i <= 5 ? { ...s[1] } : x)));
@@ -236,6 +261,8 @@ function SettingsBox({ cfg, onSaved }: { cfg: DefenseConfig; onSaved: () => void
     try {
       const { data } = await api.put<{ outside: number }>('/defense/config', {
         rooms, maxPerSession: max, participants: [...parts], schedule, gateEnabled, gateTime, minChoices, gateMode, roomNames: roomNames.slice(0, rooms), fillMin,
+        // Hora igual a do aviso fica "null" (segue a hora do aviso se esta mudar).
+        gateRules: rules.map((r) => ({ daysBefore: r.daysBefore, time: r.time && r.time !== gateTime ? r.time : null })),
       });
       toast.success('Definições guardadas');
       if (data.outside) toast(`${data.outside} sessão(ões) já marcada(s) ficam fora do novo horário. Continuam na agenda; mude-as se for preciso.`, { duration: 7000 });
@@ -329,6 +356,26 @@ function SettingsBox({ cfg, onSaved }: { cfg: DefenseConfig; onSaved: () => void
                 <option value="remind">Só lembra (pode adiar 30 min)</option>
               </select>
             </Field>
+          </div>
+        )}
+        {gateEnabled && (
+          <div className="mt-3 space-y-1.5">
+            <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Quando se escolhem as sessões de cada dia</p>
+            {WEEK_ORDER.map((d) => {
+              const r = rules[d];
+              const pickDay = WEEKDAYS[(d - r.daysBefore + 7) % 7];
+              return (
+                <div key={d} className="flex items-center gap-2 flex-wrap text-sm">
+                  <span className="w-36">Sessões de {WEEKDAYS[d].toLowerCase()}</span>
+                  <select className="input-base" style={{ width: 'auto', padding: '4px 8px' }} value={r.daysBefore} onChange={(e) => setRule(d, 'daysBefore', Number(e.target.value))}>
+                    {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n === 1 ? 'na véspera' : `${n} dias antes`}</option>)}
+                  </select>
+                  <span style={{ color: 'var(--text-muted)' }}>a partir das</span>
+                  <input className="input-base" type="time" style={{ width: 'auto', padding: '4px 8px' }} value={r.time || gateTime} onChange={(e) => e.target.value && setRule(d, 'time', e.target.value)} />
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>({pickDay.toLowerCase()})</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -443,7 +490,9 @@ export default function DefensePage() {
           <h1 className="text-xl font-bold flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}><CalendarClock size={20} /> Preparação para defesa</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Simulações por sala, em sessões de 1 hora.
-            {cfg?.gateEnabled ? ` A partir das ${cfg.gateTime}, cada pessoa da lista escolhe pelo menos ${cfg.minChoices} ${cfg.minChoices === 1 ? 'sessão' : 'sessões'} do dia seguinte.` : ''}
+            {cfg?.gateEnabled ? ` A partir das ${cfg.gateTime}, cada pessoa da lista escolhe pelo menos ${cfg.minChoices} ${cfg.minChoices === 1 ? 'sessão' : 'sessões'} do dia seguinte` : ''}
+            {cfg?.gateEnabled && cfg.gateRules.some((r) => r.daysBefore !== 1 || r.time) ? ` (${cfg.gateRules.map((r, d) => (r.daysBefore !== 1 || r.time ? `as de ${WEEKDAYS[d].toLowerCase()} ${r.daysBefore === 1 ? 'na véspera' : `${[0, 6].includes((d - r.daysBefore + 7) % 7) ? 'no' : 'na'} ${WEEKDAYS[(d - r.daysBefore + 7) % 7].toLowerCase()}`} às ${r.time || cfg.gateTime}` : '')).filter(Boolean).join('; ')})` : ''}
+            {cfg?.gateEnabled ? '.' : ''}
           </p>
         </div>
         {cfg?.canManage && <button className="btn btn-outline" onClick={() => setShowSettings((v) => !v)}><Settings size={14} /> Definições</button>}
@@ -502,7 +551,7 @@ export default function DefensePage() {
                       return (
                         <td key={d} className="align-top p-1.5 text-[11px]" style={{ background: joined ? 'var(--primary-light)' : 'var(--surface-2)', border: `1px solid ${joined ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 4, opacity: past ? 0.6 : 1 }}>
                           <button className="font-semibold text-left w-full truncate block" style={{ fontSize: 12 }} disabled={!cfg.canManage}
-                            onClick={() => setEditing({ initial: { day: s.day, hour: s.hour, room: s.room }, session: s })} title={s.notes || s.title}>{s.title}</button>
+                            onClick={() => setEditing({ initial: { day: s.day, hour: s.hour, room: s.room }, session: s })} title={s.notes || sessionTitle(s)}>{sessionTitle(s)}</button>
                           <div className="truncate" style={{ color: 'var(--text-muted)' }}>
                             {s.participants.length ? s.participants.map((p) => p.name.split(' ')[0]).join(', ') : 'Ninguém ainda'}
                             {cfg.maxPerSession ? ` (${s.participants.length}/${cfg.maxPerSession})` : ''}

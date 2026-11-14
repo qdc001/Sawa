@@ -1,5 +1,5 @@
 export type DefenseSession = {
-  id: string; day: string; hour: number; room: number; title: string; notes: string | null; studentId: string | null; contactId: string | null;
+  id: string; day: string; hour: number; room: number; number: number | null; title: string; notes: string | null; studentId: string | null; contactId: string | null;
   student: { id: string; code: string; name: string; project: string | null; whatsapp: string | null } | null;
   participants: { userId: string; name: string }[];
   associateId: string | null; associate: { id: string; name: string; userId: string | null } | null;
@@ -17,6 +17,8 @@ export type DefenseConfig = {
   canManage: boolean; isParticipant: boolean; minChoices: number; gateTime: string; gateEnabled: boolean; gateMode: 'block' | 'remind';
   schedule: DaySchedule[]; roomNames: string[];
   associates: { id: string; name: string; userId: string | null }[]; canCreate: boolean; fillMin: number;
+  // Por dia da semana das sessoes (0 = domingo): escolher N dias antes, a partir de uma hora (null = hora do aviso).
+  gateRules: { daysBefore: number; time: string | null }[];
 };
 
 // Igual ao servidor: enquanto houver sessoes do dia com menos de fillMin associados, so se entra nas que tem menos gente;
@@ -36,6 +38,8 @@ export function balanceBlock(
   return null;
 }
 
+// "S2 · Nome do estudante"
+export const sessionTitle = (s: { number: number | null; title: string }) => `${s.number ? `S${s.number} · ` : ''}${s.title}`;
 export const hourLabel = (h: number) => `${String(h).padStart(2, '0')}:00–${String(h + 1).padStart(2, '0')}:00`;
 export const dayOfWeek = (day: string) => new Date(`${day}T00:00:00.000Z`).getUTCDay();
 export function hoursFor(day: string, schedule: DaySchedule[]): number[] {

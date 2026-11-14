@@ -20,7 +20,13 @@ export type DefenseCfg = {
   // Enchimento equilibrado: enquanto houver sessoes do dia com menos de fillMin associados,
   // so se entra nas que tem menos gente. 0 = desligado.
   fillMin: number;
+  // Quando se escolhem as sessoes de cada dia da semana (0 = domingo): N dias antes, a partir de uma hora
+  // (null = hora do aviso). Por defeito na vespera; as de segunda no sabado as 10:00.
+  gateRules: GateRule[];
 };
+export type GateRule = { daysBefore: number; time: string | null };
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DEFAULT_RULES: GateRule[] = [0, 1, 2, 3, 4, 5, 6].map((d) => (d === 1 ? { daysBefore: 2, time: '10:00' } : { daysBefore: 1, time: null }));
 const DEFAULT_SCHEDULE: DaySchedule[] = [0, 1, 2, 3, 4, 5, 6].map((d) => (d === 0 || d === 6 ? { on: true, start: 8, end: 12 } : { on: true, start: 8, end: 20 }));
 
 export function defenseCfg(s: { defenseConfig: any }): DefenseCfg {
@@ -37,6 +43,11 @@ export function defenseCfg(s: { defenseConfig: any }): DefenseCfg {
     gateMode: c.gateMode === 'remind' ? 'remind' : 'block',
     roomNames: Array.isArray(c.roomNames) ? c.roomNames.map((n: any) => (typeof n === 'string' ? n : '')) : [],
     fillMin: Number.isInteger(c.fillMin) ? c.fillMin : 2,
+    gateRules: DEFAULT_RULES.map((d, i) => {
+      const x = Array.isArray(c.gateRules) ? c.gateRules[i] : null;
+      return x && Number.isInteger(x.daysBefore) && x.daysBefore >= 1 && x.daysBefore <= 6
+        ? { daysBefore: x.daysBefore, time: typeof x.time === 'string' && HHMM.test(x.time) ? x.time : null } : d;
+    }),
   };
 }
 const dow = (day: string) => new Date(`${day}T00:00:00.000Z`).getUTCDay();
@@ -45,7 +56,19 @@ export function hoursFor(day: string, cfg: DefenseCfg): number[] {
   if (!d.on) return [];
   return Array.from({ length: Math.max(0, d.end - d.start) }, (_, i) => d.start + i);
 }
-const gateMinutes = (cfg: DefenseCfg) => Number(cfg.gateTime.slice(0, 2)) * 60 + Number(cfg.gateTime.slice(3, 5));
+const toMinutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+// Dias (a partir de amanha) cuja escolha ja abriu, pela ordem: a regra do dia da semana diz quantos dias antes e a que hora.
+function openTargets(cfg: DefenseCfg): string[] {
+  const { day, minutes } = maputoNow();
+  const out: string[] = [];
+  for (let k = 1; k <= 7; k++) {
+    const target = addDays(day, k);
+    const r = cfg.gateRules[dow(target)];
+    const opens = addDays(target, -r.daysBefore);
+    if (day > opens || (day === opens && minutes >= toMinutes(r.time || cfg.gateTime))) out.push(target);
+  }
+  return out;
+}
 function validDay(v: any): string {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(new Date(`${v}T00:00:00.000Z`).getTime())) throw new AppError('Dia inválido', 400);
   return v;
@@ -58,7 +81,7 @@ const sessionInclude = {
 };
 function dto(s: any) {
   return {
-    id: s.id, day: s.day, hour: s.hour, room: s.room, title: s.title, notes: s.notes, studentId: s.studentId, contactId: s.contactId,
+    id: s.id, day: s.day, hour: s.hour, room: s.room, number: s.number ?? null, title: s.title, notes: s.notes, studentId: s.studentId, contactId: s.contactId,
     student: s.student, participants: s.participants.map((p: any) => ({ userId: p.userId, name: p.user?.name || '' })),
     associateId: s.associateId, associate: s.associate || null, slidesUrl: s.slidesUrl, slidesName: s.slidesName, slidesAt: s.slidesAt,
   };
@@ -148,6 +171,16 @@ router.put('/config', adminOnly, async (req: AuthRequest, res: Response, next) =
       if (!Number.isInteger(n) || n < 0 || n > 10) throw new AppError('Equilíbrio: número entre 0 (desligado) e 10', 400);
       cfg.fillMin = n;
     }
+    if (b.gateRules !== undefined) {
+      if (!Array.isArray(b.gateRules) || b.gateRules.length !== 7) throw new AppError('Regras do aviso inválidas', 400);
+      cfg.gateRules = b.gateRules.map((r: any, i: number) => {
+        const daysBefore = Number(r?.daysBefore);
+        if (!Number.isInteger(daysBefore) || daysBefore < 1 || daysBefore > 6) throw new AppError(`Sessões de ${WEEKDAYS[i]}: escolhe entre 1 e 6 dias antes`, 400);
+        const time = r?.time ? String(r.time) : null;
+        if (time && !HHMM.test(time)) throw new AppError(`Sessões de ${WEEKDAYS[i]}: hora inválida`, 400);
+        return { daysBefore, time };
+      });
+    }
     if (b.roomNames !== undefined) {
       if (!Array.isArray(b.roomNames)) throw new AppError('Nomes das salas inválidos', 400);
       cfg.roomNames = b.roomNames.slice(0, MAX_ROOMS).map((n: any) => (typeof n === 'string' ? n.trim().slice(0, 40) : ''));
@@ -210,6 +243,37 @@ async function associateFor(workspaceId: string, v: any): Promise<string | null>
   return a.id;
 }
 
+// Proxima sessao de um estudante: numero (maior que ja tem + 1) e os slides da sessao mais recente que os tenha.
+async function studentNext(workspaceId: string, studentId: string, excludeId?: string) {
+  const list = await prisma.defenseSession.findMany({
+    where: { workspaceId, studentId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    select: { number: true, slidesUrl: true, slidesName: true },
+    orderBy: [{ day: 'desc' }, { hour: 'desc' }],
+  });
+  const maxNum = list.reduce((a, x) => Math.max(a, x.number || 0), 0);
+  const withSlides = list.find((x) => x.slidesUrl);
+  return {
+    number: Math.max(maxNum, list.length) + 1,
+    slidesUrl: withSlides?.slidesUrl || null,
+    slidesName: withSlides?.slidesName || null,
+  };
+}
+
+function sessionNumber(v: any): number | null {
+  if (v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 999) throw new AppError('Número da sessão inválido', 400);
+  return n;
+}
+
+router.get('/students/:id/next', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const st = await prisma.financeStudent.findFirst({ where: { id: req.params.id, workspaceId: req.user!.workspaceId }, select: { id: true } });
+    if (!st) throw new AppError('Estudante não encontrado', 404);
+    res.json(await studentNext(req.user!.workspaceId, st.id, typeof req.query.exclude === 'string' ? req.query.exclude : undefined));
+  } catch (e) { next(e); }
+});
+
 // Slides: so ficheiros enviados pelo CRM (/uploads/...).
 function slidesFields(b: any) {
   if (b.slidesUrl === undefined) return {};
@@ -233,8 +297,12 @@ router.post('/sessions', async (req: AuthRequest, res: Response, next) => {
     const { studentAssociateId, ...st } = await studentFor(workspaceId, b);
     // Sem escolha, o responsavel e o associado do estudante.
     const associateId = b.associateId !== undefined ? await associateFor(workspaceId, b.associateId) : studentAssociateId;
+    // Numero: o escrito, ou o maior que o estudante ja tem + 1. Slides: os enviados, ou os da sessao anterior dele.
+    const prev = await studentNext(workspaceId, st.studentId);
+    const number = b.number !== undefined && b.number !== null && b.number !== '' ? sessionNumber(b.number) : prev.number;
+    const slides = b.slidesUrl ? slidesFields(b) : !b.noSlides && prev.slidesUrl ? { slidesUrl: prev.slidesUrl, slidesName: prev.slidesName, slidesAt: new Date() } : {};
     const created = await prisma.defenseSession.create({
-      data: { workspaceId, ...slot, ...st, associateId, ...slidesFields(b), notes: text(b.notes), createdById: req.user!.id }, include: sessionInclude,
+      data: { workspaceId, ...slot, ...st, number, associateId, ...slides, notes: text(b.notes), createdById: req.user!.id }, include: sessionInclude,
     }).catch((e) => { throw conflict(e); });
     emit(req, slot.day);
     res.status(201).json(dto(created));
@@ -257,6 +325,7 @@ router.patch('/sessions/:id', adminOnly, async (req: AuthRequest, res: Response,
       Object.assign(data, st);
     }
     if (b.associateId !== undefined) data.associateId = await associateFor(workspaceId, b.associateId);
+    if (b.number !== undefined) data.number = sessionNumber(b.number);
     Object.assign(data, slidesFields(b));
     if (b.notes !== undefined) data.notes = text(b.notes);
     const up = await prisma.defenseSession.update({ where: { id: cur.id }, data, include: sessionInclude }).catch((e) => { throw conflict(e); });
@@ -381,25 +450,31 @@ router.delete('/sessions/:id/join', async (req: AuthRequest, res: Response, next
 async function pendingFor(req: AuthRequest) {
   const workspaceId = req.user!.workspaceId;
   const s = await getSettings(workspaceId);
-  const { day, minutes } = maputoNow();
-  const tomorrow = addDays(day, 1);
   const cfg = defenseCfg(s);
-  const none = {
-    required: 0, day: tomorrow, sessions: [] as any[], mine: [] as string[], slides: [] as any[], maxPerSession: s.defenseMaxPerSession,
-    mode: cfg.gateMode, gateTime: cfg.gateTime, roomNames: cfg.roomNames, fillMin: cfg.fillMin,
+  const targets = cfg.gateEnabled ? openTargets(cfg) : [];
+  const base = {
+    required: 0, day: targets[0] || addDays(maputoNow().day, 1), sessions: [] as any[], mine: [] as string[], slides: [] as any[],
+    maxPerSession: s.defenseMaxPerSession, mode: cfg.gateMode, gateTime: cfg.gateTime, roomNames: cfg.roomNames, fillMin: cfg.fillMin,
   };
-  if (!cfg.gateEnabled || minutes < gateMinutes(cfg)) return none;
-  const sessions = await prisma.defenseSession.findMany({
-    where: { workspaceId, day: tomorrow }, include: sessionInclude, orderBy: [{ hour: 'asc' }, { room: 'asc' }],
+  if (!targets.length) return base;
+  const isParticipant = participantsOf(s).includes(req.user!.id);
+  const all = await prisma.defenseSession.findMany({
+    where: { workspaceId, day: { in: targets } }, include: sessionInclude, orderBy: [{ day: 'asc' }, { hour: 'asc' }, { room: 'asc' }],
   });
-  // O associado responsavel pelo estudante tem de anexar os slides das sessoes de amanha.
-  const slides = sessions.filter((x) => x.associate?.userId === req.user!.id && !x.slidesUrl).map(dto);
-  const mine = sessions.filter((x) => x.participants.some((p) => p.userId === req.user!.id)).map((x) => x.id);
-  if (!participantsOf(s).includes(req.user!.id)) return { ...none, mine, slides };
-  const open = sessions.filter((x) => mine.includes(x.id) || !s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession);
-  const required = Math.min(cfg.minChoices, open.length);
-  if (mine.length >= required) return { ...none, mine, slides };
-  return { ...none, required, sessions: sessions.map(dto), mine, slides };
+  // Um dia de cada vez, o mais proximo primeiro: escolher sessoes (quem esta na lista) e anexar os slides (responsavel).
+  for (const day of targets) {
+    const sessions = all.filter((x) => x.day === day);
+    const slides = sessions.filter((x) => x.associate?.userId === req.user!.id && !x.slidesUrl).map(dto);
+    const mine = sessions.filter((x) => x.participants.some((p) => p.userId === req.user!.id)).map((x) => x.id);
+    let required = 0;
+    if (isParticipant) {
+      const open = sessions.filter((x) => mine.includes(x.id) || !s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession);
+      const need = Math.min(cfg.minChoices, open.length);
+      if (mine.length < need) required = need;
+    }
+    if (required || slides.length) return { ...base, day, required, sessions: required ? sessions.map(dto) : [], mine, slides };
+  }
+  return base;
 }
 
 router.get('/pending', async (req: AuthRequest, res: Response, next) => {
@@ -413,13 +488,13 @@ router.post('/choose', async (req: AuthRequest, res: Response, next) => {
     canJoin(req, s);
     const ids: string[] = Array.isArray(req.body?.sessionIds) ? [...new Set<string>(req.body.sessionIds.map(String))] : [];
     if (!ids.length) throw new AppError('Escolhe as sessões', 400);
-    const tomorrow = addDays(maputoNow().day, 1);
+    const targets = openTargets(defenseCfg(s));
     const found = await prisma.defenseSession.findMany({ where: { workspaceId, id: { in: ids } }, select: { id: true, day: true, _count: { select: { participants: true } } } });
-    if (found.length !== ids.length || found.some((f) => f.day !== tomorrow)) throw new AppError('Só podes escolher sessões de amanhã aqui', 400);
+    if (found.length !== ids.length || found.some((f) => !targets.includes(f.day))) throw new AppError('Essas sessões ainda não estão abertas para escolha', 400);
     // As com menos gente primeiro, para o equilibrio aceitar a escolha toda.
     const ordered = [...found].sort((a, b) => a._count.participants - b._count.participants).map((f) => f.id);
     await prisma.$transaction(async (tx) => { for (const id of ordered) await join(req, id, req.user!.id, tx, true); });
-    emit(req, tomorrow);
+    emit(req, found[0]?.day);
     res.json(await pendingFor(req));
   } catch (e) { next(e); }
 });

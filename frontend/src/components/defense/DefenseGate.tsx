@@ -5,7 +5,7 @@ import api from '../../lib/api';
 import { getSocket } from '../../lib/socket';
 import { useAuthStore } from '../../store';
 import ChatPreviewModal from '../ChatPreviewModal';
-import { balanceBlock, DefensePending, DefenseSession, hourLabel, roomLabel, shortDay, weekdayName } from './types';
+import { balanceBlock, DefensePending, DefenseSession, hourLabel, roomLabel, sessionTitle, shortDay, weekdayName } from './types';
 import { SLIDES_ACCEPT, uploadSlides } from './slides';
 
 // Modo "so lembra": adiar 30 minutos (guardado neste computador).
@@ -62,7 +62,7 @@ export default function DefenseGate() {
         setPending(data);
         toast.error(`Ainda faltam sessões: escolhe pelo menos ${data.required}.`);
       } else {
-        toast.success('Sessões de amanhã confirmadas. Obrigado!');
+        toast.success(`Sessões de ${weekdayName(pending.day).toLowerCase()} confirmadas. Obrigado!`);
         check();
       }
     } catch (e: any) {
@@ -91,8 +91,8 @@ export default function DefenseGate() {
           <div>
             <h2 id="defense-gate-title" className="text-lg font-bold">Preparação para defesa · {weekdayName(pending.day)} {shortDay(pending.day)}</h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              {choosing && <>Escolhe <b>pelo menos {pending.required} {pending.required === 1 ? 'sessão' : 'sessões'}</b> de amanhã em que vais participar. </>}
-              {slides.length > 0 && <>Anexa os <b>slides</b> {slides.length === 1 ? 'do teu estudante' : 'dos teus estudantes'} com sessão amanhã. </>}
+              {choosing && <>Escolhe <b>pelo menos {pending.required} {pending.required === 1 ? 'sessão' : 'sessões'}</b> de {weekdayName(pending.day).toLowerCase()} em que vais participar. </>}
+              {slides.length > 0 && <>Anexa os <b>slides</b> {slides.length === 1 ? 'do teu estudante' : 'dos teus estudantes'} com sessão {weekdayName(pending.day).toLowerCase()}. </>}
               {pending.mode === 'block' ? 'Só depois podes continuar a usar o CRM. ' : ''}
               Podes abrir o chat de cada estudante.
             </p>
@@ -106,7 +106,7 @@ export default function DefenseGate() {
                 <div key={s.id} className="rounded p-2.5 flex items-center gap-3" style={{ border: '1px solid #F59E0B', background: 'var(--surface)' }}>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold">{hourLabel(s.hour)} · {roomLabel(pending, s.room)}</div>
-                    <div className="text-sm truncate">{s.title}{s.student ? ` (${s.student.code})` : ''}</div>
+                    <div className="text-sm truncate">{sessionTitle(s)}{s.student ? ` (${s.student.code})` : ''}</div>
                   </div>
                   {s.contactId && (
                     <button className="btn btn-outline" style={{ fontSize: 12, padding: '4px 8px' }} onClick={() => setChat(s)} title="Ver o chat com o estudante">
@@ -123,7 +123,7 @@ export default function DefenseGate() {
           )}
           {choosing && (
             <div className="space-y-1.5">
-              {slides.length > 0 && <h3 className="text-sm font-semibold">Sessões de amanhã</h3>}
+              {slides.length > 0 && <h3 className="text-sm font-semibold">Sessões de {weekdayName(pending.day).toLowerCase()}</h3>}
               {pending.sessions.map((s) => {
                 const joined = mine.has(s.id);
                 const on = joined || picked.has(s.id);
@@ -136,7 +136,7 @@ export default function DefenseGate() {
                       <input type="checkbox" checked={on} disabled={disabled} onChange={() => toggle(s.id)} />
                       <div className="min-w-0">
                         <div className="text-sm font-semibold">{hourLabel(s.hour)} · {roomLabel(pending, s.room)}</div>
-                        <div className="text-sm truncate">{s.title}{s.student ? ` (${s.student.code}${s.student.project ? ` · ${s.student.project}` : ''})` : ''}</div>
+                        <div className="text-sm truncate">{sessionTitle(s)}{s.student ? ` (${s.student.code}${s.student.project ? ` · ${s.student.project}` : ''})` : ''}</div>
                         <div className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
                           {s.participants.length ? `Com: ${s.participants.map((p) => p.name).join(', ')}` : 'Ainda ninguém escolheu'}
                           {pending.maxPerSession ? ` · ${s.participants.length}/${pending.maxPerSession}` : ''}

@@ -1845,6 +1845,8 @@ model DefenseSession {
   studentId   String?
   contactId   String?
   title       String
+  // Numero da sessao deste estudante (1, 2, 3...). Por defeito o maior que ele ja tem + 1.
+  number      Int?
   notes       String?
   createdById String?
   // Associado responsavel pelo estudante: e quem tem de anexar os slides.
