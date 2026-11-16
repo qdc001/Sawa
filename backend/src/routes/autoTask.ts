@@ -12,7 +12,7 @@
 // workspace via Workspace.autoTaskConfig. Ver lib/autoTaskDefaults.ts para
 // os defaults e o renderer de templates.
 
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import prisma from '../lib/prisma';
@@ -26,6 +26,17 @@ import {
 } from '../lib/autoTaskDefaults';
 
 const router = Router();
+
+// Avisa os ecras abertos sempre que uma tarefa muda (criar, editar, concluir, reatribuir, apagar),
+// para a lista de tarefas aparecer sem ser preciso actualizar a pagina.
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.method !== 'GET') {
+    res.on('finish', () => {
+      if (res.statusCode < 400 && req.user) req.app.get('io')?.to(`workspace:${req.user.workspaceId}`).emit('task:changed', {});
+    });
+  }
+  next();
+});
 
 function requireAdmin(req: AuthRequest) {
   if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {

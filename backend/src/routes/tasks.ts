@@ -6,6 +6,17 @@ import { propagateAssignee } from '../lib/propagateAssignee';
 import prisma from '../lib/prisma';
 const router = Router();
 
+// Avisa os ecras abertos sempre que uma tarefa muda (criar, editar, concluir, reatribuir, apagar),
+// para a lista de tarefas aparecer sem ser preciso actualizar a pagina.
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.method !== 'GET') {
+    res.on('finish', () => {
+      if (res.statusCode < 400 && req.user) req.app.get('io')?.to(`workspace:${req.user.workspaceId}`).emit('task:changed', {});
+    });
+  }
+  next();
+});
+
 // Tarefas: todos podem ver e criar, mas so OWNER/ADMIN podem alterar
 // (editar, mudar estado/data/responsavel, mover) ou eliminar.
 // Os fluxos de entrega/criacao assistida (/auto-task) nao passam por aqui.

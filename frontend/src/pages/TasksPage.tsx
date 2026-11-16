@@ -18,6 +18,7 @@ import api, {
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 import { useAuthStore } from '../store';
+import { getSocket } from '../lib/socket';
 import { canEditTasks, denyTaskEdit } from '../lib/taskPermissions';
 import { useTaskOptions } from '../lib/taskOptions';
 import { toDateTimeLocal, toDateKey, fromDateTimeLocal } from '../lib/dateInput';
@@ -1430,7 +1431,11 @@ export default function TasksPage() {
 
   const loadTags = () => api.get('/tags').then(({ data }) => setTags(Array.isArray(data) ? data : [])).catch(() => {});
 
-  const loadTasks = () => {
+  // So a resposta do pedido mais recente conta: uma resposta antiga (ex.: de uma letra da pesquisa)
+  // nao pode substituir a lista e esconder tarefas.
+  const loadSeq = useRef(0);
+  const loadTasks = (silent = false) => {
+    const seq = ++loadSeq.current;
     const params = new URLSearchParams();
     if (search.trim()) params.set('search', search.trim());
     if (statusFilter) params.set('status', statusFilter);
@@ -1439,12 +1444,33 @@ export default function TasksPage() {
     if (assigneeFilter) params.set('assignedToId', assigneeFilter);
     if (tagFilter) params.set('tagId', tagFilter);
     params.set('parentOnly', 'true');
-    setLoading(true);
+    if (!silent) setLoading(true);
     api.get(`/tasks?${params.toString()}`)
-      .then(({ data }) => setTasks(Array.isArray(data) ? data : []))
-      .catch(() => toast.error('Erro a carregar tarefas'))
-      .finally(() => setLoading(false));
+      .then(({ data }) => { if (seq === loadSeq.current) setTasks(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!silent) toast.error('Erro a carregar tarefas'); })
+      .finally(() => { if (seq === loadSeq.current && !silent) setLoading(false); });
   };
+
+  // Tempo real: tarefas criadas ou mudadas por outras pessoas (ou por automacoes) aparecem sozinhas.
+  // Aviso do servidor, releitura de 30 em 30 segundos e ao voltar a esta janela.
+  const loadRef = useRef(loadTasks);
+  loadRef.current = loadTasks;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const soon = () => { clearTimeout(timer); timer = setTimeout(() => loadRef.current(true), 600); };
+    const socket = getSocket();
+    const events = ['task:changed', 'task:new', 'task:updated'];
+    events.forEach((ev) => socket?.on(ev, soon));
+    const iv = setInterval(() => { if (document.visibilityState === 'visible') loadRef.current(true); }, 30000);
+    const onFocus = () => loadRef.current(true);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(iv);
+      window.removeEventListener('focus', onFocus);
+      events.forEach((ev) => socket?.off(ev, soon));
+    };
+  }, []);
 
   useEffect(() => {
     loadTasks();
