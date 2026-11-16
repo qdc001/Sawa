@@ -337,8 +337,10 @@ router.post('/sessions', async (req: AuthRequest, res: Response, next) => {
     const created = await prisma.defenseSession.create({
       data: { workspaceId, ...slot, ...st, number, associateId, ...slides, notes: text(b.notes), createdById: req.user!.id }, include: sessionInclude,
     }).catch((e) => { throw conflict(e); });
+    // O responsavel pelo estudante faz parte da sessao por defeito.
+    const responsibleNote = await addResponsible(req, created.id, created.associate?.userId);
     emit(req, slot.day);
-    res.status(201).json(dto(created));
+    res.status(201).json({ ...dto(await prisma.defenseSession.findUniqueOrThrow({ where: { id: created.id }, include: sessionInclude })), responsibleNote });
   } catch (e) { next(e); }
 });
 
@@ -362,8 +364,10 @@ router.patch('/sessions/:id', adminOnly, async (req: AuthRequest, res: Response,
     Object.assign(data, slidesFields(b));
     if (b.notes !== undefined) data.notes = text(b.notes);
     const up = await prisma.defenseSession.update({ where: { id: cur.id }, data, include: sessionInclude }).catch((e) => { throw conflict(e); });
+    // Responsavel novo: entra na sessao (o anterior fica, se ja la estava).
+    const responsibleNote = up.associateId !== cur.associateId ? await addResponsible(req, up.id, up.associate?.userId) : null;
     emit(req, up.day);
-    res.json(dto(up));
+    res.json({ ...dto(await prisma.defenseSession.findUniqueOrThrow({ where: { id: up.id }, include: sessionInclude })), responsibleNote });
   } catch (e) { next(e); }
 });
 
@@ -392,6 +396,17 @@ router.put('/sessions/:id/slides', async (req: AuthRequest, res: Response, next)
     res.json(dto(up));
   } catch (e) { next(e); }
 });
+
+// Poe o responsavel (a conta do associado) na sessao. Se nao der (ex.: ja tem outra sessao a essa hora), devolve o motivo.
+async function addResponsible(req: AuthRequest, sessionId: string, userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null;
+  try {
+    await join(req, sessionId, userId);
+    return null;
+  } catch (e: any) {
+    return `O responsável não foi posto na sessão: ${e?.message || 'erro'}`;
+  }
+}
 
 // Entrar numa sessao (com o limite por sessao). Admin pode por outra pessoa (userId).
 // balance: aplica o enchimento equilibrado (quem entra por si; um administrador a por alguem nao).

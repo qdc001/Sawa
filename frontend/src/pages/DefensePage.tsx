@@ -113,9 +113,9 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
         // Sessao nova sem slides de proposito: nao puxa os da sessao anterior.
         ...(!session && !slides && slidesRemoved ? { noSlides: true } : {}),
       };
-      if (session) await api.patch(`/defense/sessions/${session.id}`, body);
-      else await api.post('/defense/sessions', body);
+      const { data } = session ? await api.patch(`/defense/sessions/${session.id}`, body) : await api.post('/defense/sessions', body);
       toast.success('Sessão guardada');
+      if (data?.responsibleNote) toast(data.responsibleNote, { duration: 7000 });
       onSaved();
       onClose();
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
@@ -187,7 +187,7 @@ function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
             {cfg.associates.map((a) => <option key={a.id} value={a.id}>{a.name}{a.userId ? '' : ' (sem conta no CRM)'}</option>)}
           </select>
         </Field>
-        <p className="text-[11px] -mt-2" style={{ color: 'var(--text-muted)' }}>É quem tem de anexar os slides: o aviso da véspera pede-lhos se faltarem.</p>
+        <p className="text-[11px] -mt-2" style={{ color: 'var(--text-muted)' }}>Entra na sessão automaticamente e é quem tem de anexar os slides (o aviso pede-lhos se faltarem).</p>
         <Field label="Slides (opcional agora)">
           {slides ? (
             <div className="flex items-center gap-2 text-sm p-2 rounded" style={{ background: 'var(--surface-2)' }}>
