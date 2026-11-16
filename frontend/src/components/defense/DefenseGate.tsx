@@ -127,7 +127,7 @@ export default function DefenseGate() {
               {pending.sessions.map((s) => {
                 const joined = mine.has(s.id);
                 const on = joined || picked.has(s.id);
-                const blocked = on ? null : balanceBlock(s, pending.sessions, user?.id, picked, pending.fillMin, pending.maxPerSession);
+                const blocked = on ? null : balanceBlock(s, pending.sessions, user?.id, picked, pending.fillMin, pending.maxPerSession, { from: pending.myFrom, to: pending.myTo });
                 const disabled = joined || full(s) || !!blocked;
                 return (
                   <div key={s.id} className="rounded p-2.5 flex items-center gap-3"

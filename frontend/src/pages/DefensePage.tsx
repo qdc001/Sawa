@@ -8,7 +8,7 @@ import { getSocket } from '../lib/socket';
 import { isMetaWorkspace } from '../lib/useFinanceAccess';
 import ChatPreviewModal from '../components/ChatPreviewModal';
 import { addDays, errMsg, Field, maputoToday, Modal, mondayOf } from '../components/finance/shared';
-import { balanceBlock, DaySchedule, DefenseConfig, DefenseSession, hourLabel, hoursFor, roomLabel, sessionTitle, shortDay, weekdayName, WEEKDAYS } from '../components/defense/types';
+import { balanceBlock, canAtHour, DaySchedule, DefenseConfig, DefenseSession, PersonRule, hourLabel, hoursFor, roomLabel, sessionTitle, shortDay, weekdayName, WEEKDAYS } from '../components/defense/types';
 import { openSlides, SLIDES_ACCEPT, uploadSlides } from '../components/defense/slides';
 
 type StudentLite = { id: string; code: string; name: string; project: string | null; whatsapp: string | null; contactId: string | null; associate?: { id: string } | null };
@@ -249,18 +249,24 @@ function SettingsBox({ cfg, onSaved }: { cfg: DefenseConfig; onSaved: () => void
   const [roomNames, setRoomNames] = useState<string[]>(Array.from({ length: MAX_ROOMS }, (_, i) => cfg.roomNames[i] || ''));
   const [fillMin, setFillMin] = useState(cfg.fillMin);
   const [rules, setRules] = useState(cfg.gateRules);
+  const [people, setPeople] = useState<Record<string, PersonRule>>(cfg.people || {});
+  const setPerson = (id: string, k: keyof PersonRule, v: string) => setPeople((p) => ({
+    ...p, [id]: { ...(p[id] || { minChoices: null, from: null, to: null }), [k]: v === '' ? null : Number(v) },
+  }));
   const setRule = (d: number, k: 'daysBefore' | 'time', v: any) => setRules((r) => r.map((x, i) => (i === d ? { ...x, [k]: v } : x)));
   const [busy, setBusy] = useState(false);
   const setDay = (d: number, k: keyof DaySchedule, v: any) => setSchedule((s) => s.map((x, i) => (i === d ? { ...x, [k]: v } : x)));
   const copyWeekdays = () => setSchedule((s) => s.map((x, i) => (i >= 1 && i <= 5 ? { ...s[1] } : x)));
 
   const save = async () => {
+    const badPerson = cfg.users.find((u) => parts.has(u.id) && people[u.id]?.from != null && people[u.id]?.to != null && people[u.id].to! <= people[u.id].from!);
+    if (badPerson) { toast.error(`${badPerson.name}: o fim do horário tem de ser depois do início`); return; }
     const bad = schedule.findIndex((d) => d.on && d.end <= d.start);
     if (bad >= 0) { toast.error(`${WEEKDAYS[bad]}: a hora de fim tem de ser depois da de início`); return; }
     setBusy(true);
     try {
       const { data } = await api.put<{ outside: number }>('/defense/config', {
-        rooms, maxPerSession: max, participants: [...parts], schedule, gateEnabled, gateTime, minChoices, gateMode, roomNames: roomNames.slice(0, rooms), fillMin,
+        rooms, maxPerSession: max, participants: [...parts], schedule, gateEnabled, gateTime, minChoices, gateMode, roomNames: roomNames.slice(0, rooms), fillMin, people,
         // Hora igual a do aviso fica "null" (segue a hora do aviso se esta mudar).
         gateRules: rules.map((r) => ({ daysBefore: r.daysBefore, time: r.time && r.time !== gateTime ? r.time : null })),
       });
@@ -382,13 +388,43 @@ function SettingsBox({ cfg, onSaved }: { cfg: DefenseConfig; onSaved: () => void
 
       <div>
         {section('Quem participa', `Estas pessoas recebem o aviso${gateEnabled ? ` a partir das ${gateTime}` : ''} e podem entrar nas sessões.`)}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
-          {cfg.users.map((u) => (
-            <label key={u.id} className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={parts.has(u.id)} onChange={(e) => setParts((p) => { const n = new Set(p); if (e.target.checked) n.add(u.id); else n.delete(u.id); return n; })} />
-              {u.name}
-            </label>
-          ))}
+        <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+          Para cada pessoa pode definir o seu mínimo de sessões e o horário em que pode participar (ex.: só à tarde).
+          As sessões fora do horário não contam para o mínimo dela e não as pode marcar.
+        </p>
+        <div className="space-y-1">
+          {cfg.users.map((u) => {
+            const r = people[u.id] || { minChoices: null, from: null, to: null };
+            const on = parts.has(u.id);
+            const sel = { width: 'auto', padding: '2px 6px', fontSize: 12 } as const;
+            return (
+              <div key={u.id} className="flex items-center gap-2 flex-wrap text-sm">
+                <label className="flex items-center gap-2 cursor-pointer w-48">
+                  <input type="checkbox" checked={on} onChange={(e) => setParts((p) => { const n = new Set(p); if (e.target.checked) n.add(u.id); else n.delete(u.id); return n; })} />
+                  {u.name}
+                </label>
+                {on && (
+                  <>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>mínimo</span>
+                    <select className="input-base" style={sel} value={r.minChoices ?? ''} onChange={(e) => setPerson(u.id, 'minChoices', e.target.value)}>
+                      <option value="">geral ({minChoices})</option>
+                      {[0, 1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>disponível das</span>
+                    <select className="input-base" style={sel} value={r.from ?? ''} onChange={(e) => setPerson(u.id, 'from', e.target.value)}>
+                      <option value="">início</option>
+                      {HOURS_24.slice(0, 24).map((h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+                    </select>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>às</span>
+                    <select className="input-base" style={sel} value={r.to ?? ''} onChange={(e) => setPerson(u.id, 'to', e.target.value)}>
+                      <option value="">fim</option>
+                      {HOURS_24.slice(1).map((h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+                    </select>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
       <button className="btn btn-primary" disabled={busy} onClick={save}>{busy && <Loader2 size={14} className="animate-spin" />} Guardar definições</button>
@@ -465,8 +501,9 @@ export default function DefensePage() {
     for (const [day, list] of byDay) {
       const mine = list.filter((x) => x.participants.some((p) => p.userId === user?.id));
       if (!mine.length) continue;
-      const open = list.filter((x) => mine.includes(x) || !cfg.maxPerSession || x.participants.length < cfg.maxPerSession);
-      if (mine.length - 1 < Math.min(cfg.minChoices, open.length)) locked.add(day);
+      const me = user?.id ? cfg.people[user.id] : undefined;
+      const open = list.filter((x) => mine.includes(x) || (canAtHour(me, x.hour) && (!cfg.maxPerSession || x.participants.length < cfg.maxPerSession)));
+      if (mine.length - 1 < Math.min(me?.minChoices ?? cfg.minChoices, open.length)) locked.add(day);
     }
     return locked;
   }, [cfg, sessions, user?.id]);
@@ -546,7 +583,7 @@ export default function DefensePage() {
                       }
                       const joined = s.participants.some((p) => p.userId === user?.id);
                       const full = !!cfg.maxPerSession && s.participants.length >= cfg.maxPerSession && !joined;
-                      const blocked = !joined && !cfg.canManage ? balanceBlock(s, (sessions || []).filter((x) => x.day === d), user?.id, new Set(), cfg.fillMin, cfg.maxPerSession) : null;
+                      const blocked = !joined && !cfg.canManage ? balanceBlock(s, (sessions || []).filter((x) => x.day === d), user?.id, new Set(), cfg.fillMin, cfg.maxPerSession, user?.id ? cfg.people[user.id] : undefined) : null;
                       const canAttach = cfg.canManage || (!!user?.id && s.associate?.userId === user.id);
                       return (
                         <td key={d} className="align-top p-1.5 text-[11px]" style={{ background: joined ? 'var(--primary-light)' : 'var(--surface-2)', border: `1px solid ${joined ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 4, opacity: past ? 0.6 : 1 }}>

@@ -23,7 +23,11 @@ export type DefenseCfg = {
   // Quando se escolhem as sessoes de cada dia da semana (0 = domingo): N dias antes, a partir de uma hora
   // (null = hora do aviso). Por defeito na vespera; as de segunda no sabado as 10:00.
   gateRules: GateRule[];
+  // Por colaborador (id de User): minimo proprio de sessoes (null = o geral) e horario em que pode participar
+  // (from/to em horas; null = todo o dia). Sessoes fora do horario nao contam para o minimo e nao se podem marcar.
+  people: Record<string, PersonRule>;
 };
+export type PersonRule = { minChoices: number | null; from: number | null; to: number | null };
 export type GateRule = { daysBefore: number; time: string | null };
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DEFAULT_RULES: GateRule[] = [0, 1, 2, 3, 4, 5, 6].map((d) => (d === 1 ? { daysBefore: 2, time: '10:00' } : { daysBefore: 1, time: null }));
@@ -48,6 +52,7 @@ export function defenseCfg(s: { defenseConfig: any }): DefenseCfg {
       return x && Number.isInteger(x.daysBefore) && x.daysBefore >= 1 && x.daysBefore <= 6
         ? { daysBefore: x.daysBefore, time: typeof x.time === 'string' && HHMM.test(x.time) ? x.time : null } : d;
     }),
+    people: c.people && typeof c.people === 'object' ? c.people : {},
   };
 }
 const dow = (day: string) => new Date(`${day}T00:00:00.000Z`).getUTCDay();
@@ -55,6 +60,16 @@ export function hoursFor(day: string, cfg: DefenseCfg): number[] {
   const d = cfg.schedule[dow(day)];
   if (!d.on) return [];
   return Array.from({ length: Math.max(0, d.end - d.start) }, (_, i) => d.start + i);
+}
+// Regras de uma pessoa: minimo (o dela ou o geral) e se pode participar a uma hora.
+function personOf(cfg: DefenseCfg, userId: string) {
+  const r = cfg.people[userId] || { minChoices: null, from: null, to: null };
+  return {
+    min: r.minChoices ?? cfg.minChoices,
+    from: r.from, to: r.to,
+    canAt: (hour: number) => (r.from === null || hour >= r.from) && (r.to === null || hour < r.to),
+    label: r.from !== null || r.to !== null ? `das ${r.from ?? 0}h às ${r.to ?? 24}h` : '',
+  };
 }
 const toMinutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 // Dias (a partir de amanha) cuja escolha ja abriu, pela ordem: a regra do dia da semana diz quantos dias antes e a que hora.
@@ -180,6 +195,24 @@ router.put('/config', adminOnly, async (req: AuthRequest, res: Response, next) =
         if (time && !HHMM.test(time)) throw new AppError(`Sessões de ${WEEKDAYS[i]}: hora inválida`, 400);
         return { daysBefore, time };
       });
+    }
+    if (b.people !== undefined) {
+      if (typeof b.people !== 'object' || b.people === null) throw new AppError('Regras por colaborador inválidas', 400);
+      const users = await prisma.user.findMany({ where: { workspaceId, id: { in: Object.keys(b.people) } }, select: { id: true, name: true } });
+      const out: Record<string, PersonRule> = {};
+      for (const u of users) {
+        const r = b.people[u.id] || {};
+        const opt = (v: any, lo: number, hi: number, what: string) => {
+          if (v === null || v === undefined || v === '') return null;
+          const n = Number(v);
+          if (!Number.isInteger(n) || n < lo || n > hi) throw new AppError(`${u.name}: ${what} inválido`, 400);
+          return n;
+        };
+        const rule = { minChoices: opt(r.minChoices, 0, 12, 'mínimo de sessões'), from: opt(r.from, 0, 23, 'início do horário'), to: opt(r.to, 1, 24, 'fim do horário') };
+        if (rule.from !== null && rule.to !== null && rule.to <= rule.from) throw new AppError(`${u.name}: o fim do horário tem de ser depois do início`, 400);
+        if (rule.minChoices !== null || rule.from !== null || rule.to !== null) out[u.id] = rule;
+      }
+      cfg.people = out;
     }
     if (b.roomNames !== undefined) {
       if (!Array.isArray(b.roomNames)) throw new AppError('Nomes das salas inválidos', 400);
@@ -372,14 +405,19 @@ async function join(req: AuthRequest, sessionId: string, userId: string, tx: any
   if (s.defenseMaxPerSession && ses.participants.length >= s.defenseMaxPerSession) {
     throw new AppError(`A sessão das ${ses.hour}h (sala ${ses.room}) já está cheia. Escolhe outra.`, 409);
   }
+  // Ninguem fica em duas sessoes a mesma hora (nem posto por um administrador).
+  const cfg = defenseCfg(s);
+  const day = await tx.defenseSession.findMany({ where: { workspaceId, day: ses.day }, include: { participants: { select: { userId: true } } } });
+  const isMine = (x: any) => x.participants.some((p: any) => p.userId === userId);
+  const myHours = new Set(day.filter(isMine).map((x: any) => x.hour));
+  if (myHours.has(ses.hour)) {
+    throw new AppError(balance ? `Já estás noutra sessão às ${ses.hour}h.` : `Essa pessoa já está noutra sessão às ${ses.hour}h.`, 409);
+  }
   if (balance) {
-    const cfg = defenseCfg(s);
-    const day = await tx.defenseSession.findMany({ where: { workspaceId, day: ses.day }, include: { participants: { select: { userId: true } } } });
-    const isMine = (x: any) => x.participants.some((p: any) => p.userId === userId);
-    const myHours = new Set(day.filter(isMine).map((x: any) => x.hour));
-    if (myHours.has(ses.hour)) throw new AppError(`Já estás noutra sessão às ${ses.hour}h.`, 409);
+    const me = personOf(cfg, userId);
+    if (!me.canAt(ses.hour)) throw new AppError(`Essa sessão é fora do teu horário (${me.label}).`, 409);
     if (cfg.fillMin > 0) {
-      const cands = day.filter((x: any) => !isMine(x) && !myHours.has(x.hour) && (!s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession));
+      const cands = day.filter((x: any) => !isMine(x) && !myHours.has(x.hour) && me.canAt(x.hour) && (!s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession));
       const min = Math.min(...cands.map((x: any) => x.participants.length));
       if (min < cfg.fillMin && ses.participants.length > min) {
         throw new AppError(`Ainda há sessões neste dia com ${min} ${min === 1 ? 'associado' : 'associados'}. Escolhe primeiro uma dessas: só se entra numa sessão com mais gente quando todas tiverem ${cfg.fillMin}.`, 409);
@@ -432,8 +470,9 @@ router.delete('/sessions/:id/join', async (req: AuthRequest, res: Response, next
         });
         const mine = daySessions.filter((x) => x.participants.some((p) => p.userId === userId));
         if (mine.some((x) => x.id === ses.id)) {
-          const open = daySessions.filter((x) => mine.includes(x) || !s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession);
-          const required = Math.min(cfg.minChoices, open.length);
+          const me = personOf(cfg, userId);
+          const open = daySessions.filter((x) => mine.includes(x) || (me.canAt(x.hour) && (!s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession)));
+          const required = Math.min(me.min, open.length);
           if (mine.length - 1 < required) {
             throw new AppError(`Tens de ficar com pelo menos ${required} ${required === 1 ? 'sessão' : 'sessões'} neste dia. Para sair desta, escolhe primeiro outra.`, 409);
           }
@@ -455,9 +494,12 @@ async function pendingFor(req: AuthRequest) {
   const base = {
     required: 0, day: targets[0] || addDays(maputoNow().day, 1), sessions: [] as any[], mine: [] as string[], slides: [] as any[],
     maxPerSession: s.defenseMaxPerSession, mode: cfg.gateMode, gateTime: cfg.gateTime, roomNames: cfg.roomNames, fillMin: cfg.fillMin,
+    // Horario desta pessoa (para o popup nao deixar marcar fora dele).
+    myFrom: cfg.people[req.user!.id]?.from ?? null, myTo: cfg.people[req.user!.id]?.to ?? null,
   };
   if (!targets.length) return base;
   const isParticipant = participantsOf(s).includes(req.user!.id);
+  const me = personOf(cfg, req.user!.id);
   const all = await prisma.defenseSession.findMany({
     where: { workspaceId, day: { in: targets } }, include: sessionInclude, orderBy: [{ day: 'asc' }, { hour: 'asc' }, { room: 'asc' }],
   });
@@ -468,8 +510,8 @@ async function pendingFor(req: AuthRequest) {
     const mine = sessions.filter((x) => x.participants.some((p) => p.userId === req.user!.id)).map((x) => x.id);
     let required = 0;
     if (isParticipant) {
-      const open = sessions.filter((x) => mine.includes(x.id) || !s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession);
-      const need = Math.min(cfg.minChoices, open.length);
+      const open = sessions.filter((x) => mine.includes(x.id) || (me.canAt(x.hour) && (!s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession)));
+      const need = Math.min(me.min, open.length);
       if (mine.length < need) required = need;
     }
     if (required || slides.length) return { ...base, day, required, sessions: required ? sessions.map(dto) : [], mine, slides };
