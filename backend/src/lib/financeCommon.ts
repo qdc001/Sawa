@@ -34,7 +34,8 @@ export function phaseId(v: any): number | null {
 export async function getSettings(workspaceId: string) {
   return prisma.financeSettings.upsert({
     where: { workspaceId },
-    create: { workspaceId, fixedSalaries: DEFAULT_FIXED as any },
+    // Definicoes novas: nao ha lancamentos antigos para marcar como "contrato enviado".
+    create: { workspaceId, fixedSalaries: DEFAULT_FIXED as any, contractBackfillDone: true },
     update: {},
   });
 }

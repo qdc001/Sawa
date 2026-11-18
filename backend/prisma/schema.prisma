@@ -1542,6 +1542,8 @@ model FinanceSettings {
   commissionRate       Float    @default(0.25)
   // IVA (fraccao, ex.: 0.16). Nos estudantes que pagam IVA ja esta incluido no valor.
   vatRate              Float    @default(0.16)
+  // Uma so vez: os lancamentos que ja existiam passaram a "contrato enviado" (os novos comecam por enviar).
+  contractBackfillDone Boolean  @default(false)
   perNewStudent        Float    @default(250)
   perNewStudentName    String   @default("Lucília")
   perNewStudentFrom    String   @default("2026-01")

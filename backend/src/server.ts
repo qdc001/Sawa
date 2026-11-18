@@ -250,6 +250,22 @@ httpServer.listen(PORT, async () => {
     );
   }
 
+  // Uma so vez por workspace: os lancamentos de receita que ja existiam ficam "contrato enviado".
+  // Os novos comecam "por enviar". A marca contractBackfillDone impede que se repita.
+  try {
+    const prismaOnce = (await import('./lib/prisma')).default;
+    const pending = await prismaOnce.financeSettings.findMany({ where: { contractBackfillDone: false }, select: { workspaceId: true } });
+    for (const fs of pending) {
+      await prismaOnce.$transaction([
+        prismaOnce.financeEntry.updateMany({ where: { workspaceId: fs.workspaceId, type: 'RECEITA', contractSent: false }, data: { contractSent: true } }),
+        prismaOnce.financeSettings.update({ where: { workspaceId: fs.workspaceId }, data: { contractBackfillDone: true } }),
+      ]);
+    }
+    if (pending.length) console.log(`[financas] contrato enviado marcado nos lancamentos existentes (${pending.length} workspace(s))`);
+  } catch (e: any) {
+    console.error('Falha a marcar contratos existentes:', e.message);
+  }
+
   // Migrar credenciais de integrações legadas (plaintext) para o formato encriptado.
   // Idempotente: corre todos os arranques mas só toca nas que ainda não estão encriptadas.
   try {
