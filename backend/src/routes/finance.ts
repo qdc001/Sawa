@@ -256,7 +256,7 @@ router.post('/entries', adminOnly, async (req: AuthRequest, res: Response, next)
       if (!st) throw new AppError('Estudante não encontrado', 400);
       const pot = b.potentialRevenue === undefined || b.potentialRevenue === '' || b.potentialRevenue === null ? null : money(b.potentialRevenue);
       const r = await addStudentPayment(req, st, {
-        date, amount, method: wallet(b.paymentMethod), associateId, notes: text(b.notes), description: text(b.description),
+        date, amount, method: wallet(b.paymentMethod), associateId, notes: text(b.notes), description: text(b.description), contractSent: !!b.contractSent,
         category: b.category !== undefined ? text(b.category) : undefined, potentialRevenue: pot,
         ...(b.nextDueDate !== undefined ? { nextDueDate: optDate(b.nextDueDate, 'Próxima parcela') } : {}),
       });
@@ -271,6 +271,7 @@ router.post('/entries', adminOnly, async (req: AuthRequest, res: Response, next)
         revenue: type === 'RECEITA' ? amount : 0, expense: type === 'DESPESA' ? amount : 0,
         commission: associateId ? amount * settings.commissionRate : 0, associateId,
         paymentMethod: wallet(b.paymentMethod), notes: text(b.notes), source: 'crm', createdById: req.user!.id,
+        contractSent: !!b.contractSent,
       },
       include: entryInclude,
     });
@@ -298,6 +299,7 @@ router.patch('/entries/:id', adminOnly, async (req: AuthRequest, res: Response, 
     if (b.description !== undefined) data.description = text(b.description);
     if (b.category !== undefined) data.category = text(b.category);
     if (b.notes !== undefined) data.notes = text(b.notes);
+    if (b.contractSent !== undefined) data.contractSent = !!b.contractSent;
     if (b.paymentMethod !== undefined) data.paymentMethod = wallet(b.paymentMethod);
     if (b.potentialRevenue !== undefined) data.potentialRevenue = money(b.potentialRevenue);
     const revenue = b.amount !== undefined && cur.type === 'RECEITA' ? money(b.amount) : cur.revenue;
@@ -629,7 +631,7 @@ type StudentRow = NonNullable<Awaited<ReturnType<typeof prisma.financeStudent.fi
 // Saldo automatico: recalcula a partir dos lancamentos (inclui a parte da defesa). Dados antigos: soma ao valor pago.
 async function addStudentPayment(req: AuthRequest, st: StudentRow, o: {
   date: Date; amount: number; method: string; associateId: string | null; nextDueDate?: Date | null;
-  notes?: string | null; description?: string | null; category?: string | null; potentialRevenue?: number | null;
+  notes?: string | null; description?: string | null; category?: string | null; potentialRevenue?: number | null; contractSent?: boolean;
 }) {
   const workspaceId = st.workspaceId;
   const settings = await getSettings(workspaceId);
@@ -644,7 +646,7 @@ async function addStudentPayment(req: AuthRequest, st: StudentRow, o: {
         potentialRevenue: o.potentialRevenue ?? (nth === 0 ? st.totalValue : 0), revenue: o.amount,
         commission: o.associateId ? o.amount * settings.commissionRate : 0, associateId: o.associateId, paymentMethod: o.method,
         notes: o.notes || `${ORDINALS[nth] || `${nth + 1}.ª`} parcela`,
-        studentId: st.id, source: 'crm', createdById: req.user!.id,
+        studentId: st.id, source: 'crm', createdById: req.user!.id, contractSent: !!o.contractSent,
       },
     });
     const due = o.nextDueDate !== undefined ? { nextDueDate: o.nextDueDate } : {};
@@ -1055,8 +1057,8 @@ router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) =
         ...months.map((m) => [m.period, m.newStudentFee, ...associates.map((a) => m.commissions[a.id] || 0), m.commissionTotal + m.newStudentFee]),
       ] },
       { name: 'Lançamentos', rows: [
-        ['Mês', 'Data', 'Descrição', 'Tipo', 'Categoria', 'Receita potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma de pagamento', 'Observações', 'Estudante', 'Parte da defesa', 'Associado de defesa', 'Comissão da defesa', 'IVA incluído'],
-        ...entries.map((e) => [e.period, e.date, e.description, e.type, e.category, e.potentialRevenue, e.expense, e.revenue, e.associate?.name || e.commissionistRaw, e.commission, e.paymentMethod, e.notes, e.student?.code, e.defenseAmount || null, e.defenseAssociate?.name, e.defenseCommission || null, e.vatAmount || null]),
+        ['Mês', 'Data', 'Descrição', 'Tipo', 'Categoria', 'Receita potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma de pagamento', 'Observações', 'Estudante', 'Parte da defesa', 'Associado de defesa', 'Comissão da defesa', 'IVA incluído', 'Contrato enviado'],
+        ...entries.map((e) => [e.period, e.date, e.description, e.type, e.category, e.potentialRevenue, e.expense, e.revenue, e.associate?.name || e.commissionistRaw, e.commission, e.paymentMethod, e.notes, e.student?.code, e.defenseAmount || null, e.defenseAssociate?.name, e.defenseCommission || null, e.vatAmount || null, e.contractSent ? 'Sim' : 'Não']),
       ] },
       { name: 'Estudantes', rows: [
         ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas', 'Pacote', 'Associado de defesa', 'Saldo pelos lançamentos', 'Paga IVA'],

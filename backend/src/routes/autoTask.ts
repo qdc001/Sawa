@@ -12,6 +12,8 @@
 // workspace via Workspace.autoTaskConfig. Ver lib/autoTaskDefaults.ts para
 // os defaults e o renderer de templates.
 
+import path from 'path';
+import fs from 'fs';
 import { Router, Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
@@ -270,15 +272,16 @@ router.post('/announce', async (req: AuthRequest, res: Response, next) => {
 
 // POST /api/auto-task/deliver
 // Body: { contactId, subject, typeKey?, customTypeLabel?, taskToCompleteId?, leadId?, attachmentUrl?, attachmentName? }
-router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
-  try {
-    const { contactId, subject, typeKey, customTypeLabel, taskToCompleteId, leadId, attachmentUrl, attachmentName, updateTaskId } = req.body || {};
+// Envio da entrega (ficheiro + mensagem + fechar tarefa + follow-up). Usado pelo envio imediato e pelos agendados.
+// Devolve { conflict } se o contacto tem outra tarefa aberta que nao vai ser fechada.
+export async function performDeliver(workspaceId: string, userId: string, body: any, io: any): Promise<any> {
+    const { contactId, subject, typeKey, customTypeLabel, taskToCompleteId, leadId, attachmentUrl, attachmentName, updateTaskId } = body || {};
     console.log('[deliver] recebido', { contactId: !!contactId, subject, taskToCompleteId, updateTaskId, hasAttachment: !!attachmentUrl });
     if (!contactId) throw new AppError('contactId obrigatório', 400);
     if (!subject || typeof subject !== 'string' || !subject.trim()) throw new AppError('Assunto obrigatório', 400);
 
     const contact = await prisma.contact.findFirst({
-      where: { id: contactId, workspaceId: req.user!.workspaceId },
+      where: { id: contactId, workspaceId: workspaceId },
     });
     if (!contact) throw new AppError('Contacto não encontrado', 404);
     const phone = contact.whatsapp || contact.phone;
@@ -302,19 +305,19 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
     // reaproveitamos essa tarefa como follow-up (em vez de criar nova).
     const stillOpen = openTasks.filter((t) => t.id !== taskToCompleteId && t.id !== updateTaskId);
     if (stillOpen.length > 0) {
-      return res.status(409).json({
+      return { conflict: {
         message: `Este contacto já tem uma tarefa aberta ("${stillOpen[0].title}") que não vai ser fechada. Conclui-a antes.`,
         existingTask: stillOpen[0],
-      });
+      } };
     }
 
     const workspace = await prisma.workspace.findUnique({
-      where: { id: req.user!.workspaceId },
+      where: { id: workspaceId },
       select: { timezone: true },
     });
     const tz = workspace?.timezone || 'Africa/Maputo';
 
-    const config = await getConfig(req.user!.workspaceId);
+    const config = await getConfig(workspaceId);
     const workType = typeKey ? config.workTypes.find((t) => t.key === typeKey) : null;
     const effectiveTipo = customTypeLabel && workType?.key === 'outros'
       ? customTypeLabel.trim()
@@ -350,7 +353,7 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
     const messages: any[] = [];
     if (attachmentUrl) {
       const fileResult = await sendWhatsAppOut(
-        req.user!.workspaceId,
+        workspaceId,
         phone,
         '',
         'DOCUMENT',
@@ -370,14 +373,14 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
           externalId: fileResult.externalId,
           contactId: contact.id,
           leadId: leadId || null,
-          sentById: req.user!.id,
+          sentById: userId,
           mediaUrl: attachmentUrl,
         },
       });
       messages.push(fileMsg);
     }
 
-    const textResult = await sendWhatsAppOut(req.user!.workspaceId, phone, messageContent, 'TEXT');
+    const textResult = await sendWhatsAppOut(workspaceId, phone, messageContent, 'TEXT');
     if (!textResult.ok) {
       throw new AppError(`Falha a enviar mensagem: ${textResult.error || 'desconhecido'}`, 502);
     }
@@ -391,7 +394,7 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
         externalId: textResult.externalId,
         contactId: contact.id,
         leadId: leadId || null,
-        sentById: req.user!.id,
+        sentById: userId,
       },
     });
     messages.push(textMsg);
@@ -456,25 +459,134 @@ router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
           dueAt: followupDue,
           contactId: contact.id,
           leadId: leadId || null,
-          assignedToId: req.user!.id,
+          assignedToId: userId,
           parentTaskId: closedTask?.id || null,
         },
       });
       console.log('[deliver] followup criado', followupTask.id, 'title=', followupTitle);
     }
 
-    const io = req.app.get('io');
     if (io) {
       for (const m of messages) {
-        io.to(`workspace:${req.user!.workspaceId}`).emit('message:new', m);
+        io.to(`workspace:${workspaceId}`).emit('message:new', m);
       }
-      if (closedTask) io.to(`workspace:${req.user!.workspaceId}`).emit('task:updated', closedTask);
-      io.to(`workspace:${req.user!.workspaceId}`).emit(followupWasUpdated ? 'task:updated' : 'task:new', followupTask);
+      if (closedTask) io.to(`workspace:${workspaceId}`).emit('task:updated', closedTask);
+      io.to(`workspace:${workspaceId}`).emit(followupWasUpdated ? 'task:updated' : 'task:new', followupTask);
     }
 
-    res.status(201).json({ message, messages, closedTask, followupTask, followupWasUpdated, sentVia: sendResult.via });
+    return { message, messages, closedTask, followupTask, followupWasUpdated, sentVia: sendResult.via };
+}
+
+// POST /api/auto-task/deliver
+// Body: { contactId, subject, typeKey?, customTypeLabel?, taskToCompleteId?, leadId?, attachmentUrl?, attachmentName?, scheduleAt? }
+// Com scheduleAt (data/hora ISO) nao envia agora: fica agendado e o servidor envia a essa hora.
+router.post('/deliver', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const b = req.body || {};
+    if (b.scheduleAt) {
+      const sched: any = await scheduleDeliver(req, b);
+      if (sched.conflict) return res.status(409).json(sched.conflict);
+      return res.status(201).json({ scheduled: sched });
+    }
+    const r = await performDeliver(req.user!.workspaceId, req.user!.id, b, req.app.get('io'));
+    if (r.conflict) return res.status(409).json(r.conflict);
+    res.status(201).json(r);
   } catch (e) { next(e); }
 });
+
+// ---------- Entregas agendadas ----------
+const MAX_SCHEDULE_DAYS = 60;
+
+async function scheduleDeliver(req: AuthRequest, b: any) {
+  const workspaceId = req.user!.workspaceId;
+  const runAt = new Date(String(b.scheduleAt));
+  if (isNaN(runAt.getTime())) throw new AppError('Data/hora do envio inválida', 400);
+  if (runAt.getTime() < Date.now() + 60_000) throw new AppError('Escolhe uma hora no futuro (pelo menos daqui a 1 minuto)', 400);
+  if (runAt.getTime() > Date.now() + MAX_SCHEDULE_DAYS * 86400_000) throw new AppError(`Só se pode agendar até ${MAX_SCHEDULE_DAYS} dias`, 400);
+  if (!b.contactId) throw new AppError('contactId obrigatório', 400);
+  if (!b.subject || typeof b.subject !== 'string' || !b.subject.trim()) throw new AppError('Assunto obrigatório', 400);
+  if (b.attachmentUrl && !/^\/uploads\/[^/]+$/.test(String(b.attachmentUrl))) throw new AppError('Anexo inválido', 400);
+  const contact = await prisma.contact.findFirst({ where: { id: String(b.contactId), workspaceId } });
+  if (!contact) throw new AppError('Contacto não encontrado', 404);
+  if (!(contact.whatsapp || contact.phone)) throw new AppError('Contacto sem número de WhatsApp', 400);
+  // O mesmo controlo do envio: outra tarefa aberta que nao vai ser fechada resolve-se ja, nao a hora do envio.
+  const stillOpen = await prisma.task.findFirst({
+    where: {
+      contactId: contact.id, parentTaskId: null, status: { in: ['PENDING', 'IN_PROGRESS'] },
+      id: { notIn: [b.taskToCompleteId, b.updateTaskId].filter(Boolean).map(String) },
+    },
+    include: { assignedTo: { select: { id: true, name: true, avatar: true } }, contact: { select: { id: true, firstName: true, lastName: true } } },
+  });
+  if (stillOpen) {
+    return { conflict: { message: `Este contacto já tem uma tarefa aberta ("${stillOpen.title}") que não vai ser fechada. Conclui-a antes.`, existingTask: stillOpen } };
+  }
+  const payload = {
+    contactId: contact.id, subject: b.subject.trim(), typeKey: b.typeKey || null, customTypeLabel: b.customTypeLabel || null,
+    taskToCompleteId: b.taskToCompleteId || null, leadId: b.leadId || null, updateTaskId: b.updateTaskId || null,
+    attachmentUrl: b.attachmentUrl || null, attachmentName: b.attachmentName || null,
+  };
+  return prisma.scheduledDelivery.create({
+    data: { workspaceId, createdById: req.user!.id, contactId: contact.id, contactName: [contact.firstName, contact.lastName].filter(Boolean).join(' '), payload, runAt },
+  });
+}
+
+// GET /api/auto-task/scheduled?contactId=X -> agendados deste contacto (por enviar e falhados recentes)
+router.get('/scheduled', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const where: any = { workspaceId: req.user!.workspaceId };
+    if (req.query.contactId) where.contactId = String(req.query.contactId);
+    where.OR = [{ status: { in: ['PENDING', 'RUNNING'] } }, { status: 'FAILED', updatedAt: { gte: new Date(Date.now() - 7 * 86400_000) } }];
+    res.json(await prisma.scheduledDelivery.findMany({ where, orderBy: { runAt: 'asc' }, take: 50 }));
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/auto-task/scheduled/:id -> cancela (so por enviar; quem agendou ou administrador)
+router.delete('/scheduled/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const d = await prisma.scheduledDelivery.findFirst({ where: { id: req.params.id, workspaceId: req.user!.workspaceId } });
+    if (!d) throw new AppError('Envio agendado não encontrado', 404);
+    if (d.createdById !== req.user!.id && !['OWNER', 'ADMIN'].includes(req.user!.role)) throw new AppError('Só quem agendou (ou um administrador) pode cancelar', 403);
+    const r = await prisma.scheduledDelivery.updateMany({ where: { id: d.id, status: 'PENDING' }, data: { status: 'CANCELLED' } });
+    if (!r.count) throw new AppError('Este envio já não está por enviar', 409);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+async function notifyUser(userId: string, title: string, body: string, contactId: string) {
+  await prisma.notification.create({ data: { userId, title, body, type: 'scheduled_delivery', link: `/inbox?contactId=${contactId}` } }).catch(() => {});
+  const io = (global as any).io;
+  if (io) io.to(`user:${userId}`).emit('notification:new', { type: 'scheduled_delivery' });
+}
+
+// Corre de minuto a minuto: envia o que ja chegou a hora.
+export async function runScheduledDeliveries() {
+  // Um envio que ficou a meio (o servidor reiniciou) nao se repete sozinho: fica falhado para nao enviar duas vezes.
+  await prisma.scheduledDelivery.updateMany({
+    where: { status: 'RUNNING', updatedAt: { lt: new Date(Date.now() - 10 * 60_000) } },
+    data: { status: 'FAILED', error: 'O envio foi interrompido (o servidor reiniciou). Confirma na conversa se chegou e, se não, envia de novo.' },
+  });
+  const due = await prisma.scheduledDelivery.findMany({ where: { status: 'PENDING', runAt: { lte: new Date() } }, orderBy: { runAt: 'asc' }, take: 20 });
+  for (const d of due) {
+    const claimed = await prisma.scheduledDelivery.updateMany({ where: { id: d.id, status: 'PENDING' }, data: { status: 'RUNNING' } });
+    if (!claimed.count) continue;
+    const p: any = d.payload || {};
+    const who = d.contactName || 'o contacto';
+    try {
+      if (p.attachmentUrl) {
+        const file = path.join(__dirname, '../../uploads', path.basename(String(p.attachmentUrl)));
+        if (!fs.existsSync(file)) throw new Error('O ficheiro anexado já não está no servidor. Anexa-o de novo e envia.');
+      }
+      const r = await performDeliver(d.workspaceId, d.createdById, p, (global as any).io);
+      if (r.conflict) throw new Error(r.conflict.message);
+      await prisma.scheduledDelivery.update({ where: { id: d.id }, data: { status: 'SENT', sentAt: new Date(), error: null } });
+      await notifyUser(d.createdById, `Entrega enviada a ${who}`, `O envio agendado de "${p.subject}" foi enviado.`, d.contactId);
+    } catch (e: any) {
+      const msg = String(e?.message || e || 'erro').slice(0, 500);
+      await prisma.scheduledDelivery.update({ where: { id: d.id }, data: { status: 'FAILED', error: msg } });
+      await notifyUser(d.createdById, `Falhou o envio agendado a ${who}`, `"${p.subject}": ${msg}`, d.contactId);
+    }
+  }
+}
 
 // GET /api/auto-task/open-tasks?contactId=X
 router.get('/open-tasks', async (req: AuthRequest, res: Response, next) => {

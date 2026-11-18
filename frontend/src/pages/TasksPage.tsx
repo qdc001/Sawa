@@ -1735,6 +1735,11 @@ export default function TasksPage() {
           style={{ background: onlyMine ? 'var(--primary)' : 'var(--surface-3)', color: onlyMine ? '#fff' : 'var(--text-secondary)' }}>
           <UserIcon size={11} /> Minhas
         </button>
+        {/* Filtro por responsavel: em todas as vistas (lista, agenda, calendario, kanban) */}
+        <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="input-base text-xs" style={{ width: 'auto', padding: '3px 8px' }} aria-label="Filtrar por responsável">
+          <option value="">Todos os responsáveis</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
       </div>
 
       {/* Filtros detalhados (só na vista lista) */}
@@ -1755,10 +1760,6 @@ export default function TasksPage() {
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
             <option value="">Todos tipos</option>
             {taskOpts.types.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
-            <option value="">Todos responsáveis</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
           <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="input-base" style={{ width: 'auto' }}>
             <option value="">Todas tags</option>

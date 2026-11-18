@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Loader2, Send, CalendarClock, CheckCircle2, Paperclip } from 'lucide-react';
+import { X, Loader2, Send, CalendarClock, CheckCircle2, Paperclip, Clock, AlertTriangle } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import TaskConflictDialog, { ExistingTask as ConflictTask } from './TaskConflictDialog';
@@ -49,6 +49,15 @@ interface Props {
   onSent: () => void;
 }
 
+type Scheduled = { id: string; runAt: string; status: string; error: string | null; payload: { subject?: string; attachmentName?: string | null } };
+
+// "AAAA-MM-DDTHH:MM" na hora deste computador (para o campo datetime-local).
+function localInput(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+const fmtWhen = (iso: string) => new Date(iso).toLocaleString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
 function todayPlusDays(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -73,6 +82,21 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
   const [attachment, setAttachment] = useState<{ url: string; name: string; size: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Agendar a entrega: o servidor envia sozinho a hora marcada (nao precisa de computador ligado).
+  const [scheduleOn, setScheduleOn] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(18, 0, 0, 0); return localInput(d);
+  });
+  const [scheduled, setScheduled] = useState<Scheduled[]>([]);
+  const loadScheduled = () => {
+    api.get('/auto-task/scheduled', { params: { contactId } }).then(({ data }) => setScheduled(Array.isArray(data) ? data : [])).catch(() => {});
+  };
+  useEffect(loadScheduled, [contactId]);
+  const cancelScheduled = async (id: string) => {
+    if (!confirm('Cancelar este envio agendado?')) return;
+    try { await api.delete(`/auto-task/scheduled/${id}`); toast.success('Envio cancelado'); loadScheduled(); } catch (e: any) { toast.error(e.response?.data?.message || 'Erro'); }
+  };
+  const scheduling = mode === 'deliver' && scheduleOn;
 
   // Valor efectivo do assunto (dropdown ou custom)
   const effectiveSubject = subjectChoice === '__outros__' ? customSubject.trim() : subjectChoice;
@@ -149,8 +173,16 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
           body.attachmentUrl = attachment.url;
           body.attachmentName = attachment.name;
         }
-        await api.post('/auto-task/deliver', body);
-        toast.success('Mensagem enviada, tarefa fechada e follow-up criado');
+        if (scheduling) {
+          const when = new Date(scheduleAt);
+          if (isNaN(when.getTime()) || when.getTime() < Date.now() + 60_000) { toast.error('Escolhe uma data e hora no futuro'); setSending(false); return; }
+          body.scheduleAt = when.toISOString();
+          await api.post('/auto-task/deliver', body);
+          toast.success(`Envio agendado para ${fmtWhen(body.scheduleAt)}. O CRM envia sozinho.`);
+        } else {
+          await api.post('/auto-task/deliver', body);
+          toast.success('Mensagem enviada, tarefa fechada e follow-up criado');
+        }
       }
       onSent();
       onClose();
@@ -195,8 +227,9 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
                 body.attachmentUrl = attachment.url;
                 body.attachmentName = attachment.name;
               }
+              if (scheduling) body.scheduleAt = new Date(scheduleAt).toISOString();
               await api.post('/auto-task/deliver', body);
-              toast.success('Mensagem enviada e tarefa existente actualizada como follow-up');
+              toast.success(scheduling ? `Envio agendado para ${fmtWhen(body.scheduleAt)}` : 'Mensagem enviada e tarefa existente actualizada como follow-up');
             }
             setConflict(null);
             onSent();
@@ -376,6 +409,40 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
             </div>
           )}
 
+          {mode === 'deliver' && (
+            <div className="rounded p-2" style={{ border: `1px solid ${scheduleOn ? 'var(--primary)' : 'var(--border)'}`, background: scheduleOn ? 'var(--primary-light)' : 'transparent' }}>
+              <label className="flex items-center gap-2 text-xs font-medium cursor-pointer" style={{ color: 'var(--text-primary)' }}>
+                <input type="checkbox" checked={scheduleOn} onChange={(e) => setScheduleOn(e.target.checked)} />
+                <Clock size={13} /> Agendar o envio
+              </label>
+              {scheduleOn && (
+                <div className="mt-2">
+                  <input type="datetime-local" className="input-base w-full" value={scheduleAt} min={localInput(new Date())} onChange={(e) => setScheduleAt(e.target.value)} />
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                    A essa hora o CRM envia o ficheiro e a mensagem, fecha a tarefa e cria o follow-up, mesmo com o computador desligado. Recebes uma notificação quando for enviado.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {mode === 'deliver' && scheduled.length > 0 && (
+            <div className="rounded p-2 space-y-1" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+              <p className="text-[10px] uppercase font-semibold" style={{ color: 'var(--text-muted)' }}>Envios agendados para {contactName}</p>
+              {scheduled.map((x) => (
+                <div key={x.id} className="flex items-start gap-2 text-xs">
+                  {x.status === 'FAILED' ? <AlertTriangle size={12} style={{ color: '#DC2626', marginTop: 2 }} /> : <Clock size={12} style={{ color: 'var(--primary)', marginTop: 2 }} />}
+                  <div className="flex-1 min-w-0">
+                    <div style={{ color: 'var(--text-primary)' }}><b>{fmtWhen(x.runAt)}</b> · {x.payload?.subject || 'Entrega'}{x.payload?.attachmentName ? ` · ${x.payload.attachmentName}` : ''}</div>
+                    {x.status === 'FAILED' && <div style={{ color: '#DC2626' }}>Falhou: {x.error}</div>}
+                    {x.status === 'RUNNING' && <div style={{ color: 'var(--text-muted)' }}>A enviar...</div>}
+                  </div>
+                  {x.status === 'PENDING' && <button className="underline" style={{ color: '#DC2626' }} onClick={() => cancelScheduled(x.id)}>Cancelar</button>}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Preview */}
           {preview ? (
             <div className="rounded-lg p-3" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
@@ -400,8 +467,8 @@ export default function AutoTaskModal({ contactId, contactName, leadId, onClose,
             Cancelar
           </button>
           <button onClick={send} disabled={sending} className="btn btn-primary flex-1 flex items-center justify-center gap-1.5">
-            {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            {sending ? 'A enviar...' : 'Enviar e criar tarefa'}
+            {sending ? <Loader2 size={14} className="animate-spin" /> : scheduling ? <Clock size={14} /> : <Send size={14} />}
+            {sending ? 'A enviar...' : scheduling ? 'Agendar envio' : 'Enviar e criar tarefa'}
           </button>
         </div>
       </div>

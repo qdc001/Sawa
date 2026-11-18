@@ -261,7 +261,8 @@ model Workspace {
   //     followupDays: number
   //   }
   // Null = usa os defaults hardcoded em lib/autoTaskDefaults.ts
-  autoTaskConfig Json?
+  autoTaskConfig      Json?
+  scheduledDeliveries ScheduledDelivery[]
 
   @@map("workspaces")
 }
@@ -1682,6 +1683,8 @@ model FinanceEntry {
   defenseAmount      Float     @default(0)
   // Parte deste pagamento que e IVA (estudantes que pagam IVA). Nao conta como receita nem para comissoes.
   vatAmount          Float     @default(0)
+  // Contrato ja enviado ao cliente (marcado a mao no lancamento).
+  contractSent       Boolean   @default(false)
   defenseCommission  Float     @default(0)
   defenseAssociateId String?
   source             String    @default("crm")
@@ -1880,4 +1883,28 @@ model DefenseParticipant {
   @@unique([sessionId, userId])
   @@index([userId])
   @@map("defense_participants")
+}
+
+// Entrega agendada ("Envio com tarefa" > "Estou a entregar" com data/hora): o servidor envia sozinho a hora marcada.
+model ScheduledDelivery {
+  id          String    @id @default(cuid())
+  workspaceId String
+  createdById String
+  contactId   String
+  contactName String?
+  // Os mesmos dados do envio imediato (assunto, tipo, tarefa a fechar, anexo...).
+  payload     Json
+  runAt       DateTime
+  // PENDING | RUNNING | SENT | FAILED | CANCELLED
+  status      String    @default("PENDING")
+  error       String?
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAt])
+  @@index([workspaceId, contactId])
+  @@map("scheduled_deliveries")
 }

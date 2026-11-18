@@ -45,7 +45,7 @@ import sectorTemplateRoutes from './routes/sectorTemplates';
 import salesAgentRoutes from './routes/salesAgent';
 import aiCoachingRoutes from './routes/aiCoaching';
 import aiUsageRoutes from './routes/aiUsage';
-import autoTaskRoutes from './routes/autoTask';
+import autoTaskRoutes, { runScheduledDeliveries } from './routes/autoTask';
 import billingRoutes from './routes/billing';
 import appointmentRoutes from './routes/appointments';
 
@@ -266,6 +266,11 @@ httpServer.listen(PORT, async () => {
 setInterval(() => {
   processExpiredDelays().catch((e) => console.error('processExpiredDelays error:', e));
 }, 30_000);
+
+// Entregas agendadas ("Envio com tarefa" com data/hora) — corre a cada minuto
+setInterval(() => {
+  runScheduledDeliveries().catch((e) => console.error('runScheduledDeliveries error:', e));
+}, 60_000);
 
 // Verifica tarefas atrasadas a cada minuto e dispara automações de task_overdue
 setInterval(() => {
