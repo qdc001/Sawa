@@ -92,7 +92,7 @@ function TrainingNotes({ month, doc, training, associates, onSaved }: { month: s
   );
 }
 
-export default function FinanceReports({ associates }: { associates: Associate[] }) {
+export default function FinanceReports({ associates, canEdit = true }: { associates: Associate[]; canEdit?: boolean }) {
   const [kind, setKind] = useState<'weekly' | 'monthly'>('weekly');
   const [week, setWeek] = useState(() => mondayOf(maputoToday()));
   const [month, setMonth] = useState(() => maputoToday().slice(0, 7));
@@ -145,7 +145,7 @@ export default function FinanceReports({ associates }: { associates: Associate[]
       {loading || !doc ? <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin" /></div> : (
         <>
           <ReportView doc={doc} />
-          {kind === 'monthly' && <TrainingNotes month={month} doc={doc} training={doc.training || {}} associates={associates} onSaved={load} />}
+          {kind === 'monthly' && canEdit && <TrainingNotes month={month} doc={doc} training={doc.training || {}} associates={associates} onSaved={load} />}
         </>
       )}
     </div>

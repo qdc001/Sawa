@@ -35,6 +35,7 @@ const ADMIN_TABS: { v: Tab; label: string }[] = [
 const MEMBER_TABS: { v: Tab; label: string }[] = [
   { v: 'students', label: 'Os meus estudantes' },
   { v: 'phases', label: 'Quadro de fases' },
+  { v: 'reports', label: 'Relatórios' },
   { v: 'mine', label: 'O meu desempenho do lote' },
 ];
 
@@ -77,7 +78,7 @@ export default function FinancePage() {
 
   if (!isMetaWorkspace(workspace?.name)) return <Navigate to="/" replace />;
 
-  const needsData = !['students', 'phases', 'program', 'mine'].includes(tab);
+  const needsData = !['students', 'phases', 'program', 'mine', ...(isAdmin ? [] : ['reports'])].includes(tab);
   return (
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -118,7 +119,7 @@ export default function FinancePage() {
               shares={data?.settings.defenseShares ?? DEFAULT_DEFENSE_SHARES} vatRate={data?.settings.vatRate ?? 0.16} />
           )}
           {tab === 'phases' && <FinancePhaseBoard associates={data?.associates || []} canEdit />}
-          {tab === 'reports' && data && <FinanceReports associates={data.associates} />}
+          {tab === 'reports' && (isAdmin ? data && <FinanceReports associates={data.associates} canEdit /> : <FinanceReports associates={[]} canEdit={false} />)}
           {tab === 'program' && <FinanceProgram canEdit={isAdmin} onChanged={load} />}
           {tab === 'commissions' && data && <FinanceCommissions data={data} />}
           {tab === 'investments' && <FinanceInvestments reload={load} />}

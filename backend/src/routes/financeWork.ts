@@ -156,7 +156,9 @@ router.delete('/events/:id', async (req: AuthRequest, res: Response, next) => {
 
 // ---------- Dados comuns dos relatorios ----------
 type Ctx = Awaited<ReturnType<typeof loadCtx>>;
-async function loadCtx(workspaceId: string, until: string, studentWhere?: any) {
+// scope: colaborador (nao admin) -> so os estudantes dele e so o associado dele.
+type Scope = { studentWhere: any; associateId: string | null } | null;
+async function loadCtx(workspaceId: string, until: string, studentWhere?: any, onlyAssociate?: string | null) {
   const [settings, students, associates, events] = await Promise.all([
     getSettings(workspaceId),
     prisma.financeStudent.findMany({
@@ -166,7 +168,10 @@ async function loadCtx(workspaceId: string, until: string, studentWhere?: any) {
         completedAt: true, status: true, nextDueDate: true, totalValue: true, paidAmount: true,
       },
     }),
-    prisma.financeAssociate.findMany({ where: { workspaceId }, orderBy: { code: 'asc' }, select: { id: true, code: true, name: true } }),
+    prisma.financeAssociate.findMany({
+      where: { workspaceId, ...(onlyAssociate !== undefined ? { id: onlyAssociate || '__nenhum__' } : {}) },
+      orderBy: { code: 'asc' }, select: { id: true, code: true, name: true },
+    }),
     prisma.financeStudentEvent.findMany({ where: { workspaceId, date: { lt: dayDate(addDays(until, 1)) } }, orderBy: [{ date: 'asc' }, { createdAt: 'asc' }] }),
   ]);
   const phases = phaseList(settings);
@@ -245,10 +250,10 @@ const now = () => {
 };
 
 // ---------- Relatorio semanal ----------
-async function weeklyReport(workspaceId: string, week: string): Promise<ReportDoc> {
+async function weeklyReport(workspaceId: string, week: string, scope: Scope = null): Promise<ReportDoc> {
   const from = weekStart(week);
   const to = addDays(from, 6);
-  const c = await loadCtx(workspaceId, to);
+  const c = await loadCtx(workspaceId, to, scope?.studentWhere, scope ? scope.associateId : undefined);
   const inWeek = (d: Date | null) => !!d && dayOf(d)! >= from && dayOf(d)! <= to;
   const st = (id: string) => c.byStudent.get(id)!;
 
@@ -360,7 +365,7 @@ async function weeklyReport(workspaceId: string, week: string): Promise<ReportDo
       tables: [movesTable(c, moves)],
     },
   ];
-  return { title: 'Relatório semanal', subtitle: `Semana de ${longDay(from)} a ${longDay(to)} de ${to.slice(0, 4)}`, generatedAt: now(), sections };
+  return { title: 'Relatório semanal', subtitle: `Semana de ${longDay(from)} a ${longDay(to)} de ${to.slice(0, 4)}${scope ? ' · só os teus estudantes' : ''}`, generatedAt: now(), sections };
 }
 
 function movesTable(c: Ctx, moves: Ctx['events']): ReportTable {
@@ -394,12 +399,12 @@ function trainingHints(c: Ctx, a: { id: string | null }, m: {
   return own.length || corr ? 'Sem necessidades evidentes.' : 'Sem registos suficientes este mês.';
 }
 
-async function monthlyReport(workspaceId: string, month: string): Promise<ReportDoc> {
+async function monthlyReport(workspaceId: string, month: string, scope: Scope = null): Promise<ReportDoc> {
   const from = `${month}-01`;
   const y = Number(month.slice(0, 4));
   const mo = Number(month.slice(5, 7));
   const end = addDays(mo === 12 ? `${y + 1}-01-01` : `${y}-${String(mo + 1).padStart(2, '0')}-01`, -1);
-  const c = await loadCtx(workspaceId, end);
+  const c = await loadCtx(workspaceId, end, scope?.studentWhere, scope ? scope.associateId : undefined);
   const inMonth = (d: string | null) => !!d && d >= from && d <= end;
   const st = (id: string) => c.byStudent.get(id)!;
 
@@ -514,7 +519,7 @@ async function monthlyReport(workspaceId: string, month: string): Promise<Report
       ],
     },
   ];
-  return { title: 'Relatório mensal', subtitle: `${MONTHS[Number(month.slice(5, 7)) - 1]} de ${month.slice(0, 4)}`, generatedAt: now(), sections };
+  return { title: 'Relatório mensal', subtitle: `${MONTHS[Number(month.slice(5, 7)) - 1]} de ${month.slice(0, 4)}${scope ? ' · só os teus estudantes' : ''}`, generatedAt: now(), sections };
 }
 
 function reqWeek(v: any) {
@@ -528,20 +533,30 @@ function reqMonth(v: any) {
 }
 const fmt = (v: any) => (['docx', 'pdf', 'xlsx'].includes(v) ? v : 'json');
 
-router.get('/reports/weekly', adminOnly, async (req: AuthRequest, res: Response, next) => {
+// Relatorios: o admin ve tudo; os outros colaboradores veem os mesmos relatorios so com os seus estudantes.
+async function reportScope(req: AuthRequest): Promise<Scope> {
+  if (isAdmin(req)) return null;
+  return { studentWhere: await scopeStudents(req), associateId: await myAssociateId(req) };
+}
+
+router.get('/reports/weekly', async (req: AuthRequest, res: Response, next) => {
   try {
     const week = reqWeek(req.query.week);
-    await sendReport(res, await weeklyReport(req.user!.workspaceId, week), fmt(req.query.format), `relatorio-semanal-${week}`);
+    await sendReport(res, await weeklyReport(req.user!.workspaceId, week, await reportScope(req)), fmt(req.query.format), `relatorio-semanal-${week}`);
   } catch (e) { next(e); }
 });
 
-router.get('/reports/monthly', adminOnly, async (req: AuthRequest, res: Response, next) => {
+router.get('/reports/monthly', async (req: AuthRequest, res: Response, next) => {
   try {
     const month = reqMonth(req.query.month);
-    const doc = await monthlyReport(req.user!.workspaceId, month);
+    const scope = await reportScope(req);
+    const doc = await monthlyReport(req.user!.workspaceId, month, scope);
     if (fmt(req.query.format) === 'json') {
       const s = await getSettings(req.user!.workspaceId);
-      return res.json({ ...doc, training: ((s.trainingNotes as any) || {})[month] || {} });
+      const all = ((s.trainingNotes as any) || {})[month] || {};
+      // O colaborador so ve a avaliacao dele.
+      const training = scope ? (scope.associateId && all[scope.associateId] ? { [scope.associateId]: all[scope.associateId] } : {}) : all;
+      return res.json({ ...doc, training, canEdit: !scope });
     }
     await sendReport(res, doc, fmt(req.query.format), `relatorio-mensal-${month}`);
   } catch (e) { next(e); }

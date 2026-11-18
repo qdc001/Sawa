@@ -11,7 +11,6 @@ type Entry = {
   paymentMethod: string | null; notes: string | null; associate: { id: string; name: string } | null; student: { id: string; code: string; name: string } | null;
   defenseAmount: number; defenseCommission: number; defenseAssociate: { id: string; name: string } | null;
   vatAmount: number;
-  contractSent: boolean;
 };
 
 const studentLabel = (s: { code: string; name: string }) => `${s.code} · ${s.name}`;
@@ -30,7 +29,6 @@ function EntryModal({ entry, associates, students, rate, shares, vatRate, credit
   const [associateId, setAssociate] = useState(entry?.associate?.id || '');
   const [paymentMethod, setMethod] = useState(WALLETS.find((w) => w === entry?.paymentMethod) || '');
   const [notes, setNotes] = useState(entry?.notes || '');
-  const [contractSent, setContractSent] = useState(!!entry?.contractSent);
   // Estudante do painel: o pagamento entra no saldo dele em vez de ficar so com um nome escrito.
   const [studentId, setStudentId] = useState(entry?.student?.id || '');
   const [studentText, setStudentText] = useState(entry?.student ? studentLabel(entry.student) : '');
@@ -68,7 +66,7 @@ function EntryModal({ entry, associates, students, rate, shares, vatRate, credit
       if (!window.confirm('Este pagamento não está ligado a um estudante do painel, por isso não entra no saldo dele. Guardar assim?')) return;
     }
     setBusy(true);
-    const body: Record<string, unknown> = { date, description, category, amount, potentialRevenue, associateId: associateId || null, paymentMethod, notes, contractSent };
+    const body: Record<string, unknown> = { date, description, category, amount, potentialRevenue, associateId: associateId || null, paymentMethod, notes };
     if (type === 'RECEITA' && (!entry || (entry.student?.id || '') !== studentId)) body.studentId = studentId || null;
     try {
       if (entry) await api.patch(`/finance/entries/${entry.id}`, body);
@@ -136,11 +134,6 @@ function EntryModal({ entry, associates, students, rate, shares, vatRate, credit
           </Field>
         </div>
         <Field label="Observações"><input className="input-base" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={student ? 'Automática (ex.: Segunda parcela)' : ''} /></Field>
-        {type === 'RECEITA' && (
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={contractSent} onChange={(e) => setContractSent(e.target.checked)} /> Contrato enviado
-          </label>
-        )}
         {!entry && student && Number(amount) > 0 && date.length === 10 && (
           <SplitPreview student={student} value={Number(amount)} rate={rate} shares={shares} vatRate={vatRate} associateName={associates.find((a) => a.id === associateId)?.name || null} period={date.slice(0, 7)} />
         )}
@@ -166,7 +159,7 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   // Filtro: receitas sem estudante (para ligar) ou so as ligadas.
-  const [link, setLink] = useState<'' | 'none' | 'linked' | 'noContract'>('');
+  const [link, setLink] = useState<'' | 'none' | 'linked'>('');
   const [modal, setModal] = useState<{ entry: Entry | null } | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const loadStudents = useCallback(() => {
@@ -189,21 +182,12 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
     return entries.filter((e) => {
       if (link === 'none' && (e.type !== 'RECEITA' || e.student)) return false;
       if (link === 'linked' && !e.student) return false;
-      if (link === 'noContract' && (e.type !== 'RECEITA' || e.contractSent)) return false;
       return !s || `${e.description} ${e.category} ${e.notes} ${e.associate?.name} ${e.student?.code} ${e.student?.name}`.toLowerCase().includes(s);
     });
   }, [entries, q, link]);
   const unlinked = entries.filter((e) => e.type === 'RECEITA' && !e.student).length;
 
   const changed = () => { load(); reload(); loadStudents(); };
-  const toggleContract = async (e: Entry) => {
-    const v = !e.contractSent;
-    setEntries((p) => p.map((x) => (x.id === e.id ? { ...x, contractSent: v } : x)));
-    try { await api.patch(`/finance/entries/${e.id}`, { contractSent: v }); } catch (err) {
-      setEntries((p) => p.map((x) => (x.id === e.id ? { ...x, contractSent: !v } : x)));
-      toast.error(errMsg(err));
-    }
-  };
   const remove = async (e: Entry) => {
     if (!window.confirm(`Eliminar "${e.description || 'lançamento'}"?${e.student ? ' O pagamento sai também do parcelamento do estudante.' : ''}`)) return;
     try {
@@ -227,7 +211,6 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
           <option value="">Todos os lançamentos</option>
           <option value="none">Receitas sem estudante ({unlinked})</option>
           <option value="linked">Ligados a um estudante</option>
-          <option value="noContract">Receitas com contrato por enviar ({entries.filter((e) => e.type === 'RECEITA' && !e.contractSent).length})</option>
         </select>
         <button className="btn btn-primary ml-auto" onClick={() => setModal({ entry: null })}><Plus size={14} /> Novo lançamento</button>
       </div>
@@ -244,7 +227,7 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
       <div className="card p-4 overflow-x-auto">
         {loading ? <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div> : (
           <table className="w-full">
-            <thead><tr>{['Data', 'Descrição', 'Categoria', 'Potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma', 'Observações', 'Contrato', ''].map((h, i) => <Th key={i} right={[3, 4, 5, 7].includes(i)}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['Data', 'Descrição', 'Categoria', 'Potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma', 'Observações', ''].map((h, i) => <Th key={i} right={[3, 4, 5, 7].includes(i)}>{h}</Th>)}</tr></thead>
             <tbody>
               {shown.map((e) => (
                 <tr key={e.id}>
@@ -270,15 +253,6 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
                   </Td>
                   <Td>{e.paymentMethod || '—'}</Td><Td>{e.notes || ''}</Td>
                   <Td>
-                    {e.type === 'RECEITA' && (
-                      <button onClick={() => toggleContract(e)} title={e.contractSent ? 'Contrato enviado (carregar para desmarcar)' : 'Marcar contrato como enviado'}
-                        className="text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap"
-                        style={{ background: e.contractSent ? '#D1FAE5' : 'var(--surface-2)', color: e.contractSent ? '#065F46' : 'var(--text-muted)' }}>
-                        {e.contractSent ? '✓ Enviado' : 'Por enviar'}
-                      </button>
-                    )}
-                  </Td>
-                  <Td>
                     <span className="flex gap-2">
                       <button onClick={() => setModal({ entry: e })} aria-label="Editar"><Pencil size={13} /></button>
                       <button onClick={() => remove(e)} aria-label="Eliminar"><Trash2 size={13} style={{ color: '#EF4444' }} /></button>
@@ -286,7 +260,7 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
                   </Td>
                 </tr>
               ))}
-              {shown.length === 0 && <tr><td colSpan={12} className="text-center text-sm py-6" style={{ color: 'var(--text-muted)' }}>Sem lançamentos neste mês</td></tr>}
+              {shown.length === 0 && <tr><td colSpan={11} className="text-center text-sm py-6" style={{ color: 'var(--text-muted)' }}>Sem lançamentos neste mês</td></tr>}
             </tbody>
           </table>
         )}

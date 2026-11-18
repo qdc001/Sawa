@@ -1538,42 +1538,44 @@ model KnowledgeChunk {
 // mes em que o dinheiro entrou: e nele que contam os 25% de comissao.
 
 model FinanceSettings {
-  workspaceId          String   @id
-  commissionRate       Float    @default(0.25)
+  workspaceId                 String   @id
+  commissionRate              Float    @default(0.25)
   // IVA (fraccao, ex.: 0.16). Nos estudantes que pagam IVA ja esta incluido no valor.
-  vatRate              Float    @default(0.16)
+  vatRate                     Float    @default(0.16)
   // Uma so vez: os lancamentos que ja existiam passaram a "contrato enviado" (os novos comecam por enviar).
-  contractBackfillDone Boolean  @default(false)
-  perNewStudent        Float    @default(250)
-  perNewStudentName    String   @default("Lucília")
-  perNewStudentFrom    String   @default("2026-01")
-  workingCapital       Float    @default(1200000)
-  sealPrevidencia      Float    @default(0.3)
-  sealOportunidade     Float    @default(0.1)
-  sealDono             Float    @default(0.2)
-  sealExpansao         Float    @default(0.4)
+  contractBackfillDone        Boolean  @default(false)
+  // Uma so vez: os estudantes que ja existiam passaram a "contrato enviado" (os novos comecam por enviar).
+  studentContractBackfillDone Boolean  @default(false)
+  perNewStudent               Float    @default(250)
+  perNewStudentName           String   @default("Lucília")
+  perNewStudentFrom           String   @default("2026-01")
+  workingCapital              Float    @default(1200000)
+  sealPrevidencia             Float    @default(0.3)
+  sealOportunidade            Float    @default(0.1)
+  sealDono                    Float    @default(0.2)
+  sealExpansao                Float    @default(0.4)
   // [{ name, amount, startPeriod, endPeriod? }]
-  fixedSalaries        Json     @default("[]")
-  proLabore            Float    @default(50000)
-  proLaboreFrom        String   @default("2025-11")
-  couponValidityDays   Int      @default(30)
-  couponDiscount       Float    @default(500)
+  fixedSalaries               Json     @default("[]")
+  proLabore                   Float    @default(50000)
+  proLaboreFrom               String   @default("2025-11")
+  couponValidityDays          Int      @default(30)
+  couponDiscount              Float    @default(500)
   // Fases do metodo, pela ordem: [{ id, name }]. Vazio = as 7 fases originais (ids 1-7).
   // O id nunca muda nem se reutiliza: e o que fica gravado em FinanceStudent.currentPhase.
-  studentPhases        Json     @default("[]")
-  phaseNextId          Int      @default(8)
+  studentPhases               Json     @default("[]")
+  phaseNextId                 Int      @default(8)
   // Preparacao para defesa: numero de salas, quem tem de escolher sessoes (ids de User)
   // e o maximo de colaboradores por sessao (0 = sem limite).
-  defenseRooms         Int      @default(2)
-  defenseParticipants  Json     @default("[]")
-  defenseMaxPerSession Int      @default(0)
+  defenseRooms                Int      @default(2)
+  defenseParticipants         Json     @default("[]")
+  defenseMaxPerSession        Int      @default(0)
   // Horario por dia da semana, popup (hora, minimo, bloquear ou lembrar) e nomes das salas. Vazio = valores por defeito.
-  defenseConfig        Json     @default("{}")
+  defenseConfig               Json     @default("{}")
   // Necessidades de formacao escritas no relatorio mensal: { "2026-11": { "<associateId>": "texto" } }
-  trainingNotes        Json     @default("{}")
+  trainingNotes               Json     @default("{}")
   // Parte final de cada pacote que e da preparacao para defesa: { "Completo": 5000, "Intermédio": 4000, "Essencial": 3000 }. Vazio = estes valores.
-  defenseShares        Json     @default("{}")
-  updatedAt            DateTime @updatedAt
+  defenseShares               Json     @default("{}")
+  updatedAt                   DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -1643,6 +1645,8 @@ model FinanceStudent {
   ledgerBalance       Boolean   @default(false)
   // Paga IVA: o IVA ja esta incluido no valor; receita e comissoes contam so o valor sem IVA.
   vat                 Boolean   @default(false)
+  // Contrato ja enviado ao estudante.
+  contractSent        Boolean   @default(false)
   // Estudantes vindos da planilha: o que ja estava pago fora dos lancamentos ligados, e desde quando
   // a divisao da defesa se aplica (pagamentos anteriores ficam com a comissao que ja tinham).
   openingPaid         Float     @default(0)

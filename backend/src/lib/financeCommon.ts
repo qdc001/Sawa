@@ -35,7 +35,7 @@ export async function getSettings(workspaceId: string) {
   return prisma.financeSettings.upsert({
     where: { workspaceId },
     // Definicoes novas: nao ha lancamentos antigos para marcar como "contrato enviado".
-    create: { workspaceId, fixedSalaries: DEFAULT_FIXED as any, contractBackfillDone: true },
+    create: { workspaceId, fixedSalaries: DEFAULT_FIXED as any, contractBackfillDone: true, studentContractBackfillDone: true },
     update: {},
   });
 }

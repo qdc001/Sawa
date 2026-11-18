@@ -487,7 +487,8 @@ router.delete('/sessions/:id/join', async (req: AuthRequest, res: Response, next
         if (mine.some((x) => x.id === ses.id)) {
           const me = personOf(cfg, userId);
           const open = daySessions.filter((x) => mine.includes(x) || (me.canAt(x.hour) && (!s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession)));
-          const required = Math.min(me.min, open.length);
+          // Uma pessoa so pode estar numa sessao por hora: o minimo conta as horas diferentes, nao as sessoes.
+          const required = Math.min(me.min, new Set(open.map((x) => x.hour)).size);
           if (mine.length - 1 < required) {
             throw new AppError(`Tens de ficar com pelo menos ${required} ${required === 1 ? 'sessão' : 'sessões'} neste dia. Para sair desta, escolhe primeiro outra.`, 409);
           }
@@ -526,7 +527,8 @@ async function pendingFor(req: AuthRequest) {
     let required = 0;
     if (isParticipant) {
       const open = sessions.filter((x) => mine.includes(x.id) || (me.canAt(x.hour) && (!s.defenseMaxPerSession || x.participants.length < s.defenseMaxPerSession)));
-      const need = Math.min(me.min, open.length);
+      // Uma pessoa so pode estar numa sessao por hora: o minimo conta as horas diferentes, nao as sessoes.
+      const need = Math.min(me.min, new Set(open.map((x) => x.hour)).size);
       if (mine.length < need) required = need;
     }
     if (required || slides.length) return { ...base, day, required, sessions: required ? sessions.map(dto) : [], mine, slides };

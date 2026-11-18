@@ -262,6 +262,15 @@ httpServer.listen(PORT, async () => {
       ]);
     }
     if (pending.length) console.log(`[financas] contrato enviado marcado nos lancamentos existentes (${pending.length} workspace(s))`);
+    // O contrato e do estudante: os estudantes que ja existiam ficam "contrato enviado" (uma so vez); os novos comecam por enviar.
+    const pendingSt = await prismaOnce.financeSettings.findMany({ where: { studentContractBackfillDone: false }, select: { workspaceId: true } });
+    for (const fs of pendingSt) {
+      await prismaOnce.$transaction([
+        prismaOnce.financeStudent.updateMany({ where: { workspaceId: fs.workspaceId, contractSent: false }, data: { contractSent: true } }),
+        prismaOnce.financeSettings.update({ where: { workspaceId: fs.workspaceId }, data: { studentContractBackfillDone: true } }),
+      ]);
+    }
+    if (pendingSt.length) console.log(`[financas] contrato enviado marcado nos estudantes existentes (${pendingSt.length} workspace(s))`);
   } catch (e: any) {
     console.error('Falha a marcar contratos existentes:', e.message);
   }

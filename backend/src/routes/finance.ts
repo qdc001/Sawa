@@ -396,6 +396,7 @@ function studentFields(b: any) {
   }
   if (b.ledgerBalance !== undefined) d.ledgerBalance = !!b.ledgerBalance;
   if (b.vat !== undefined) d.vat = !!b.vat;
+  if (b.contractSent !== undefined) d.contractSent = !!b.contractSent;
   if (b.openingPaid !== undefined) d.openingPaid = money(b.openingPaid, 'Pago antes dos lançamentos');
   if (b.openingInstallments !== undefined) d.openingInstallments = Math.floor(money(b.openingInstallments, 'Parcelas pagas antes'));
   if (b.phases !== undefined) {
@@ -1057,12 +1058,12 @@ router.get('/export', adminOnly, async (req: AuthRequest, res: Response, next) =
         ...months.map((m) => [m.period, m.newStudentFee, ...associates.map((a) => m.commissions[a.id] || 0), m.commissionTotal + m.newStudentFee]),
       ] },
       { name: 'Lançamentos', rows: [
-        ['Mês', 'Data', 'Descrição', 'Tipo', 'Categoria', 'Receita potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma de pagamento', 'Observações', 'Estudante', 'Parte da defesa', 'Associado de defesa', 'Comissão da defesa', 'IVA incluído', 'Contrato enviado'],
-        ...entries.map((e) => [e.period, e.date, e.description, e.type, e.category, e.potentialRevenue, e.expense, e.revenue, e.associate?.name || e.commissionistRaw, e.commission, e.paymentMethod, e.notes, e.student?.code, e.defenseAmount || null, e.defenseAssociate?.name, e.defenseCommission || null, e.vatAmount || null, e.contractSent ? 'Sim' : 'Não']),
+        ['Mês', 'Data', 'Descrição', 'Tipo', 'Categoria', 'Receita potencial', 'Despesa', 'Receita', 'Comissionista', 'Comissão', 'Forma de pagamento', 'Observações', 'Estudante', 'Parte da defesa', 'Associado de defesa', 'Comissão da defesa', 'IVA incluído'],
+        ...entries.map((e) => [e.period, e.date, e.description, e.type, e.category, e.potentialRevenue, e.expense, e.revenue, e.associate?.name || e.commissionistRaw, e.commission, e.paymentMethod, e.notes, e.student?.code, e.defenseAmount || null, e.defenseAssociate?.name, e.defenseCommission || null, e.vatAmount || null]),
       ] },
       { name: 'Estudantes', rows: [
-        ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas', 'Pacote', 'Associado de defesa', 'Saldo pelos lançamentos', 'Paga IVA'],
-        ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase ? phaseLabel(phaseList(settings), s.currentPhase) : null, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes, s.packageTier, s.defenseAssociate?.name, s.ledgerBalance ? 'Sim' : 'Não', s.vat ? 'Sim' : 'Não']),
+        ['ID', 'Nome', 'Género', 'WhatsApp', 'Associado', 'Faculdade', 'Curso', 'Tema', 'Data de entrada', `Venda ${credit}`, 'Fase actual', 'Última actividade', 'Projecto', 'Origem', 'Valor total', 'Nº parcelas', 'Parcelas pagas', 'Valor pago', 'Saldo', 'Próxima parcela', 'Estado', 'Notas', 'Pacote', 'Associado de defesa', 'Saldo pelos lançamentos', 'Paga IVA', 'Contrato enviado'],
+        ...students.map((s) => [s.code, s.name, s.gender, s.whatsapp, s.associate?.name, s.faculty, s.course, s.theme, s.entryDate, (s.sellerCredit ?? !!s.entryDate) ? 'Sim' : 'Não', s.currentPhase ? phaseLabel(phaseList(settings), s.currentPhase) : null, s.lastActivityAt, s.project, s.origin, s.totalValue, s.installments, s.installmentsPaid, s.paidAmount, s.totalValue - s.paidAmount, s.nextDueDate, s.status, s.notes, s.packageTier, s.defenseAssociate?.name, s.ledgerBalance ? 'Sim' : 'Não', s.vat ? 'Sim' : 'Não', s.contractSent ? 'Sim' : 'Não']),
       ] },
       { name: 'Pagamentos de salários', rows: [
         ['Mês do salário', 'Pessoa', 'Valor', 'Carteira', 'Data', 'Observação'],

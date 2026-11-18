@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { CalendarClock, Check, FileText, Loader2, MessageSquare, Paperclip } from 'lucide-react';
+import { CalendarClock, Check, FileText, Loader2, MessageSquare, Paperclip, Plus } from 'lucide-react';
 import api from '../../lib/api';
 import { getSocket } from '../../lib/socket';
 import { useAuthStore } from '../../store';
 import ChatPreviewModal from '../ChatPreviewModal';
-import { balanceBlock, DefensePending, DefenseSession, hourLabel, roomLabel, sessionTitle, shortDay, weekdayName } from './types';
+import { balanceBlock, DefenseConfig, DefensePending, DefenseSession, hourLabel, hoursFor, roomLabel, sessionTitle, shortDay, weekdayName } from './types';
+import { SessionModal, StudentLite } from '../../pages/DefensePage';
 import { SLIDES_ACCEPT, uploadSlides } from './slides';
 
 // Modo "so lembra": adiar 30 minutos (guardado neste computador).
@@ -24,6 +25,21 @@ export default function DefenseGate() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
   const [chat, setChat] = useState<DefenseSession | null>(null);
+  // Criar uma sessao a partir do popup (para o dia que o popup esta a pedir).
+  const [adding, setAdding] = useState<{ cfg: DefenseConfig; students: StudentLite[] } | null>(null);
+  const [opening, setOpening] = useState(false);
+  const openAdd = async () => {
+    setOpening(true);
+    try {
+      const [{ data: cfg }, { data: students }] = await Promise.all([
+        api.get<DefenseConfig>('/defense/config'),
+        api.get<StudentLite[]>('/finance/students').catch(() => ({ data: [] as StudentLite[] })),
+      ]);
+      setAdding({ cfg, students });
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Não foi possível abrir');
+    } finally { setOpening(false); }
+  };
 
   const check = useCallback(() => {
     api.get<DefensePending>('/defense/pending').then(({ data }) => {
@@ -156,7 +172,10 @@ export default function DefenseGate() {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-3 mt-4">
+        <div className="flex items-center gap-3 mt-4 flex-wrap">
+          <button className="btn btn-outline" onClick={openAdd} disabled={opening} title={`Marcar uma sessão nova para ${weekdayName(pending.day).toLowerCase()}`}>
+            {opening ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Nova sessão
+          </button>
           {choosing && <span className="text-sm" style={{ color: total >= pending.required ? '#059669' : 'var(--text-secondary)' }}>{total}/{pending.required} escolhidas</span>}
           {slides.length > 0 && <span className="text-sm" style={{ color: '#D97706' }}>{slides.length} {slides.length === 1 ? 'slide em falta' : 'slides em falta'}</span>}
           {pending.mode === 'remind' && (
@@ -170,6 +189,17 @@ export default function DefenseGate() {
         </div>
       </div>
       {chat && <ChatPreviewModal contactId={chat.contactId} contactName={chat.title} onClose={() => setChat(null)} />}
+      {adding && (() => {
+        // Primeira hora desse dia ainda com sala livre.
+        const taken = new Set(pending.sessions.map((x) => `${x.hour}|${x.room}`));
+        const hours = hoursFor(pending.day, adding.cfg.schedule);
+        let slot = { day: pending.day, hour: hours[0] ?? 8, room: 1 };
+        outer: for (const h of hours) for (let r = 1; r <= adding.cfg.rooms; r++) if (!taken.has(`${h}|${r}`)) { slot = { day: pending.day, hour: h, room: r }; break outer; }
+        return (
+          <SessionModal cfg={adding.cfg} initial={slot} session={null} students={adding.students}
+            onClose={() => setAdding(null)} onSaved={check} />
+        );
+      })()}
     </div>
   );
 }

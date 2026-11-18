@@ -11,7 +11,7 @@ import { addDays, errMsg, Field, maputoToday, Modal, mondayOf } from '../compone
 import { balanceBlock, canAtHour, DaySchedule, DefenseConfig, DefenseSession, PersonRule, hourLabel, hoursFor, roomLabel, sessionTitle, shortDay, weekdayName, WEEKDAYS } from '../components/defense/types';
 import { openSlides, SLIDES_ACCEPT, uploadSlides } from '../components/defense/slides';
 
-type StudentLite = { id: string; code: string; name: string; project: string | null; whatsapp: string | null; contactId: string | null; associate?: { id: string } | null };
+export type StudentLite = { id: string; code: string; name: string; project: string | null; whatsapp: string | null; contactId: string | null; associate?: { id: string } | null };
 type ContactLite = { id: string; firstName: string; lastName: string | null; whatsapp: string | null; phone: string | null };
 const contactName = (c: ContactLite) => [c.firstName, c.lastName].filter(Boolean).join(' ');
 
@@ -54,7 +54,8 @@ function ContactPicker({ value, onChange, hint }: { value: ContactLite | null; o
   );
 }
 
-function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
+// Exportado: o popup de escolha das sessoes tambem abre esta janela para criar uma sessao.
+export function SessionModal({ cfg, initial, session, students, onClose, onSaved }: {
   cfg: DefenseConfig; initial: { day: string; hour: number; room: number }; session: DefenseSession | null; students: StudentLite[];
   onClose: () => void; onSaved: () => void;
 }) {
@@ -503,7 +504,7 @@ export default function DefensePage() {
       if (!mine.length) continue;
       const me = user?.id ? cfg.people[user.id] : undefined;
       const open = list.filter((x) => mine.includes(x) || (canAtHour(me, x.hour) && (!cfg.maxPerSession || x.participants.length < cfg.maxPerSession)));
-      if (mine.length - 1 < Math.min(me?.minChoices ?? cfg.minChoices, open.length)) locked.add(day);
+      if (mine.length - 1 < Math.min(me?.minChoices ?? cfg.minChoices, new Set(open.map((x) => x.hour)).size)) locked.add(day);
     }
     return locked;
   }, [cfg, sessions, user?.id]);

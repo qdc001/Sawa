@@ -20,6 +20,7 @@ export type Student = {
   packageTier: string | null; ledgerBalance: boolean; defenseAssociate: { id: string; code: string; name: string } | null;
   openingPaid: number; openingInstallments: number; ledgerSince: string | null;
   vat: boolean;
+  contractSent: boolean;
 };
 
 export function StudentModal({ student, associates, creditName, creditValue, shares, vatRate = 0.16, onClose, onSaved, initialName }: {
@@ -37,6 +38,7 @@ export function StudentModal({ student, associates, creditName, creditValue, sha
   });
   const [ledger, setLedger] = useState(s ? s.ledgerBalance : true);
   const [vat, setVat] = useState(s ? !!s.vat : false);
+  const [contractSent, setContractSent] = useState(s ? !!s.contractSent : false);
   const [openingPaid, setOpening] = useState(s ? String(s.openingPaid || 0) : '0');
   const [sellerCredit, setCredit] = useState(s ? (s.sellerCredit ?? !!s.entryDate) : false);
   const phaseList = usePhases() || [];
@@ -64,7 +66,7 @@ export function StudentModal({ student, associates, creditName, creditValue, sha
       const doneBody = completedAt !== (s?.completedAt?.slice(0, 10) || '') ? { completedAt: completedAt || null } : {};
       if (s && ledger && !s.ledgerBalance && !window.confirm(`O valor pago de ${s.name} fica igual (${mzn(s.paidAmount)}): o que não está nos lançamentos fica como "pago antes". Daqui para a frente o saldo actualiza sozinho e a parte da defesa conta só para pagamentos a partir de hoje. Continuar?`)) { setBusy(false); return; }
       const openingBody = s && s.ledgerBalance && ledger && Number(openingPaid) !== s.openingPaid ? { openingPaid: Number(openingPaid) || 0 } : {};
-      const body = { ...openingBody, ...rest, ...phaseBody, ...doneBody, associateId: f.associateId || null, defenseAssociateId: f.defenseAssociateId || null, packageTier: f.packageTier || null, ledgerBalance: ledger, vat, phases, sellerCredit };
+      const body = { ...openingBody, ...rest, ...phaseBody, ...doneBody, associateId: f.associateId || null, defenseAssociateId: f.defenseAssociateId || null, packageTier: f.packageTier || null, ledgerBalance: ledger, vat, contractSent, phases, sellerCredit };
       let created: Student | undefined;
       if (s) await api.patch(`/finance/students/${s.id}`, body);
       else created = (await api.post('/finance/students', body)).data;
@@ -90,6 +92,10 @@ export function StudentModal({ student, associates, creditName, creditValue, sha
           <Field label="Curso">{input('course')}</Field>
           <Field label="Última actividade">{input('lastActivityAt', 'date')}</Field>
           <div className="sm:col-span-3"><Field label="Tema do TCC">{input('theme')}</Field></div>
+          <label className="sm:col-span-3 flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={contractSent} onChange={(e) => setContractSent(e.target.checked)} />
+            Contrato enviado
+          </label>
           <label className="sm:col-span-3 flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={sellerCredit} onChange={(e) => setCredit(e.target.checked)} />
             Venda de {creditName} (recebe {mzn(creditValue)} no mês de entrada)
@@ -505,6 +511,7 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
       if (s && !`${r.code} ${r.name} ${r.project} ${r.theme}`.toLowerCase().includes(s)) return false;
       if (assoc === '__none__' ? r.associate : assoc && r.associate?.id !== assoc) return false;
       if (status === 'overdue') return r.status !== 'Pago' && !!r.nextDueDate && r.nextDueDate.slice(0, 10) < nowIso;
+      if (status === 'noContract') return !r.contractSent;
       if (status && r.status !== status) return false;
       return true;
     });
@@ -520,6 +527,24 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
     if (!share) return r.defenseAssociate ? <span style={{ color: 'var(--text-muted)' }}>{r.defenseAssociate.name}</span> : '—';
     const inPart = Math.max(0, Math.min(r.paidAmount, r.totalValue) - (r.totalValue - share));
     return <span title={`A parte da defesa começa depois de ${mzn(r.totalValue - share)} pagos`}>{r.defenseAssociate!.name} · {num(inPart)}/{num(share)}</span>;
+  };
+  // Contrato enviado: um clique muda (so quem pode editar estudantes).
+  const contractCell = (r: Student) => {
+    const style = { background: r.contractSent ? '#D1FAE5' : 'var(--surface-2)', color: r.contractSent ? '#065F46' : 'var(--text-muted)' };
+    const label = r.contractSent ? '✓ Enviado' : 'Por enviar';
+    if (!canEdit) return <span className="text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap" style={style}>{label}</span>;
+    return (
+      <button className="text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap" style={style} onClick={() => toggleContract(r)}
+        title={r.contractSent ? 'Contrato enviado (carregar para desmarcar)' : 'Marcar contrato como enviado'}>{label}</button>
+    );
+  };
+  const toggleContract = async (r: Student) => {
+    const v = !r.contractSent;
+    setRows((p) => p.map((x) => (x.id === r.id ? { ...x, contractSent: v } : x)));
+    try { await api.patch(`/finance/students/${r.id}`, { contractSent: v }); } catch (e) {
+      setRows((p) => p.map((x) => (x.id === r.id ? { ...x, contractSent: !v } : x)));
+      toast.error(errMsg(e));
+    }
   };
   const remove = async (r: Student) => {
     if (!window.confirm(`Eliminar o estudante ${r.code} (${r.name})? Os lançamentos ficam, mas deixam de estar ligados a ele.`)) return;
@@ -555,7 +580,7 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
           {associates.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
         </select>
         <select className="input-base" style={{ ...inputSm, width: 'auto' }} value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">Todos os estados</option><option>Em aberto</option><option>Pago</option><option value="overdue">Parcela em atraso</option>
+          <option value="">Todos os estados</option><option>Em aberto</option><option>Pago</option><option value="overdue">Parcela em atraso</option><option value="noContract">Contrato por enviar ({rows.filter((x) => !x.contractSent).length})</option>
         </select>
         {canEdit && mode === 'students' && <button className="btn btn-outline ml-auto" onClick={() => setLinking(true)}><Link2 size={14} /> Ligar aos lançamentos</button>}
         {canEdit && mode === 'students' && rows.some((x) => !x.ledgerBalance) && (
@@ -569,12 +594,12 @@ export default function FinanceStudents({ mode, associates, rate, canEdit, onCha
       <div className="card p-4 overflow-x-auto">
         {loading ? <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div> : mode === 'students' ? (
           <table className="w-full">
-            <thead><tr>{['ID', 'Nome', 'Associado', 'Projecto', 'Entrada', 'Fase', 'Valor total', 'Pago', 'Saldo', 'Estado', ''].map((h, i) => <Th key={i} right={[6, 7, 8].includes(i)}>{h}</Th>)}</tr></thead>
+            <thead><tr>{['ID', 'Nome', 'Associado', 'Projecto', 'Entrada', 'Fase', 'Valor total', 'Pago', 'Saldo', 'Estado', 'Contrato', ''].map((h, i) => <Th key={i} right={[6, 7, 8].includes(i)}>{h}</Th>)}</tr></thead>
             <tbody>{shown.map((r) => (
               <tr key={r.id}>
                 <Td>{r.code}</Td><Td bold>{r.name}</Td><Td>{r.associate?.name || '—'}</Td><Td>{r.project || '—'}</Td><Td>{dateLabel(r.entryDate)}</Td>
                 <Td>{phaseLabel(phaseList, r.currentPhase, true)}</Td><Td right>{num(r.totalValue)}</Td><Td right>{num(r.paidAmount)}</Td><Td right>{num(r.balance)}</Td>
-                <Td>{statusBadge(r)}</Td><Td>{actions(r)}</Td>
+                <Td>{statusBadge(r)}</Td><Td>{contractCell(r)}</Td><Td>{actions(r)}</Td>
               </tr>
             ))}</tbody>
           </table>
