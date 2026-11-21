@@ -560,12 +560,27 @@ export async function maybeTriggerSalesSuggestion(opts: {
       return;
     }
 
-    const { suggestion, normalized } = await generateSalesSuggestion({
-      workspaceId: opts.workspaceId,
-      contactId: opts.contactId,
-      leadId: opts.leadId || null,
-      triggerMessageId: opts.triggerMessageId || null,
-    });
+    // Zona Nerd: a Leiz Pro (apresenta-se como Sherone) segue o guia de atendimento com um modelo local
+    // (Ollama), sem LLM externo. Ver lib/leizpro/engine.ts.
+    const leizpro = await import('./leizpro/engine');
+    let generated: { suggestion: any; normalized: { action: string } } | null;
+    if (await leizpro.isLeizProWorkspace(opts.workspaceId)) {
+      generated = await leizpro.generateLeizProSuggestion({
+        workspaceId: opts.workspaceId,
+        contactId: opts.contactId,
+        leadId: opts.leadId || null,
+        triggerMessageId: opts.triggerMessageId || null,
+      });
+      if (!generated) return;
+    } else {
+      generated = await generateSalesSuggestion({
+        workspaceId: opts.workspaceId,
+        contactId: opts.contactId,
+        leadId: opts.leadId || null,
+        triggerMessageId: opts.triggerMessageId || null,
+      });
+    }
+    const { suggestion, normalized } = generated;
 
     if (opts.io) {
       opts.io.to(`workspace:${opts.workspaceId}`).emit('aiSales:suggestion', suggestion);

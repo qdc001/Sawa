@@ -256,6 +256,20 @@ router.post('/suggest', async (req: AuthRequest, res: Response, next) => {
     }
 
     try {
+      // Zona Nerd: o botao "Sugerir resposta" tambem usa a Leiz Pro (modelo local).
+      const leizpro = await import('../lib/leizpro/engine');
+      if (await leizpro.isLeizProWorkspace(req.user!.workspaceId)) {
+        const gen = await leizpro.generateLeizProSuggestion({
+          workspaceId: req.user!.workspaceId,
+          contactId,
+          leadId: leadId || null,
+          triggerMessageId: triggerMessageId || null,
+        });
+        if (!gen) throw new AppError('A Leiz Pro nao tem nada a responder (sem mensagens novas do estudante, ou a conversa foi passada para a equipa).', 400);
+        const ioS = (global as any).io;
+        if (ioS) ioS.to(`workspace:${req.user!.workspaceId}`).emit('aiSales:suggestion', gen.suggestion);
+        return res.json(gen);
+      }
       const { suggestion, normalized } = await generateSalesSuggestion({
         workspaceId: req.user!.workspaceId,
         contactId,
