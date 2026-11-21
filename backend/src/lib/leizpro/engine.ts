@@ -1,66 +1,72 @@
-// Leiz Pro: segue o Guia de Atendimento da Zona Nerd passo a passo.
+// Leiz Pro: segue o Guia de Atendimento da Zona Nerd (v21) passo a passo.
 //
-// Diferenca para a Leizy: a Leizy pede a um LLM externo para escrever a
-// resposta. A Leiz Pro usa um modelo local (Ollama) so para PERCEBER a mensagem;
-// o texto enviado e sempre o do guia, preenchido pelo codigo. Assim nao ha
-// precos ou promessas inventadas e nada sai do servidor. A assistente
-// apresenta-se ao estudante como "Sherone" (ver guide.ts).
+// A Leiz Pro usa um modelo local (Ollama) so para PERCEBER a mensagem; o texto
+// enviado e sempre o do guia, preenchido pelo codigo. Nada sai do servidor e
+// nao ha precos ou promessas inventadas. Apresenta-se como "Sherone".
+//
+// Objectivo da conversa (v21): diagnostico curto, vacinas e marcar uma chamada
+// de 10 minutos (Passo 1.5.3). Quando o estudante escolhe a hora, a sugestao
+// cria a chamada na Agenda do Klaru (accao book_appointment). A chamada em si
+// e feita por uma pessoa da equipa.
 //
 // Activa so nos workspaces cujo dono tem um email em LEIZPRO_OWNER_EMAILS
-// (por defeito znerd@gmail.com). Reaproveita tudo o resto da IA Vendedora:
-// AiSalesSuggestion, aprovacao no Inbox, modo supervisionado/automatico.
+// (por defeito znerd@gmail.com). Reaproveita a IA Vendedora: AiSalesSuggestion,
+// aprovacao no Inbox, modo supervisionado/automatico.
 //
-// Estado por contacto: guardado no actionPayload.leizpro da ultima sugestao
-// da Leiz Pro que nao foi descartada. Descartar uma sugestao volta ao estado
-// anterior (util para "nao, continua"); o reset de contexto da IA recomeca.
+// Estado por contacto: em actionPayload.leizpro da ultima sugestao da Leiz Pro
+// que nao foi descartada. Descartar volta ao estado anterior; o reset de
+// contexto da IA recomeca a conversa.
 //
-// Robustez (respostas que nao respondem ao que foi perguntado):
-//  - Diagnostico por "campos em falta": pergunta so o que ainda nao sabe,
-//    aceita os dados por qualquer ordem e todos de uma vez.
-//  - Correccoes ("afinal e UP") substituem o valor anterior.
-//  - Resposta vaga: repete a pergunta uma vez; a segunda vez passa a equipa.
-//  - A mesma objeccao duas vezes seguidas: passa a equipa (evita lacos).
-//  - Audio/imagem: pede para escrever uma vez; depois passa a equipa.
+// Robustez: pergunta so o que falta e aceita dados por qualquer ordem; as
+// correccoes substituem o valor antigo; resposta vaga repete a pergunta uma
+// vez e a segunda passa a equipa; a mesma objeccao duas vezes passa a equipa;
+// tudo o que o guia ainda marca como [CONFIRMAR] passa a equipa.
 
 import prisma from '../prisma';
-import { T, AVAILABLE_SUBJECTS, type TemplateKey } from './guide';
+import { T, SUPER_NERD_PRICES, AVAILABLE_SUBJECTS, type TemplateKey } from './guide';
 import { loadTexts, type Texts } from './texts';
+import { understand, LEIZPRO_MODEL, type Understanding, type Slot as AskSlot } from './understand';
+import { proposeSlots, parseTimeChoice, slotLabel, type Slot } from './schedule';
 
 // Textos em uso nesta volta (guia + edicoes do painel). Definido em runTurn
 // antes de decide(), que e sincrono, por isso nao ha mistura entre conversas.
 let CUR: Texts = T;
-import { understand, monthsUntil, recommendPackage, LEIZPRO_MODEL, type Understanding, type Slot } from './understand';
 
 // Igual a AI_RESET_MARKER do aiSalesAgent (copiado para evitar import circular).
 const AI_RESET_MARKER = '__AI_CONTEXT_RESET__';
 
 export type Step =
-  | 'start' | 'diagnosis' | 'connection' | 'ask_online' | 'ask_commitment' | 'ask_budget'
-  | 'ask_exam_date' | 'packages_sent' | 'free_trial' | 'handoff';
+  | 'start' | 'diagnosis' | 'connection' | 'ask_online' | 'ask_commitment' | 'ask_call_time'
+  | 'call_booked' | 'by_text' | 'sn_choice' | 'sn_activate' | 'sn_paying' | 'handoff';
 
 export type LeizProState = {
   step: Step;
   name: string | null;
   university: string | null;
   course: string | null;
-  subjects: string[];
-  missingSubjects: string[];
-  examMonth: number | null;
-  examMonthsAhead: number | null;
+  difficulty: string | null;     // o que contou no Passo 1.4 (vai para as notas da chamada)
+  offered: Slot[] | null;        // horas propostas para a chamada
+  callAt: string | null;         // chamada marcada (ISO)
+  snCount: number | null;
+  snMonths: 1 | 2 | null;
+  snReturn: Step | null;         // passo a retomar depois de dizer o valor do Super Nerd
+  snReturnQ: TemplateKey | null; // e a pergunta desse passo
+  paidOnce: boolean;
   lastKey: TemplateKey | null;      // ultima mensagem enviada (para detectar lacos de objeccoes)
-  lastQuestion: TemplateKey | null; // ultima pergunta do fluxo (para a repetir se a resposta nao responder)
-  retries: number;                  // respostas vagas seguidas no passo actual
+  lastQuestion: TemplateKey | null; // ultima pergunta do fluxo (para a repetir)
+  retries: number;
 };
 
 export const INITIAL_STATE: LeizProState = {
-  step: 'start', name: null, university: null, course: null, subjects: [], missingSubjects: [],
-  examMonth: null, examMonthsAhead: null, lastKey: null, lastQuestion: null, retries: 0,
+  step: 'start', name: null, university: null, course: null, difficulty: null, offered: null, callAt: null,
+  snCount: null, snMonths: null, snReturn: null, snReturnQ: null, paidOnce: false, lastKey: null, lastQuestion: null, retries: 0,
 };
 
-// Objeccoes que nao avancam a conversa (e que, repetidas, passam a equipa).
+// Mensagens que respondem a algo e nao avancam o fluxo.
 const OBJECTION_KEYS: TemplateKey[] = [
-  'accessProblem', 'linkProblem', 'presencial', 'expensive', 'paymentSafe', 'willIPass', 'tooBasic',
-  'schedule', 'weakPhone', 'shareAccount', 'oneMonth', 'nonText',
+  'expensive', 'paymentSafe', 'friendReferral', 'coversExam', 'willIPass', 'noUniversity', 'weakPhone',
+  'shareAccount', 'payOtherPerson', 'accessProblem', 'linkProblem', 'presencial', 'schedule', 'tooBasic',
+  'nonText', 'noMoney', 'paidInfo',
 ];
 
 // ---- Activacao --------------------------------------------------------------
@@ -84,11 +90,6 @@ function firstName(name: string | null): string | null {
   return name ? name.split(/\s+/)[0] : null;
 }
 
-function joinList(items: string[]): string {
-  if (items.length <= 1) return items.join('');
-  return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`;
-}
-
 function fill(parts: readonly string[], st: LeizProState, vars: Record<string, string> = {}): string[] {
   const nome = firstName(st.name);
   return parts.map((p) => {
@@ -102,23 +103,26 @@ function fill(parts: readonly string[], st: LeizProState, vars: Record<string, s
 
 // Bloqueia mensagens com campos por preencher ("O que NUNCA dizer" do guia).
 export function hasPlaceholders(parts: string[]): boolean {
-  return parts.some((p) => /\[[A-ZÁÉÍÓÚÂÊÔÃÕÇ ]{3,}\]|\{[a-z_]+\}/.test(p));
+  return parts.some((p) => /\[[A-ZÁÉÍÓÚÂÊÔÃÕÇ ]{3,}\]|\{[a-z_0-9]+\}/.test(p));
 }
 
 // ---- Decisao ----------------------------------------------------------------
+export type Appointment = { title: string; startsAtISO: string; durationMin: number; notes: string };
+
 export type Decision = {
-  action: 'send_text' | 'handoff';
+  action: 'send_text' | 'handoff' | 'book_appointment' | 'wait';
   parts: string[];
   next: LeizProState;
   reason: string;
+  appointment?: Appointment;
 };
 
 function vars(st: LeizProState): Record<string, string> {
   return {
     universidade: st.university || '',
     curso: st.course || '',
-    disponiveis: joinList(st.subjects),
-    em_falta: joinList(st.missingSubjects),
+    opcao1: st.offered?.[0]?.label || '',
+    opcao2: st.offered?.[1]?.label || '',
   };
 }
 
@@ -147,38 +151,118 @@ function handoff(st: LeizProState, reason: string): Decision {
   };
 }
 
-// Repete a ultima pergunta (ultima parte da ultima mensagem) uma vez.
+// Ultima parte (a pergunta) da ultima pergunta do fluxo, ja preenchida.
+function lastQuestionText(st: LeizProState): string | null {
+  if (!st.lastQuestion) return null;
+  const parts = fill(CUR[st.lastQuestion], st, vars(st));
+  return parts[parts.length - 1] || null;
+}
+
+// Repete a ultima pergunta uma vez; a segunda passa a equipa.
 function repeatOrHandoff(st: LeizProState, why: string): Decision {
-  if (st.retries >= 1 || !st.lastQuestion) {
-    return handoff(st, `${why} (depois de repetir a pergunta)`);
-  }
-  const question = fill(CUR[st.lastQuestion], st, vars(st)).slice(-1);
+  const q = lastQuestionText(st);
+  if (st.retries >= 1 || !q) return handoff(st, `${why} (depois de repetir a pergunta)`);
   return {
     action: 'send_text',
-    parts: [...fill(CUR.repeatPrefix, st), ...question],
+    parts: [...fill(CUR.repeatPrefix, st), q],
     next: { ...st, lastKey: 'repeatPrefix', retries: st.retries + 1 },
     reason: `${why}: repetir a pergunta`,
   };
 }
 
-function examMonths(st: LeizProState): number | null {
-  if (st.examMonthsAhead !== null) return st.examMonthsAhead;
-  if (st.examMonth !== null) return monthsUntil(st.examMonth);
-  return null;
+// Junta a uma resposta a pergunta do passo em que o estudante esta, para a
+// conversa continuar (ex.: responde ao "esta caro" e volta a pergunta do online).
+function withResume(d: Decision, st: LeizProState): Decision {
+  const resumable: Step[] = ['diagnosis', 'connection', 'ask_online', 'ask_commitment', 'ask_call_time'];
+  if (!resumable.includes(st.step)) return d;
+  const q = lastQuestionText(st);
+  if (q && !d.parts.includes(q)) d.parts = [...d.parts, q];
+  return d;
 }
 
-function packagesDecision(st: LeizProState, reason: string): Decision {
-  if (!st.subjects.length) return handoff(st, `${reason}, mas ainda nao sabemos as disciplinas`);
-  const months = examMonths(st);
-  if (months === null) {
-    return say('askExamDate', st, 'ask_exam_date', `${reason}; falta a data do exame para calcular`);
+// ---- Chamada ------------------------------------------------------------------
+function withSlots(st: LeizProState): LeizProState {
+  return { ...st, offered: proposeSlots() };
+}
+
+function inviteCall(st: LeizProState, key: 'callInvite' | 'hesitant', reason: string): Decision {
+  const s2 = withSlots(st);
+  return say(key, s2, 'ask_call_time', reason);
+}
+
+function bookCall(st: LeizProState, at: Date, reason: string): Decision {
+  const quando = slotLabel(at);
+  const d = say('callConfirm', st, 'call_booked', reason, { quando });
+  const who = [st.name || 'Estudante'];
+  const notes = [
+    st.course || st.university ? `Curso: ${st.course || '?'}${st.university ? ` na ${st.university}` : ''}.` : '',
+    st.difficulty ? `Dificuldade que contou: "${st.difficulty.slice(0, 200)}".` : '',
+    'Marcada pela Sherone (Leiz Pro). Guião: Passo 1.5.4 do guia.',
+  ].filter(Boolean).join(' ');
+  return {
+    ...d,
+    action: 'book_appointment',
+    next: { ...d.next, callAt: at.toISOString(), offered: null },
+    appointment: { title: `Chamada Zona Nerd: ${who.join(' ')}`, startsAtISO: at.toISOString(), durationMin: 15, notes },
+  };
+}
+
+// ---- Modo Super Nerd ------------------------------------------------------------
+function snLabel(count: number): string { return count === 1 ? '1 disciplina' : `${count} disciplinas`; }
+
+function superNerd(st: LeizProState, reason: string): Decision {
+  const entering = st.step !== 'sn_choice';
+  const base: LeizProState = {
+    ...st,
+    snReturn: entering ? st.step : st.snReturn,
+    snReturnQ: entering ? st.lastQuestion : st.snReturnQ,
+  };
+  if (!base.snCount || !base.snMonths) {
+    if (base.snCount && base.snCount >= 3) {
+      return handoff(base, `quer o modo Super Nerd com ${base.snCount} disciplinas (valor das disciplinas extra por confirmar no guia)`);
+    }
+    if (st.step === 'sn_choice') {
+      // Ja perguntamos; pedir so o que falta.
+      if (!base.snCount && base.snMonths) {
+        return { ...say('snAskCount', base, 'sn_choice', `${reason}: falta o numero de disciplinas`) };
+      }
+      if (base.snCount && !base.snMonths) {
+        return { ...say('snAskMonths', base, 'sn_choice', `${reason}: falta a duracao`) };
+      }
+      return repeatOrHandoff(base, `${reason}: nao percebi quantas disciplinas e quanto tempo`);
+    }
+    return say('superNerdAsk', base, 'sn_choice', `${reason} (Passo 3.1)`);
   }
-  const rec = recommendPackage(st.subjects.length, months);
-  return say('packages', st, 'packages_sent', `${reason}; recomendado Pacote ${rec.pkg} (${rec.total} MZN, ${months} meses)`, { recomendacao: rec.text });
+  if (base.snCount >= 3) {
+    return handoff(base, `quer o modo Super Nerd com ${base.snCount} disciplinas (valor das disciplinas extra por confirmar no guia)`);
+  }
+  const valor = SUPER_NERD_PRICES[base.snCount as 1 | 2][base.snMonths];
+  const price = fill(CUR.superNerdPrice, base, {
+    disciplinas: snLabel(base.snCount), duracao: base.snMonths === 1 ? '1 mês' : '2 meses', valor: String(valor),
+  });
+  const why = `${reason}: modo Super Nerd ${base.snCount} disc. ${base.snMonths} mes(es) = ${valor} MZN (Passo 3.1.1)`;
+  // Com chamada marcada (ou depois): oferece explicar como activar.
+  if (base.callAt || !base.snReturn || ['call_booked', 'by_text', 'sn_activate', 'sn_paying'].includes(base.snReturn)) {
+    return {
+      action: 'send_text',
+      parts: [...price, ...fill(CUR.superNerdActivateQ, base)],
+      next: { ...base, step: 'sn_activate', lastKey: 'superNerdActivateQ', lastQuestion: 'superNerdActivateQ', retries: 0 },
+      reason: why,
+    };
+  }
+  // Antes da chamada: o guia manda voltar a conta gratis e ao fluxo.
+  const back: LeizProState = { ...base, step: base.snReturn, lastQuestion: base.snReturnQ };
+  const q = lastQuestionText(back);
+  return {
+    action: 'send_text',
+    parts: [...price, ...fill(CUR.priceBackToFree, base), ...(q ? [q] : [])],
+    next: { ...back, lastKey: 'superNerdPrice', retries: 0 },
+    reason: `${why}; volta ao passo ${base.snReturn}`,
+  };
 }
 
-// Proxima pergunta do diagnostico (Passos 1.1 a 1.4), so do que falta.
-// "Prazer, Elton!" so na primeira vez que sabemos o nome (nao a cada pergunta).
+// ---- Diagnostico (Passos 1.1 a 1.3) ---------------------------------------------
+// "Prazer, Elton!" so na primeira vez que sabemos o nome.
 function diagnosisNext(st: LeizProState, reason: string, newName = true): Decision {
   const d = diagnosisQuestion(st, reason);
   if (!newName && d.action === 'send_text' && d.parts.length > 1 && /^Prazer/.test(d.parts[0])) {
@@ -193,56 +277,91 @@ function diagnosisQuestion(st: LeizProState, reason: string): Decision {
   if (!st.university && !st.course) return say('askUniCourse', st, 'diagnosis', `${reason}; falta universidade e curso`);
   if (!st.university) return say('askUniOnly', st, 'diagnosis', `${reason}; falta a universidade`);
   if (!st.course) return say('askCourse', st, 'diagnosis', `${reason}; falta o curso (Passo 1.3)`);
-  if (!st.subjects.length && !st.missingSubjects.length) return say('askSubjects', st, 'diagnosis', `${reason}; faltam as disciplinas (Passo 1.4)`);
-  if (!st.subjects.length) {
-    return handoff(st, `as disciplinas pedidas nao estao na Zona Nerd (${joinList(st.missingSubjects)}): ser honesto e nao insistir`);
-  }
-  return say('connection', st, 'connection', `${reason}; diagnostico completo, conexao (Passo 1.4.1)`);
+  return say('connection', st, 'connection', `${reason}; diagnostico completo, conexao (Passo 1.4)`);
 }
 
-// Respostas do Fluxo 5 que valem em qualquer passo (a conversa fica no mesmo passo).
+// ---- Situacoes comuns (Fluxo 5) -------------------------------------------------
 function objection(u: Understanding, st: LeizProState): Decision | null {
+  switch (u.intent) {
+    case 'desconfianca': return handoff(st, 'o estudante desconfia (burla/golpe): resposta tem de ser de uma pessoa da equipa');
+    case 'duvida': return handoff(st, 'pergunta sobre o conteudo/funcionamento que o guia nao cobre');
+    case 'problema_codigo': return handoff(st, 'problema com e-mail/codigo/palavra-passe (como se cria a conta ainda esta por confirmar no guia)');
+    case 'instalar_app': return handoff(st, 'quer instalar a app (link do APK ainda por confirmar no guia)');
+    case 'vidas': return handoff(st, 'pergunta sobre as vidas (como se gastam e enchem ainda esta por confirmar no guia)');
+    case 'nao_abriu': return handoff(st, 'diz que pagou e o modo Super Nerd nao abriu: verificar no painel (Passo 4.3)');
+    case 'ja_pagou':
+      if (st.paidOnce || st.lastKey === 'paidInfo') return handoff(st, 'volta a falar do pagamento: verificar no painel (Passo 4.3)');
+      return { ...say('paidInfo', st, st.step, 'diz que ja pagou (Passo 4.1)'), next: { ...st, paidOnce: true, lastKey: 'paidInfo' } };
+    case 'quer_pagar': return say('paymentInApp', st, 'sn_paying', 'quer activar/pagar o modo Super Nerd (Passo 3.2)');
+    case 'sem_chamada':
+      if (st.callAt || st.step === 'by_text') return handoff(st, 'nao pode falar por chamada: continuar por mensagens');
+      return say('noCall', st, 'by_text', 'nao pode falar por chamada: criar a conta por mensagens (Passo 1.5.6)');
+  }
   const map: Partial<Record<Understanding['intent'], [TemplateKey, string]>> = {
-    problema_acesso: ['accessProblem', 'problema de acesso (conta/e-mail/codigo)'],
-    problema_link: ['linkProblem', 'o link nao abre'],
-    prefere_presencial: ['presencial', 'objeccao: prefere presencial'],
     acha_caro: ['expensive', 'objeccao: acha caro'],
     pagamento_seguro: ['paymentSafe', 'pergunta se o pagamento e seguro'],
+    indicar_amigo: ['friendReferral', 'conhece alguem que quer tambem'],
+    cobre_exame: ['coversExam', 'pergunta se o conteudo cobre o exame'],
     vai_passar: ['willIPass', 'pergunta se vai passar'],
-    muito_basico: ['tooBasic', 'acha o capitulo 1 basico'],
-    horario_apoio: ['schedule', 'pergunta por horarios/assistencia'],
+    universidade_fora: ['noUniversity', 'nao ve a universidade dele'],
     telemovel_fraco: ['weakPhone', 'telemovel fraco / internet cara'],
     partilhar_conta: ['shareAccount', 'quer partilhar a conta'],
-    um_mes: ['oneMonth', 'quer so 1 mes'],
+    pagar_outra_pessoa: ['payOtherPerson', 'pagar com M-Pesa de outra pessoa'],
+    problema_acesso: ['accessProblem', 'nao consegue entrar/criar conta'],
+    problema_link: ['linkProblem', 'o link nao abre'],
+    horario_apoio: ['schedule', 'pergunta por horarios/assistencia'],
+    muito_basico: ['tooBasic', 'acha a amostra basica'],
     sem_texto: ['nonText', 'mandou audio/imagem em vez de escrever'],
   };
-  if (u.intent === 'ja_pagou') return handoff(st, 'o estudante diz que ja pagou (validar o comprovativo)');
-  if (u.intent === 'quer_pagar') return handoff(st, 'o estudante quer pagar (numeros de pagamento ainda por confirmar no guia)');
-  if (u.intent === 'sem_dinheiro') return handoff(st, 'o estudante diz que nao tem condicoes agora (marcar contacto com dia e hora)');
-  if (u.intent === 'duvida') return handoff(st, 'pergunta sobre o conteudo/funcionamento que o guia nao cobre');
-  if (u.intent === 'desconfianca') return handoff(st, 'o estudante desconfia (burla/golpe): resposta tem de ser de uma pessoa da equipa');
+  if (u.intent === 'sem_dinheiro') {
+    if (st.lastKey === 'noMoney') return handoff(st, 'volta a dizer que nao tem condicoes: marcar contacto com dia e hora');
+    const base = fill(CUR.noMoney, st);
+    const socials = fill(CUR.socials, st);
+    if (st.callAt) {
+      return { action: 'send_text', parts: [...base, ...socials], next: { ...st, lastKey: 'noMoney' }, reason: 'nao tem condicoes (chamada ja marcada): o gratis + redes' };
+    }
+    const s2 = withSlots(st);
+    const q = `Já criaste a tua conta? Se quiseres, ligo-te ${s2.offered![0].label} e fazemos juntos.`;
+    return {
+      action: 'send_text',
+      parts: [...base, ...socials, q],
+      next: { ...s2, step: 'ask_call_time', lastKey: 'noMoney', lastQuestion: 'callInvite', retries: 0 },
+      reason: 'nao tem condicoes: o gratis, as redes e convite para a chamada (Fluxo 5)',
+    };
+  }
+  if (u.intent === 'prefere_presencial') {
+    if (st.lastKey === 'presencial') return handoff(st, 'continua a preferir presencial depois da resposta do guia');
+    const parts = fill(CUR.presencial, st);
+    if (st.step === 'ask_online' || st.callAt || st.step === 'handoff') {
+      return withResume({ action: 'send_text', parts, next: { ...st, lastKey: 'presencial' }, reason: 'objeccao: prefere presencial' }, st);
+    }
+    // Noutros passos o guia termina com o convite para a chamada.
+    const s2 = withSlots(st);
+    return {
+      action: 'send_text',
+      parts: [...parts, `Para veres como é na prática, ligo-te uns 10 minutos e criamos juntos a tua conta grátis. Pode ser ${s2.offered![0].label} ou preferes ${s2.offered![1].label}?`],
+      next: { ...s2, step: 'ask_call_time', lastKey: 'presencial', lastQuestion: 'callInvite', retries: 0 },
+      reason: 'objeccao: prefere presencial, convite para a chamada',
+    };
+  }
   const hit = map[u.intent];
   if (!hit) return null;
   const [key, reason] = hit;
-  // A mesma objeccao duas vezes seguidas: o texto do guia nao resolveu.
   if (st.lastKey === key) return handoff(st, `${reason}, repetido depois da resposta do guia`);
-  // Mantem o passo; a proxima resposta "sim/nao" volta a ser lida no passo actual.
-  return say(key, st, st.step, reason);
+  return withResume(say(key, st, st.step, reason), st);
 }
 
 function merge(stIn: LeizProState, u: Understanding): LeizProState {
-  // Valores novos substituem os antigos (o estudante pode corrigir: "afinal e UP").
-  // Excepcao: o nome so muda se ainda nao o tinhamos, para uma frase solta
-  // nao trocar o nome do estudante.
+  const snTalk = stIn.step === 'sn_choice' || u.intent === 'super_nerd' || u.intent === 'pergunta_preco';
   return {
     ...stIn,
     name: stIn.name || u.name,
     university: u.university || stIn.university,
     course: u.course || stIn.course,
-    subjects: u.subjects.length || u.missingSubjects.length ? u.subjects : stIn.subjects,
-    missingSubjects: u.subjects.length || u.missingSubjects.length ? u.missingSubjects : stIn.missingSubjects,
-    examMonth: u.examMonth ?? (u.examMonthsAhead !== null ? null : stIn.examMonth),
-    examMonthsAhead: u.examMonthsAhead ?? (u.examMonth !== null ? null : stIn.examMonthsAhead),
+    // So conta quando se esta a falar do modo Super Nerd (senao "Biologia" como
+    // curso contava como "1 disciplina").
+    snCount: snTalk ? (u.snCount ?? stIn.snCount) : stIn.snCount,
+    snMonths: snTalk ? (u.snMonths ?? stIn.snMonths) : stIn.snMonths,
   };
 }
 
@@ -250,15 +369,27 @@ export function decide(stIn: LeizProState, u: Understanding, rawText = ''): Deci
   const st = merge(stIn, u);
   const text = rawText.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
   const gotData = u.intent === 'da_dados';
+  // "ok obrigado", "combinado, obrigada!", "👍": nao e preciso responder.
+  const THANKS = new Set(['ok', 'okay', 'okk', 'obrigado', 'obrigada', 'obg', 'ta', 'esta', 'bem', 'combinado', 'beleza', 'blz',
+    'certo', 'perfeito', 'fixe', 'sim', 'muito', 'entendido', 'percebido', 'tudo', 'bom', 'boa', 'valeu']);
+  const words = text.replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean);
+  const isThanks = (words.length > 0 && words.length <= 5 && words.every((w) => THANKS.has(w)))
+    || (words.length === 0 && /[👍🙏✅]/u.test(rawText));
 
   // Primeira mensagem (gatilho do anuncio ou qualquer outra).
   if (st.step === 'start') {
-    if (u.intent === 'pergunta_preco') return say('priceFirst', st, 'diagnosis', 'primeiro contacto a perguntar o preco (Passo 1.2)');
-    // Ja veio com dados ("Ola, sou o Elton, vou fazer UEM"): salta a saudacao.
+    if (u.intent === 'pergunta_preco' || u.intent === 'super_nerd') return say('priceFirst', st, 'diagnosis', 'primeiro contacto a perguntar o preco (Passo 1.2)');
     if (st.name) return diagnosisNext(st, 'primeira mensagem ja com dados', true);
     const obj = objection(u, st);
     if (obj && obj.action === 'handoff') return obj;
     return say('greeting', st, 'diagnosis', 'primeiro contacto (Passo 1.1)');
+  }
+
+  // Modo Super Nerd: a escolher quantas disciplinas e quanto tempo.
+  if (st.step === 'sn_choice' && (gotData || u.snCount || u.snMonths || /^\d$/.test(text))) {
+    const s2 = { ...st };
+    if (!s2.snCount && /^\d$/.test(text)) s2.snCount = Number(text);
+    return superNerd(s2, 'escolheu disciplinas/duracao');
   }
 
   const obj = objection(u, st);
@@ -266,58 +397,39 @@ export function decide(stIn: LeizProState, u: Understanding, rawText = ''): Deci
 
   // "Nao percebi": repete a ultima pergunta com outra introducao (uma vez).
   if (u.intent === 'nao_percebi') {
-    if (st.retries >= 1 || !st.lastQuestion) return handoff(st, 'nao percebeu a pergunta, mesmo depois de a repetir');
+    const q = lastQuestionText(st);
+    if (st.retries >= 1 || !q) return handoff(st, 'nao percebeu a pergunta, mesmo depois de a repetir');
     return {
       action: 'send_text',
-      parts: [...fill(CUR.clarifyPrefix, st), ...fill(CUR[st.lastQuestion], st, vars(st)).slice(-1)],
+      parts: [...fill(CUR.clarifyPrefix, st), ...fill(CUR[st.lastQuestion!], st, vars(st)).slice(-1)],
       next: { ...st, lastKey: 'clarifyPrefix', retries: st.retries + 1 },
       reason: 'nao percebeu: repetir a pergunta',
     };
   }
 
-  // "So quero 1 mes" -> "O mais curto e o A. Queres comecar por esse?" -> "sim"
-  if (st.lastKey === 'oneMonth' && u.intent === 'sim') {
-    return handoff(st, 'aceitou o Pacote A (2 meses, 390 MZN): orientar o pagamento');
-  }
-
-  // Pergunta o preco: antes do diagnostico completo explica que depende (1.2);
-  // depois, o guia manda passar logo aos pacotes (1.5.4).
-  if (u.intent === 'pergunta_preco') {
-    if (st.step === 'diagnosis') {
-      if (st.lastKey === 'priceFirst' || st.lastQuestion === 'priceFirst') return repeatOrHandoff(st, 'insiste no preco antes do diagnostico');
+  // Preco / modo Super Nerd. Antes do diagnostico, a primeira vez explica o
+  // gratis (1.2); se insistir, diz o valor para o caso dele (3.1 / 3.1.1).
+  if (u.intent === 'pergunta_preco' || u.intent === 'super_nerd') {
+    if (st.step === 'diagnosis' && st.lastKey !== 'priceFirst' && u.intent === 'pergunta_preco') {
       return say('priceFirst', st, 'diagnosis', 'pergunta o preco antes do diagnostico (Passo 1.2)');
     }
-    return packagesDecision(st, 'pediu os valores (Passo 1.5.4)');
+    return superNerd(st, 'pergunta pelo preco / modo Super Nerd');
   }
 
   switch (st.step) {
     case 'diagnosis': {
-      if (u.intent === 'nao_sei' && st.lastQuestion === 'askSubjects') {
-        return { ...handoff(st, 'nao sabe as disciplinas do exame: a equipa confirma (Passo 1.4)'), parts: [
-          'Leiz Pro passou a conversa para a equipa: nao sabe as disciplinas do exame, confirmar e responder.',
-          ...fill(CUR.subjectsUnknown, st, vars(st)),
-        ] };
-      }
-      const progressed = gotData && (
-        st.name !== stIn.name || st.university !== stIn.university || st.course !== stIn.course
-        || st.subjects.join() !== stIn.subjects.join() || st.missingSubjects.join() !== stIn.missingSubjects.join()
-      );
+      const progressed = gotData && (st.name !== stIn.name || st.university !== stIn.university || st.course !== stIn.course);
       if (!progressed) return repeatOrHandoff(st, `resposta nao trouxe o que foi perguntado (intencao ${u.intent})`);
       return diagnosisNext(st, 'dados recebidos', !stIn.name && !!st.name);
     }
 
     case 'connection': {
-      // Qualquer resposta serve (o guia so quer deixa-lo falar). Segue para a vacina.
-      if (st.missingSubjects.length) {
-        // 1.6 e depois, do 1.5.1, so as linhas sobre os estudos e a pergunta do online.
-        const a = fill(CUR.missingSubject, st, vars(st));
-        const b = fill(CUR.vaccineOnline, st, vars(st)).slice(2);
-        return { action: 'send_text', parts: [...a, ...b], next: { ...st, step: 'ask_online', lastKey: 'vaccineOnline', lastQuestion: 'vaccineOnline', retries: 0 }, reason: 'Passo 1.6 + vacina do online (1.5.1)' };
-      }
-      const d = say('vaccineOnline', st, 'ask_online', 'vacina do online (Passo 1.5.1)');
-      // "nada", "nao" ao "o que foi mais dificil?": nao faz sentido "muita gente passa por isso".
+      // Qualquer resposta serve: o guia so quer deixa-lo falar. Guarda a
+      // dificuldade para as notas da chamada.
+      const s2 = { ...st, difficulty: rawText.trim().slice(0, 300) || null };
+      const d = say('vaccineOnline', s2, 'ask_online', 'vacina do online (Passo 1.5.1)');
       if (u.intent === 'nao' || /^(nada|nenhum|nenhuma|nao|n)\b/.test(text)) {
-        d.parts[0] = st.name ? `Óptimo, ${st.name.split(/\s+/)[0]}! 😊` : 'Óptimo! 😊';
+        d.parts[0] = s2.name ? `Óptimo, ${firstName(s2.name)}! 😊` : 'Óptimo! 😊';
       }
       return d;
     }
@@ -326,34 +438,48 @@ export function decide(stIn: LeizProState, u: Understanding, rawText = ''): Deci
       if (u.intent === 'sim') return say('vaccineCommitment', st, 'ask_commitment', 'esta a vontade com o online: vacina do compromisso (Passo 1.5.2)');
       if (u.intent === 'nao') {
         if (st.lastKey === 'presencial') return handoff(st, 'continua hesitante com o estudo online');
-        return { ...say('presencial', st, 'ask_online', 'hesita com o online: resposta do Fluxo 5 (presencial)') };
+        return withResume({ action: 'send_text', parts: fill(CUR.presencial, st), next: { ...st, lastKey: 'presencial' }, reason: 'hesita com o online: resposta do Fluxo 5 (presencial)' }, st);
       }
       return repeatOrHandoff(st, `resposta vaga a "estas a vontade online?" (intencao ${u.intent})`);
 
     case 'ask_commitment':
-      if (u.intent === 'sim') return say('vaccineBudget', st, 'ask_budget', 'comprometido: vacina do orcamento (Passo 1.5.3)');
-      if (u.intent === 'nao') return say('freeTrial', st, 'free_trial', 'resposta hesitante ao compromisso: sugerir o capitulo 1 gratis (nao forcar)');
+      if (u.intent === 'sim') return inviteCall(st, 'callInvite', 'comprometido: convite para a chamada (Passo 1.5.3)');
+      if (u.intent === 'nao') return inviteCall(st, 'hesitant', 'resposta hesitante ao compromisso: amostra sem conta e marcar contacto');
       return repeatOrHandoff(st, `resposta vaga ao compromisso (intencao ${u.intent})`);
 
-    case 'ask_budget':
-      if (u.intent === 'sim') return packagesDecision(st, 'orcamento ok (Passo 1.5.4)');
-      if (u.intent === 'nao') return handoff(st, 'algo o faz esperar: perceber o motivo e marcar contacto com dia e hora');
-      if (gotData && (st.examMonth !== null || st.examMonthsAhead !== null)) return packagesDecision(st, 'deu a data do exame');
-      return repeatOrHandoff(st, `resposta vaga ao orcamento (intencao ${u.intent})`);
-
-    case 'ask_exam_date':
-      if (examMonths(st) !== null && (u.examMonth !== null || u.examMonthsAhead !== null)) return packagesDecision(st, 'data do exame recebida');
-      if (u.intent === 'nao_sei') return handoff(st, 'nao sabe a data do exame (a equipa ajuda a confirmar e escolhe A/B ou C/D)');
-      return repeatOrHandoff(st, `nao percebi a data do exame (intencao ${u.intent})`);
-
-    case 'packages_sent':
-      if (gotData && (u.examMonth !== null || u.examMonthsAhead !== null || u.subjects.length)) {
-        return packagesDecision(st, 'mudou a data ou as disciplinas: recalcular');
+    case 'ask_call_time': {
+      const refuses = /\b(nao (posso|da|consigo|vou poder)|ocupad|outra hora|outro dia|mais tarde)/.test(text);
+      const choice = refuses && !/\d/.test(text) ? { kind: 'none' as const } : parseTimeChoice(rawText, st.offered);
+      if (choice.kind === 'slot') return bookCall(st, choice.at, 'escolheu a hora da chamada (Passo 1.5.3)');
+      if (choice.kind === 'out_of_hours' || choice.kind === 'day_only') {
+        if (st.lastKey === 'callAskHour') return handoff(st, 'nao conseguimos acertar a hora da chamada');
+        return say('callAskHour', { ...st, offered: null }, 'ask_call_time', 'hora fora do horario ou sem hora concreta');
       }
-      return handoff(st, `resposta depois dos pacotes (intencao ${u.intent}): a equipa acompanha a escolha`);
+      if (u.intent === 'nao' || refuses) {
+        if (st.lastKey === 'callOtherTime') return handoff(st, 'nao conseguimos acertar a hora da chamada');
+        return say('callOtherTime', { ...st, offered: null }, 'ask_call_time', 'pede outra hora (Passo 1.5.6)');
+      }
+      return repeatOrHandoff(st, `nao percebi a hora da chamada (intencao ${u.intent})`);
+    }
 
-    case 'free_trial':
-      return handoff(st, `resposta depois do convite para o capitulo 1 gratis (intencao ${u.intent})`);
+    case 'call_booked':
+      if (isThanks) return { action: 'wait', parts: [], next: st, reason: 'agradeceu/confirmou depois de marcar a chamada: nao e preciso responder' };
+      return handoff(st, `mensagem depois de marcada a chamada (${st.callAt ? slotLabel(new Date(st.callAt)) : ''}): a equipa responde`);
+
+    case 'sn_activate':
+      if (u.intent === 'sim') return say('paymentInApp', st, 'sn_paying', 'quer activar o modo Super Nerd (Passo 3.2)');
+      if (u.intent === 'nao') return { action: 'wait', parts: [], next: { ...st, step: st.callAt ? 'call_booked' : 'by_text' }, reason: 'nao quer activar agora: o modo Super Nerd e opcional' };
+      return repeatOrHandoff(st, `resposta vaga a "queres que explique como activar?" (intencao ${u.intent})`);
+
+    case 'sn_paying':
+      if (isThanks) return { action: 'wait', parts: [], next: st, reason: 'confirmou: espera o pagamento na app' };
+      return handoff(st, `mensagem durante o pagamento do modo Super Nerd (intencao ${u.intent})`);
+
+    case 'by_text':
+      return handoff(st, 'a conversa continua por mensagens (criar a conta): a equipa acompanha');
+
+    case 'sn_choice':
+      return superNerd(st, 'resposta ao modo Super Nerd');
 
     case 'handoff':
       break;
@@ -381,7 +507,16 @@ async function loadState(workspaceId: string, contactId: string): Promise<LeizPr
     select: { actionPayload: true },
   });
   const saved = (last?.actionPayload as any)?.leizpro;
-  return saved && typeof saved === 'object' ? { ...INITIAL_STATE, ...saved } : { ...INITIAL_STATE };
+  if (!saved || typeof saved !== 'object') return { ...INITIAL_STATE };
+  // Estados do guia v20 (pacotes, data do exame) ja nao existem: recomeca o
+  // diagnostico mantendo o que ja sabiamos.
+  const known: Step[] = ['start', 'diagnosis', 'connection', 'ask_online', 'ask_commitment', 'ask_call_time',
+    'call_booked', 'by_text', 'sn_choice', 'sn_activate', 'sn_paying', 'handoff'];
+  const st = { ...INITIAL_STATE, ...saved } as LeizProState;
+  if (!known.includes(st.step)) st.step = 'diagnosis';
+  if (st.lastKey && !(st.lastKey in T)) st.lastKey = null;
+  if (st.lastQuestion && !(st.lastQuestion in T)) st.lastQuestion = null;
+  return st;
 }
 
 // Mensagens do estudante desde a ultima resposta nossa (ele escreve em varias linhas).
@@ -406,26 +541,12 @@ async function pendingInboundText(contactId: string): Promise<string> {
     .join('\n');
 }
 
-// Uma volta completa (compreensao + decisao + verificacao). Exportada para o
-// simulador de testes (scripts/leizProSimulate.ts) usar exactamente o mesmo caminho.
-export async function runTurn(state: LeizProState, text: string, workspaceId?: string) {
-  const u = await understand(text, expectingFor(state), slotFor(state));
-  CUR = workspaceId ? await loadTexts(workspaceId) : T;
-  let d = decide(state, u, text);
-  if (d.action === 'send_text' && hasPlaceholders(d.parts)) {
-    d = handoff(state, 'a resposta ficou com campos por preencher');
-  }
-  return { u, d };
-}
-
-function slotFor(st: LeizProState): Slot {
+function slotFor(st: LeizProState): AskSlot {
   if (st.step === 'diagnosis') {
     if (!st.name) return 'name';
     if (!st.university) return 'university';
     if (!st.course) return 'course';
-    return 'subjects';
   }
-  if (st.step === 'ask_exam_date') return 'date';
   return null;
 }
 
@@ -435,18 +556,28 @@ function expectingFor(st: LeizProState): string {
     case 'diagnosis': {
       if (!st.name) return 'o nome e a universidade do estudante';
       if (!st.university) return 'a universidade e o curso';
-      if (!st.course) return 'o curso a que se vai candidatar';
-      return 'as disciplinas do exame de admissao';
+      return 'o curso a que se vai candidatar';
     }
     case 'connection': return 'se ja tentou estudar antes e o que foi mais dificil';
     case 'ask_online': return 'se esta a vontade para estudar online pelo telemovel (sim/nao)';
     case 'ask_commitment': return 'se esta comprometido a dar o melhor (sim/nao)';
-    case 'ask_budget': return 'se consegue comecar ja caso os valores caibam no orcamento';
-    case 'ask_exam_date': return 'quando e o exame (mes)';
-    case 'packages_sent': return 'qual pacote escolhe';
-    case 'free_trial': return 'o que achou do capitulo 1 gratis';
+    case 'ask_call_time': return 'a que horas pode receber uma chamada de 10 minutos';
+    case 'sn_choice': return 'quantas disciplinas e por quanto tempo (1 ou 2 meses) quer o modo Super Nerd';
+    case 'sn_activate': return 'se quer que expliquem como activar o modo Super Nerd (sim/nao)';
     default: return 'nada';
   }
+}
+
+// Uma volta completa (compreensao + decisao + verificacao). Exportada para o
+// simulador de testes (scripts/leizProSimulate.ts) usar exactamente o mesmo caminho.
+export async function runTurn(state: LeizProState, text: string, workspaceId?: string) {
+  const u = await understand(text, expectingFor(state), slotFor(state));
+  CUR = workspaceId ? await loadTexts(workspaceId) : T;
+  let d = decide(state, u, text);
+  if ((d.action === 'send_text' || d.action === 'book_appointment') && hasPlaceholders(d.parts)) {
+    d = handoff(state, 'a resposta ficou com campos por preencher');
+  }
+  return { u, d };
 }
 
 // Gera a sugestao da Leiz Pro. Devolve o mesmo formato que generateSalesSuggestion
@@ -484,7 +615,8 @@ export async function generateLeizProSuggestion(opts: {
       action: d.action,
       productId: null,
       productFileIds: [] as any,
-      actionPayload: { leizpro: d.next, understood: { ...u } } as any,
+      // book_appointment le title/startsAtISO/durationMin/notes do topo do payload.
+      actionPayload: { ...(d.appointment || {}), leizpro: d.next, understood: { ...u } } as any,
       reasoning,
       principlesUsed: [] as any,
       modelUsed: `leizpro:${u.modelUsed || 'regras'}`,

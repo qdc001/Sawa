@@ -13,7 +13,10 @@ export type Intent =
   | 'saudacao' | 'da_dados' | 'pergunta_preco' | 'acha_caro' | 'sem_dinheiro'
   | 'prefere_presencial' | 'problema_acesso' | 'problema_link' | 'quer_pagar' | 'ja_pagou'
   | 'pagamento_seguro' | 'vai_passar' | 'muito_basico' | 'horario_apoio' | 'telemovel_fraco'
-  | 'partilhar_conta' | 'um_mes' | 'nao_percebi' | 'desconfianca' | 'nao_sei' | 'sim' | 'nao' | 'duvida' | 'sem_texto' | 'outro';
+  | 'partilhar_conta' | 'nao_percebi' | 'desconfianca' | 'nao_sei' | 'sim' | 'nao' | 'duvida' | 'sem_texto'
+  // v21
+  | 'super_nerd' | 'sem_chamada' | 'outra_hora' | 'vidas' | 'instalar_app' | 'problema_codigo' | 'cobre_exame'
+  | 'universidade_fora' | 'pagar_outra_pessoa' | 'indicar_amigo' | 'nao_abriu' | 'outro';
 
 export type Understanding = {
   intent: Intent;
@@ -25,6 +28,9 @@ export type Understanding = {
   missingSubjects: string[];   // disciplinas pedidas que a Zona Nerd nao tem
   examMonth: number | null;    // 0-11
   examMonthsAhead: number | null; // "daqui a 3 meses"
+  // Modo Super Nerd: "2 disciplinas por 1 mes"
+  snCount: number | null;
+  snMonths: 1 | 2 | null;
   modelUsed: string | null;
   modelError: string | null;
 };
@@ -40,24 +46,35 @@ export function norm(s: string): string {
 // Ordem importa: a primeira que casa ganha.
 const RULES: Array<[Intent, RegExp]> = [
   ['sem_texto', /^\[(audio|image|video|sticker|document|imagem)[^\]]*\]$/],
+  // "Ja paguei mas nao abriu" (Passo 4.3): passa para a equipa verificar.
+  ['nao_abriu', /\b(paguei|pagamento|comprovativo)\b.*\b(nao (abriu|activou|ativou|abre|recebi|chegou)|ainda nao|nada)\b/],
   ['ja_pagou', /\b(ja (paguei|transferi|fiz o pagamento|enviei o dinheiro|mandei o dinheiro)|comprovativo)\b/],
+  ['pagar_outra_pessoa', /\b(m-?pesa|e-?mola|numero|conta) d[eoa]s? (outra pessoa|outro|meu (pai|irmao|tio)|minha (mae|irma|tia))\b/],
   // "nao percebi" nao e um "nao": e pedir para explicar a pergunta.
   ['nao_percebi', /\b(nao (percebi|entendi|compreendi|percebo|entendo)|como assim|explica( melhor)?|o que (queres|quer) dizer)\b/],
   ['problema_link', /\b(link|site|pagina)\b.*\b(nao (abre|abri|abriu|abrem|carrega|carregou|funciona|funcionou|entra)|indisponivel|sem internet|erro)\b|\b(nao (abre|abri|abriu)|indisponivel)\b/],
-  ['problema_acesso', /\b(codigo|palavra-passe|senha|criar conta|pede (conta|email|e-mail)|nao consigo (entrar|aceder|acessar)|volta ao inicio)\b/],
+  // Conta com e-mail/codigo: por confirmar no guia v21, por isso vai para a equipa.
+  ['problema_codigo', /\b(codigo|palavra-passe|senha|e-?mail)\b/],
+  ['problema_acesso', /\b(criar (a )?conta|pede conta|nao consigo (entrar|aceder|acessar|criar)|volta ao inicio|nao entra)\b/],
+  ['instalar_app', /\b(instal|apk|play ?store|baixar a app|descarregar a app|onde (baixo|tiro) a app)/],
+  ['vidas', /\bvidas?\b/],
   ['sem_dinheiro', /\b(nao tenho (dinheiro|condic|esse valor|o valor|como pagar|massa)|sem condic|sem dinheiro|(mes|semana) que vem|proximo mes|fim do mes|meu pai|minha mae|meus pais|nao posso pagar)\b/],
   ['acha_caro', /\b(caro|caros|muito dinheiro|desconto|mais barato)\b/],
   // "Isto e burla?" NAO pode receber a resposta do "pagamento e seguro?" (comecava por "E sim").
   ['desconfianca', /\b(burla|burlador|burladores|burlar|esquema|golpe|golpista|fraude|mentira|enganar|roubo|ladr)/],
   ['pagamento_seguro', /\b(seguro|confiavel|confiar|de confianca)\b/],
+  ['sem_chamada', /\b(nao (posso|consigo|quero|da para) (falar|atender|receber chamada|chamada|ligar|em chamada)|prefiro (escrever|mensagem|mensagens|por aqui|texto)|sem saldo|sem privacidade|por mensagem|nao gosto de chamada)/],
   ['prefere_presencial', /\b(presencial|presenciais|nunca estudei online|como (e|funciona) (estudar |o estudo )?online)\b/],
   ['horario_apoio', /\b(horario|que horas (sao|e) as aulas|videochamada|assistencia|explicador)\b/],
   ['telemovel_fraco', /\b(telemovel|celular|smartphone) (fraco|lento|velho)\b|\binternet (cara|fraca)\b|\b(sem|poucos) megas\b/],
   ['partilhar_conta', /\b(partilhar|dividir|usar a mesma) (a )?conta\b/],
+  ['cobre_exame', /\b(cobre tudo|sai no exame|cai no exame|vem no exame)\b/],
+  ['universidade_fora', /\b(nao (vejo|tem|encontro) (a )?minha universidade|minha universidade nao)/],
+  ['indicar_amigo', /\b(conheco alguem|tenho (um|uma) (amigo|amiga|colega)|meu (amigo|colega) (tambem )?quer|minha (amiga|colega) (tambem )?quer)/],
   ['vai_passar', /\b(vou passar|vai dar para (eu )?passar|garant[ei])/],
   ['muito_basico', /\b(muito basico|ja sei (tudo|isso)|facil demais)\b/],
-  ['um_mes', /\b(so (quero )?(um|1) mes|apenas (um|1) mes|um mes so|pacote de (um|1) mes)\b/],
-  ['quer_pagar', /\b(como (faco para |posso |devo )?pagar|quero (o|esse|este) pacote|quero o (a|b|c|d)\b|pacote (a|b|c|d)\b|vou pagar|onde pago|numero (do|de|para) (m-?pesa|e-?mola)|pagar agora)\b/],
+  ['quer_pagar', /\b(como (faco para |posso |devo )?(pagar|activar|ativar)|quero (activar|ativar)|vou pagar|onde pago|numero (do|de|para) (m-?pesa|e-?mola)|pagar agora)\b/],
+  ['super_nerd', /\b(super ?nerd|premium|plano pago|pacote|pacotes|mensalidade)\b/],
   ['pergunta_preco', /\b(quanto (custa|e|fica|sai|pago)|preco|precos|valores|o valor|a mensalidade)\b/],
   ['nao_sei', /\b(nao sei|nao tenho certeza|ainda nao sei|nao faco ideia|nao lembro)\b/],
   // Perguntas sobre o conteudo ("tem videos de fisica?"): vao para a equipa.
@@ -237,6 +254,32 @@ function findMonthsAhead(text: string): number | null {
   return n >= 1 && n <= 12 ? n : null;
 }
 
+// "para o curso de Zootecnia", "curso de Gestao de Empresas"
+function courseAfterCurso(text: string): string | null {
+  const m = text.match(/\bcurso\s+(?:de|em)\s+([A-Za-zÀ-ÿ]+(?:\s+(?:de|e|da|do)?\s*[A-Za-zÀ-ÿ]+)?)/i);
+  if (!m) return null;
+  const words = m[1].trim().split(/\s+/).filter((w, i, a) => !(i === a.length - 1 && /^(de|e|da|do|na|no)$/i.test(w)));
+  const v = words.join(' ');
+  return v.length >= 3 ? titleCase(v).replace(/\b(De|Da|Do|E)\b/g, (x) => x.toLowerCase()) : null;
+}
+
+// ---- Modo Super Nerd: quantas disciplinas e quantos meses ---------------------
+function findSnCount(text: string, namedSubjects: number): number | null {
+  const t = norm(text);
+  const m = t.match(/\b(\d|uma|um|duas|dois|tres|quatro|cinco)\s+(disciplinas?|cadeiras?|materias?)\b/);
+  if (m) return /^\d$/.test(m[1]) ? Number(m[1]) : ({ um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5 } as any)[m[1]];
+  if (/\b(as duas|ambas|as 2)\b/.test(t)) return 2;
+  if (/\b(so uma|apenas uma|uma so)\b/.test(t)) return 1;
+  return namedSubjects > 0 ? namedSubjects : null;
+}
+
+function findSnMonths(text: string): 1 | 2 | null {
+  const t = norm(text);
+  if (/\b(2|dois) mes(es)?\b/.test(t)) return 2;
+  if (/\b(1|um) mes\b/.test(t)) return 1;
+  return null;
+}
+
 // ---- Nome -------------------------------------------------------------------
 const BAD_NAMES = new Set([
   'estudante', 'mocambicano', 'sherone', 'leiz', 'zona', 'nerd', 'ola', 'oi', 'bom', 'boa', 'dia', 'tarde',
@@ -329,11 +372,13 @@ export async function understand(text: string, expecting: string, slot: Slot = n
     intentSource: 'fallback',
     name: regexName(text),
     university: findUniversity(text),
-    course: findCourse(text),
+    course: findCourse(text) || courseAfterCurso(text),
     subjects,
     missingSubjects: missing,
     examMonth: findMonth(text),
     examMonthsAhead: findMonthsAhead(text),
+    snCount: findSnCount(text, subjects.length + missing.length),
+    snMonths: findSnMonths(text),
     modelUsed: null,
     modelError: null,
   };
@@ -379,6 +424,16 @@ export async function understand(text: string, expecting: string, slot: Slot = n
     // "Matematica" respondido ao curso: e o curso, nao uma disciplina do exame.
     out.subjects = [];
     out.missingSubjects = [];
+  }
+  // Nome sozinho numa linha ("Absalao\nUem"): uma linha so com um nome.
+  if (!out.name && slot === 'name' && /\n/.test(text.trim())) {
+    for (const line of text.split('\n').map((l) => l.trim().replace(/[.!😊🙂]+$/u, '')).filter(Boolean)) {
+      if (/^[A-Za-zÀ-ÿ'-]+(\s+[A-Za-zÀ-ÿ'-]+)?$/.test(line) && !findUniversity(line) && !findCourse(line)
+          && !findSubjects(line).subjects.length) {
+        const nm = validName(line);
+        if (nm) { out.name = nm; break; }
+      }
+    }
   }
   // Nome sozinho numa resposta ao pedido de nome ("Elton", "Ana Mussa").
   if (!out.name && slot === 'name') {
