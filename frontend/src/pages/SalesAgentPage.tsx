@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Building2, MessageSquare, Brain, ChevronRight, GraduationCap, Power, Zap, Eye, AlertTriangle } from 'lucide-react';
+import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Building2, MessageSquare, Brain, ChevronRight, GraduationCap, PenLine, Power, Zap, Eye, AlertTriangle } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import AiCoachingPanel from '../components/AiCoachingPanel';
 import AiUsageBars from '../components/AiUsageBars';
 import { useAuthStore } from '../store';
 import LeizyKnowledgePanel from '../components/LeizyKnowledgePanel';
+import LeizProTextsPanel, { type LeizProTextItem } from '../components/LeizProTextsPanel';
 import { useIsLegacy } from '../lib/useUiMode';
 
 type SectorKey = 'imobiliaria' | 'clinica' | 'escola' | 'consultoria' | 'outro';
@@ -43,7 +44,7 @@ interface KnowledgePreview {
   stats: { principlesAvailable: number; principlesActive: number; sectorsAvailable: number };
 }
 
-type Tab = 'persona' | 'sector' | 'instructions' | 'knowledge' | 'coach' | 'memory';
+type Tab = 'persona' | 'sector' | 'instructions' | 'knowledge' | 'coach' | 'memory' | 'leizpro';
 
 export default function SalesAgentPage() {
   const [tab, setTab] = useState<Tab>('persona');
@@ -63,6 +64,8 @@ export default function SalesAgentPage() {
   // Modal que aparece ao clicar em Autonomo pela 1a vez sem contacto configurado.
   const [showHandoffModal, setShowHandoffModal] = useState(false);
   const [savingHandoff, setSavingHandoff] = useState(false);
+  // Leiz Pro (Zona Nerd): textos da Sherone editaveis. So aparece se estiver activa.
+  const [leizProItems, setLeizProItems] = useState<LeizProTextItem[] | null>(null);
   const workspace = useAuthStore((s) => s.workspace) as any;
   const isClinic = workspace?.sector === 'clinica';
   const isLegacy = useIsLegacy();
@@ -88,6 +91,11 @@ export default function SalesAgentPage() {
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api.get('/sales-agent/leizpro/texts')
+      .then(({ data }) => { if (data?.enabled) setLeizProItems(data.items); })
+      .catch(() => {});
+  }, []);
 
   // Save inline do toggle activada. Optimista: actualiza UI e reverte em erro.
   const toggleEnabled = async (next: boolean) => {
@@ -275,6 +283,7 @@ export default function SalesAgentPage() {
           { id: 'knowledge', label: 'Conhecimento', icon: BookOpen },
           { id: 'coach', label: 'Treinar Leizy', icon: GraduationCap },
           { id: 'memory', label: 'Memória aprendida', icon: Brain },
+          leizProItems && { id: 'leizpro' as Tab, label: 'Textos da Sherone', icon: PenLine },
         ].filter(Boolean)) as { id: Tab; label: string; icon: any }[]).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -291,7 +300,9 @@ export default function SalesAgentPage() {
         ))}
       </div>
 
-      {tab === 'coach' ? (
+      {tab === 'leizpro' && leizProItems ? (
+        <LeizProTextsPanel items={leizProItems} onSaved={setLeizProItems} />
+      ) : tab === 'coach' ? (
         <AiCoachingPanel />
       ) : tab === 'knowledge' ? (
         <div className="max-w-3xl"><LeizyKnowledgePanel /></div>

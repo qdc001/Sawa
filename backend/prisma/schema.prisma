@@ -184,6 +184,9 @@ model Workspace {
   // Memoria consolidada pelo job nocturno a partir das correccoes humanas
   // e dos fechos de leads (preenchida pela Fase 4 do plano).
   aiLearnedMemory               String?
+  // Leiz Pro (Zona Nerd): textos da Sherone editados no painel. Mapa
+  // { chave: string[] } que sobrepoe os textos do guia (lib/leizpro/guide.ts).
+  leizProTexts                  Json?
   // === Fase 3 da IA Vendedora: execucao supervisionada ===
   // Liga/desliga a geracao automatica de sugestoes quando chega mensagem.
   aiSalesEnabled                Boolean                @default(false)

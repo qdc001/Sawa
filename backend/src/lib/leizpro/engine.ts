@@ -24,6 +24,11 @@
 
 import prisma from '../prisma';
 import { T, AVAILABLE_SUBJECTS, type TemplateKey } from './guide';
+import { loadTexts, type Texts } from './texts';
+
+// Textos em uso nesta volta (guia + edicoes do painel). Definido em runTurn
+// antes de decide(), que e sincrono, por isso nao ha mistura entre conversas.
+let CUR: Texts = T;
 import { understand, monthsUntil, recommendPackage, LEIZPRO_MODEL, type Understanding, type Slot } from './understand';
 
 // Igual a AI_RESET_MARKER do aiSalesAgent (copiado para evitar import circular).
@@ -121,7 +126,7 @@ function say(key: TemplateKey, st: LeizProState, nextStep: Step, reason: string,
   const advanced = nextStep !== st.step;
   return {
     action: 'send_text',
-    parts: fill(T[key], st, { ...vars(st), ...extra }),
+    parts: fill(CUR[key], st, { ...vars(st), ...extra }),
     next: {
       ...st,
       step: nextStep,
@@ -136,7 +141,7 @@ function say(key: TemplateKey, st: LeizProState, nextStep: Step, reason: string,
 function handoff(st: LeizProState, reason: string): Decision {
   return {
     action: 'handoff',
-    parts: [`Leiz Pro passou a conversa para a equipa: ${reason}`, ...fill(T.handoffDraft, st)],
+    parts: [`Leiz Pro passou a conversa para a equipa: ${reason}`, ...fill(CUR.handoffDraft, st)],
     next: { ...st, step: 'handoff', retries: 0 },
     reason,
   };
@@ -147,10 +152,10 @@ function repeatOrHandoff(st: LeizProState, why: string): Decision {
   if (st.retries >= 1 || !st.lastQuestion) {
     return handoff(st, `${why} (depois de repetir a pergunta)`);
   }
-  const question = fill(T[st.lastQuestion], st, vars(st)).slice(-1);
+  const question = fill(CUR[st.lastQuestion], st, vars(st)).slice(-1);
   return {
     action: 'send_text',
-    parts: [...fill(T.repeatPrefix, st), ...question],
+    parts: [...fill(CUR.repeatPrefix, st), ...question],
     next: { ...st, lastKey: 'repeatPrefix', retries: st.retries + 1 },
     reason: `${why}: repetir a pergunta`,
   };
@@ -259,6 +264,17 @@ export function decide(stIn: LeizProState, u: Understanding, rawText = ''): Deci
   const obj = objection(u, st);
   if (obj) return obj;
 
+  // "Nao percebi": repete a ultima pergunta com outra introducao (uma vez).
+  if (u.intent === 'nao_percebi') {
+    if (st.retries >= 1 || !st.lastQuestion) return handoff(st, 'nao percebeu a pergunta, mesmo depois de a repetir');
+    return {
+      action: 'send_text',
+      parts: [...fill(CUR.clarifyPrefix, st), ...fill(CUR[st.lastQuestion], st, vars(st)).slice(-1)],
+      next: { ...st, lastKey: 'clarifyPrefix', retries: st.retries + 1 },
+      reason: 'nao percebeu: repetir a pergunta',
+    };
+  }
+
   // "So quero 1 mes" -> "O mais curto e o A. Queres comecar por esse?" -> "sim"
   if (st.lastKey === 'oneMonth' && u.intent === 'sim') {
     return handoff(st, 'aceitou o Pacote A (2 meses, 390 MZN): orientar o pagamento');
@@ -279,7 +295,7 @@ export function decide(stIn: LeizProState, u: Understanding, rawText = ''): Deci
       if (u.intent === 'nao_sei' && st.lastQuestion === 'askSubjects') {
         return { ...handoff(st, 'nao sabe as disciplinas do exame: a equipa confirma (Passo 1.4)'), parts: [
           'Leiz Pro passou a conversa para a equipa: nao sabe as disciplinas do exame, confirmar e responder.',
-          ...fill(T.subjectsUnknown, st, vars(st)),
+          ...fill(CUR.subjectsUnknown, st, vars(st)),
         ] };
       }
       const progressed = gotData && (
@@ -294,8 +310,8 @@ export function decide(stIn: LeizProState, u: Understanding, rawText = ''): Deci
       // Qualquer resposta serve (o guia so quer deixa-lo falar). Segue para a vacina.
       if (st.missingSubjects.length) {
         // 1.6 e depois, do 1.5.1, so as linhas sobre os estudos e a pergunta do online.
-        const a = fill(T.missingSubject, st, vars(st));
-        const b = fill(T.vaccineOnline, st, vars(st)).slice(2);
+        const a = fill(CUR.missingSubject, st, vars(st));
+        const b = fill(CUR.vaccineOnline, st, vars(st)).slice(2);
         return { action: 'send_text', parts: [...a, ...b], next: { ...st, step: 'ask_online', lastKey: 'vaccineOnline', lastQuestion: 'vaccineOnline', retries: 0 }, reason: 'Passo 1.6 + vacina do online (1.5.1)' };
       }
       const d = say('vaccineOnline', st, 'ask_online', 'vacina do online (Passo 1.5.1)');
@@ -392,8 +408,9 @@ async function pendingInboundText(contactId: string): Promise<string> {
 
 // Uma volta completa (compreensao + decisao + verificacao). Exportada para o
 // simulador de testes (scripts/leizProSimulate.ts) usar exactamente o mesmo caminho.
-export async function runTurn(state: LeizProState, text: string) {
+export async function runTurn(state: LeizProState, text: string, workspaceId?: string) {
   const u = await understand(text, expectingFor(state), slotFor(state));
+  CUR = workspaceId ? await loadTexts(workspaceId) : T;
   let d = decide(state, u, text);
   if (d.action === 'send_text' && hasPlaceholders(d.parts)) {
     d = handoff(state, 'a resposta ficou com campos por preencher');
@@ -448,7 +465,7 @@ export async function generateLeizProSuggestion(opts: {
   const text = await pendingInboundText(opts.contactId);
   if (!text.trim()) return null;
 
-  const { u, d } = await runTurn(state, text);
+  const { u, d } = await runTurn(state, text, opts.workspaceId);
 
   const reasoning = [
     d.reason,

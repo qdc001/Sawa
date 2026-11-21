@@ -55,6 +55,10 @@ export const T = {
     'Obrigado, [NOME]! 😊',
     'Para eu te orientar melhor, consegues escrever-me a resposta aqui por mensagem?',
   ],
+  // Quando diz "nao percebi": explicar e repetir a pergunta
+  clarifyPrefix: [
+    'Sem problema, [NOME]. 😊 Vou explicar melhor:',
+  ],
   // Prefixo para repetir a pergunta quando a resposta nao respondeu
   // (a pergunta repetida e a ultima parte da mensagem anterior).
   repeatPrefix: [
@@ -100,9 +104,10 @@ export const T = {
   // Passo 1.5.2
   vaccineCommitment: [
     'Certo, [NOME]. 😊\n\nAntes de avançarmos, deixa-me ser sincero contigo.',
-    'Na Zona Nerd exigimos compromisso. Quem entra tem de estar disposto a estudar com seriedade e a dedicar algumas horas por dia à sua admissão. Quem não estiver disposto a dar o máximo, infelizmente, não reúne condições para fazer parte da Zona Nerd.',
-    'Por isso, a minha pergunta é:\n\nEstás mesmo comprometido(a) a dar o teu melhor? 💪',
+    'Na Zona Nerd exigimos compromisso. Quem entra tem de estar disposto a estudar com seriedade e a dedicar algumas horas por dia à sua admissão. Quem não estiver disposto a dar o máximo, infelizmente, não reúne condições para fazer parte da Zona Nerd.\n\nPor isso, a minha pergunta é: estás mesmo comprometido(a) a dar o teu melhor? 💪',
   ],
+  // (A pergunta vai na mesma mensagem do texto longo: numa conversa real o
+  // estudante respondeu a meio do envio e a pergunta ainda nao tinha chegado.)
   // Passo 1.5.3
   vaccineBudget: [
     'Gosto dessa atitude, [NOME]! 😊',

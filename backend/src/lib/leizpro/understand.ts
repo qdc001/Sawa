@@ -13,7 +13,7 @@ export type Intent =
   | 'saudacao' | 'da_dados' | 'pergunta_preco' | 'acha_caro' | 'sem_dinheiro'
   | 'prefere_presencial' | 'problema_acesso' | 'problema_link' | 'quer_pagar' | 'ja_pagou'
   | 'pagamento_seguro' | 'vai_passar' | 'muito_basico' | 'horario_apoio' | 'telemovel_fraco'
-  | 'partilhar_conta' | 'um_mes' | 'desconfianca' | 'nao_sei' | 'sim' | 'nao' | 'duvida' | 'sem_texto' | 'outro';
+  | 'partilhar_conta' | 'um_mes' | 'nao_percebi' | 'desconfianca' | 'nao_sei' | 'sim' | 'nao' | 'duvida' | 'sem_texto' | 'outro';
 
 export type Understanding = {
   intent: Intent;
@@ -41,7 +41,9 @@ export function norm(s: string): string {
 const RULES: Array<[Intent, RegExp]> = [
   ['sem_texto', /^\[(audio|image|video|sticker|document|imagem)[^\]]*\]$/],
   ['ja_pagou', /\b(ja (paguei|transferi|fiz o pagamento|enviei o dinheiro|mandei o dinheiro)|comprovativo)\b/],
-  ['problema_link', /\b(link|site|pagina)\b.*\b(nao abre|indisponivel|sem internet|nao carrega|nao funciona|erro)\b|\b(nao abre|indisponivel)\b/],
+  // "nao percebi" nao e um "nao": e pedir para explicar a pergunta.
+  ['nao_percebi', /\b(nao (percebi|entendi|compreendi|percebo|entendo)|como assim|explica( melhor)?|o que (queres|quer) dizer)\b/],
+  ['problema_link', /\b(link|site|pagina)\b.*\b(nao (abre|abri|abriu|abrem|carrega|carregou|funciona|funcionou|entra)|indisponivel|sem internet|erro)\b|\b(nao (abre|abri|abriu)|indisponivel)\b/],
   ['problema_acesso', /\b(codigo|palavra-passe|senha|criar conta|pede (conta|email|e-mail)|nao consigo (entrar|aceder|acessar)|volta ao inicio)\b/],
   ['sem_dinheiro', /\b(nao tenho (dinheiro|condic|esse valor|o valor|como pagar|massa)|sem condic|sem dinheiro|(mes|semana) que vem|proximo mes|fim do mes|meu pai|minha mae|meus pais|nao posso pagar)\b/],
   ['acha_caro', /\b(caro|caros|muito dinheiro|desconto|mais barato)\b/],
@@ -93,9 +95,35 @@ const SUBJECT_ALIASES: Array<[string, RegExp]> = [
   ['Educação Visual', /\beducacao visual\b/],
 ];
 
+// Distancia de edicao (para erros de escrita: "Quimca", "Biologa", "matematca").
+function editDistance(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+const SUBJECT_WORDS: Array<[string, string]> = [
+  ['Matemática', 'matematica'], ['Física', 'fisica'], ['Biologia', 'biologia'], ['Química', 'quimica'],
+  ['Português', 'portugues'], ['História', 'historia'], ['Filosofia', 'filosofia'], ['Geografia', 'geografia'],
+  ['Francês', 'frances'], ['Inglês', 'ingles'],
+];
+
 function findSubjects(text: string): { subjects: string[]; missing: string[] } {
   const t = norm(text);
   const found = SUBJECT_ALIASES.filter(([, re]) => re.test(t)).map(([name]) => name);
+  // Palavras com 1 erro (2 nas compridas): "quimca" -> Quimica.
+  for (const w of t.split(/[^a-z]+/).filter((x) => x.length >= 5)) {
+    for (const [name, ref] of SUBJECT_WORDS) {
+      if (found.includes(name)) continue;
+      const max = ref.length >= 8 ? 2 : 1;
+      if (Math.abs(w.length - ref.length) <= max && editDistance(w, ref) <= max) found.push(name);
+    }
+  }
   const available = new Set<string>(AVAILABLE_SUBJECTS);
   return {
     subjects: found.filter((s) => available.has(s)),
@@ -371,6 +399,9 @@ export async function understand(text: string, expecting: string, slot: Slot = n
     // valem quando as regras as confirmam; a duvida do modelo so com "?".
     if (['ja_pagou', 'quer_pagar', 'sem_dinheiro'].includes(out.intent)) out.intent = 'outro';
     if (out.intent === 'duvida' && !text.includes('?')) out.intent = 'outro';
+    if (out.intent === 'problema_acesso' && /(link|site|pagina)/.test(norm(text)) && !/(codigo|conta|email|e-mail|senha)/.test(norm(text))) {
+      out.intent = 'problema_link';
+    }
   }
   // Se trouxe dados concretos e a intencao ficou vaga, e uma resposta com dados.
   const hasData = !!(out.name || out.university || out.course || out.subjects.length || out.missingSubjects.length

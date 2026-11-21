@@ -3,12 +3,16 @@ import { propagateAssignee } from '../lib/propagateAssignee';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import prisma from '../lib/prisma';
+import { Prisma } from '@prisma/client';
 import { buildSalesSystemPrompt } from '../lib/buildSalesSystemPrompt';
 import { SALES_PRINCIPLES, SOURCE_BOOKS, DEFAULT_ACTIVE_PRINCIPLES } from '../data/salesKnowledge';
 import { SECTOR_KNOWLEDGE, listSectorKeys } from '../data/sectorKnowledge';
 import { generateSalesSuggestion, AgentError, AI_RESET_MARKER } from '../lib/aiSalesAgent';
 import { dispatchSalesParts, executeSuggestionAction } from '../lib/autoDispatchSalesSuggestion';
 import { consolidateWorkspaceMemory } from '../lib/salesLearningConsolidator';
+import { isLeizProWorkspace } from '../lib/leizpro/engine';
+import { TEXT_META, TEXT_KEYS, validateText, clearTextsCache } from '../lib/leizpro/texts';
+import { T as LEIZPRO_DEFAULT_TEXTS } from '../lib/leizpro/guide';
 
 const router = Router();
 
@@ -703,6 +707,64 @@ router.post('/reset-context', async (req: AuthRequest, res: Response, next) => {
     }
 
     res.json({ ok: true, markerId: marker.id, at: marker.createdAt, discardedSuggestions: discarded.count });
+  } catch (e) { next(e); }
+});
+
+// ---- Leiz Pro (Zona Nerd): textos da Sherone editaveis no painel ------------
+// GET devolve cada mensagem com o texto do guia, o texto em uso e as regras.
+router.get('/leizpro/texts', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    if (!(await isLeizProWorkspace(workspaceId))) return res.json({ enabled: false, items: [] });
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { leizProTexts: true } });
+    const saved = (ws?.leizProTexts && typeof ws.leizProTexts === 'object') ? ws.leizProTexts as Record<string, unknown> : {};
+    const items = TEXT_KEYS.map((key) => {
+      const meta = TEXT_META[key];
+      const custom = saved[key];
+      const customOk = custom !== undefined && validateText(key, custom) === null;
+      return {
+        key,
+        group: meta.group,
+        label: meta.label,
+        help: meta.help,
+        vars: meta.vars || [],
+        questionLast: !!meta.questionLast,
+        defaultParts: LEIZPRO_DEFAULT_TEXTS[key],
+        parts: customOk ? custom : LEIZPRO_DEFAULT_TEXTS[key],
+        custom: customOk,
+      };
+    });
+    res.json({ enabled: true, items });
+  } catch (e) { next(e); }
+});
+
+// PUT { texts: { chave: string[] | null } } -> null volta ao texto do guia.
+router.put('/leizpro/texts', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const workspaceId = req.user!.workspaceId;
+    if (!(await isLeizProWorkspace(workspaceId))) throw new AppError('A Leiz Pro nao esta activa neste workspace', 400);
+    const incoming = req.body?.texts;
+    if (!incoming || typeof incoming !== 'object') throw new AppError('Pedido invalido', 400);
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { leizProTexts: true } });
+    const current: Record<string, string[]> = { ...((ws?.leizProTexts as any) || {}) };
+    for (const [key, parts] of Object.entries(incoming)) {
+      if (!(TEXT_KEYS as string[]).includes(key)) throw new AppError(`Mensagem desconhecida: ${key}`, 400);
+      if (parts === null) { delete current[key]; continue; }
+      const err = validateText(key as any, parts);
+      if (err) throw new AppError(err, 400);
+      const clean = (parts as string[]).map((p) => p.trim()).filter(Boolean);
+      // Igual ao guia: nao guardar (assim futuras correccoes do guia aplicam-se).
+      const def = LEIZPRO_DEFAULT_TEXTS[key as keyof typeof LEIZPRO_DEFAULT_TEXTS];
+      if (JSON.stringify(clean) === JSON.stringify(def)) delete current[key];
+      else current[key] = clean;
+    }
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { leizProTexts: Object.keys(current).length ? (current as any) : Prisma.DbNull },
+    });
+    clearTextsCache(workspaceId);
+    res.json({ ok: true, customized: Object.keys(current) });
   } catch (e) { next(e); }
 });
 

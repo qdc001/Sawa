@@ -67,6 +67,8 @@ const SCENARIOS: Scenario[] = [
     turns: [TRIGGER, 'Sim', 'obrigado'] },
   { title: 'Muda as disciplinas depois dos pacotes', expect: 'recalcula o pacote',
     turns: [TRIGGER, 'Sou o Ivo, UEM', 'Medicina', 'biologia', 'nada', 'sim', 'sim', 'sim', 'fevereiro', 'afinal é biologia e química'] },
+  { title: 'Conversa real (21/11): erro de escrita, "nao percebi", link com erro', expect: 'apanha Quimica com erro, explica a pergunta do compromisso, responde ao link',
+    turns: ['Ola', 'Absalão \nUem', 'Quero me candidatar para o curso de Zootécnia', 'Biologia e Quimca', 'Sim, já tentei estudar,tenho dificuldade para memorizar.', 'Sim.', 'Não percebi...', 'sim', 'O link não abri...'] },
   { title: 'Insulto / mensagem estranha', expect: 'nao responde com o fluxo: repete ou equipa',
     turns: [TRIGGER, 'isto é burla?', 'vocês são burladores'] },
 ];
