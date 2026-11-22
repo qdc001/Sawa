@@ -738,6 +738,24 @@ router.get('/leizpro/texts', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /leizpro/export?days=30&onlyAi=1 -> todas as conversas de WhatsApp num
+// .txt, com as sugestoes da IA intercaladas (para analisar a Leiz Pro).
+router.get('/leizpro/export', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!['OWNER', 'ADMIN', 'MANAGER'].includes(req.user!.role)) {
+      throw new AppError('Apenas donos, administradores e gestores podem descarregar todas as conversas', 403);
+    }
+    const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
+    const onlyWithAi = req.query.onlyAi === '1';
+    const { buildConversationsExport } = await import('../lib/leizpro/exportConversations');
+    const { text } = await buildConversationsExport({ workspaceId: req.user!.workspaceId, days, onlyWithAi });
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="conversas_leizpro_${days}d_${stamp}.txt"`);
+    res.send(text);
+  } catch (e) { next(e); }
+});
+
 // PUT { texts: { chave: string[] | null } } -> null volta ao texto do guia.
 router.put('/leizpro/texts', async (req: AuthRequest, res: Response, next) => {
   try {

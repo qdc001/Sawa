@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Save, RotateCcw, Plus, Trash2, ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { Loader2, Save, RotateCcw, Plus, Trash2, ChevronDown, ChevronRight, Info, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../lib/api';
 
@@ -18,6 +18,71 @@ export interface LeizProTextItem {
   defaultParts: string[];
   parts: string[];
   custom: boolean;
+}
+
+// Descarregar todas as conversas de WhatsApp num .txt, com as sugestoes da IA
+// intercaladas, para analisar como a Leiz Pro se esta a portar.
+function ExportConversationsCard() {
+  const [days, setDays] = useState(7);
+  const [onlyAi, setOnlyAi] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const download = async () => {
+    setBusy(true);
+    try {
+      const res = await api.get('/sales-agent/leizpro/export', {
+        params: { days, onlyAi: onlyAi ? '1' : '0' },
+        responseType: 'blob',
+        timeout: 120_000,
+      });
+      const dispo = res.headers['content-disposition'] || '';
+      const match = dispo.match(/filename="?([^";]+)"?/i);
+      const fname = match ? match[1] : `conversas_leizpro_${days}d.txt`;
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/plain;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = fname;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Conversas descarregadas');
+    } catch (e: any) {
+      let msg = 'Erro ao descarregar as conversas';
+      if (e.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await e.response.data.text()).message || msg; } catch { /* ignora */ }
+      }
+      toast.error(msg);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Descarregar conversas</h3>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          Todas as conversas de WhatsApp num só ficheiro de texto, com o que a Sherone propôs em cada momento e se foi aprovado, editado ou descartado. Os números de telefone saem escondidos.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <label className="flex items-center gap-2">
+          <span style={{ color: 'var(--text-secondary)' }}>Período:</span>
+          <select className="input py-1" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            <option value={1}>Último dia</option>
+            <option value={7}>Últimos 7 dias</option>
+            <option value={30}>Últimos 30 dias</option>
+            <option value={90}>Últimos 90 dias</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={onlyAi} onChange={(e) => setOnlyAi(e.target.checked)} />
+          <span style={{ color: 'var(--text-secondary)' }}>Só conversas onde a IA respondeu</span>
+        </label>
+        <div className="flex-1" />
+        <button className="btn btn-primary text-xs flex items-center gap-1" onClick={download} disabled={busy}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Descarregar
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function LeizProTextsPanel({ items: initial, onSaved }: { items: LeizProTextItem[]; onSaved: (items: LeizProTextItem[]) => void }) {
@@ -73,6 +138,8 @@ export default function LeizProTextsPanel({ items: initial, onSaved }: { items: 
           <p>A ordem das mensagens e quando a conversa passa para a equipa seguem o guia. Para mudar isso, fala com a equipa do Klaru.</p>
         </div>
       </div>
+
+      <ExportConversationsCard />
 
       {groups.map(([group, list]) => (
         <div key={group}>
