@@ -709,6 +709,15 @@ router.post('/evolution', async (req: Request, res: Response) => {
         if (externalId) {
           const exists = await prisma.message.findFirst({ where: { externalId }, select: { id: true } });
           if (exists) continue;
+          // Eco de uma mensagem que o proprio Klaru enviou (Sherone/IA, envio
+          // pelo Inbox): o eco do WhatsApp pode chegar antes de o envio gravar
+          // a mensagem com este externalId, e ficava duplicada no CRM como se
+          // fosse escrita a mao. Esperar um pouco e voltar a verificar.
+          if (fromMe) {
+            await new Promise((r) => setTimeout(r, 3000));
+            const again = await prisma.message.findFirst({ where: { externalId }, select: { id: true } });
+            if (again) continue;
+          }
         }
 
         const phone = remoteJid.split('@')[0].replace(/\D/g, '');

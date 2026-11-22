@@ -16,7 +16,12 @@ export type Intent =
   | 'partilhar_conta' | 'nao_percebi' | 'desconfianca' | 'nao_sei' | 'sim' | 'nao' | 'duvida' | 'sem_texto'
   // v21
   | 'super_nerd' | 'sem_chamada' | 'outra_hora' | 'vidas' | 'instalar_app' | 'problema_codigo' | 'cobre_exame'
-  | 'universidade_fora' | 'pagar_outra_pessoa' | 'indicar_amigo' | 'nao_abriu' | 'outro';
+  | 'universidade_fora' | 'pagar_outra_pessoa' | 'indicar_amigo' | 'nao_abriu'
+  // vistos nas conversas reais (22/11)
+  | 'vazio' | 'gratis' | 'porque_pergunta' | 'e_ia' | 'quer_agora'
+  // v26
+  | 'escolhe_pacote' | 'criar_conta' | 'conta_criada' | 'gostou' | 'esqueci_senha' | 'trocar_disciplinas'
+  | 'acesso_acabou' | 'paguei_errado' | 'como_funciona' | 'outro';
 
 export type Understanding = {
   intent: Intent;
@@ -31,6 +36,7 @@ export type Understanding = {
   // Modo Super Nerd: "2 disciplinas por 1 mes"
   snCount: number | null;
   snMonths: 1 | 2 | null;
+  pkg: 'A' | 'B' | 'C' | 'D' | null; // "quero o pacote D", "o B"
   modelUsed: string | null;
   modelError: string | null;
 };
@@ -46,6 +52,22 @@ export function norm(s: string): string {
 // Ordem importa: a primeira que casa ganha.
 const RULES: Array<[Intent, RegExp]> = [
   ['sem_texto', /^\[(audio|image|video|sticker|document|imagem)[^\]]*\]$/],
+  // "Estou a conversar com IA ou com uma pessoa?": a equipa decide a resposta.
+  ['e_ia', /\b(ia|inteligencia artificial|robo|robot|bot|chatbot|uma pessoa|pessoa real|humano|maquina)\b.*\?|\b(es|e|sao) (uma )?(ia|robo|bot|maquina)\b/],
+  // "Afinal nao e mahala?", "tem taxas?": a resposta do guia e a conta gratis.
+  ['gratis', /\b(e gratis|e gratuito|gratuit[oa]|de graca|mahala|nao e gratis|sem pagar nada|tem (taxa|taxas|custos?)|tem que pagar|e preciso pagar|paga-se)\b/],
+  // "E necessario?", "para que?": explicar porque perguntamos.
+  ['porque_pergunta', /^(e )?(mesmo )?necessario\b|\b(pra|para) que (e|serve|precisas|queres|precisa)\b|\bporque (perguntas|queres saber|precisas de saber)\b/],
+  // v26 -------------------------------------------------------------------
+  // "Paguei o valor errado" / "quero o dinheiro de volta": regra por confirmar, equipa.
+  ['paguei_errado', /\b(valor errado|paguei (a mais|a menos|errado|mal)|dinheiro de volta|devolu|reembols)/],
+  ['acesso_acabou', /\b(acesso|modo super nerd|pacote|plano) (ja )?(acabou|terminou|expirou)|\b(acabou|terminou|expirou) o (meu )?(acesso|pacote)\b/],
+  ['esqueci_senha', /\b(esqueci|perdi|nao lembro|nao me lembro) (a |da |de )?(minha )?(palavra-passe|palavra passe|senha|password)\b/],
+  ['trocar_disciplinas', /\b(trocar|mudar|alterar) (as |de |minhas )*(minhas )?disciplinas?\b/],
+  ['conta_criada', /\b(ja (criei|fiz|tenho) (a )?(minha )?conta|conta (ja )?(esta )?criada|ja me registei|ja me cadastrei|ja estou dentro|ja entrei)\b|^(pronto,? )?(ja )?criei\W*$|^(pronto,? )?ja (esta|ta)( feito| criada)?\W*$/],
+  ['criar_conta', /\b(quero criar|como (crio|faco|criar) (a )?conta|ajuda(-me)? a criar|vamos criar|criar (a )?conta (agora|ja|hoje))\b/],
+  ['gostou', /\b(gostei|adorei|muito bom|e bom|esta bom demais|interessante|top|excelente|percebi bem)\b/],
+  ['como_funciona', /\b(como (e|funciona) (estudar |o estudo |as aulas )?online|como (e que )?funciona( a zona nerd| isso| isto| a plataforma| as aulas)?\W*$)/],
   // "Ja paguei mas nao abriu" (Passo 4.3): passa para a equipa verificar.
   ['nao_abriu', /\b(paguei|pagamento|comprovativo)\b.*\b(nao (abriu|activou|ativou|abre|recebi|chegou)|ainda nao|nada)\b/],
   ['ja_pagou', /\b(ja (paguei|transferi|fiz o pagamento|enviei o dinheiro|mandei o dinheiro)|comprovativo)\b/],
@@ -53,8 +75,8 @@ const RULES: Array<[Intent, RegExp]> = [
   // "nao percebi" nao e um "nao": e pedir para explicar a pergunta.
   ['nao_percebi', /\b(nao (percebi|entendi|compreendi|percebo|entendo)|como assim|explica( melhor)?|o que (queres|quer) dizer)\b/],
   ['problema_link', /\b(link|site|pagina)\b.*\b(nao (abre|abri|abriu|abrem|carrega|carregou|funciona|funcionou|entra)|indisponivel|sem internet|erro)\b|\b(nao (abre|abri|abriu)|indisponivel)\b/],
-  // Conta com e-mail/codigo: por confirmar no guia v21, por isso vai para a equipa.
-  ['problema_codigo', /\b(codigo|palavra-passe|senha|e-?mail)\b/],
+  // Codigo do e-mail / e-mail com problema (v26: tem resposta no guia)
+  ['problema_codigo', /\b(codigo|e-?mail)\b/],
   ['problema_acesso', /\b(criar (a )?conta|pede conta|nao consigo (entrar|aceder|acessar|criar)|volta ao inicio|nao entra)\b/],
   ['instalar_app', /\b(instal|apk|play ?store|baixar a app|descarregar a app|onde (baixo|tiro) a app)/],
   ['vidas', /\bvidas?\b/],
@@ -71,11 +93,15 @@ const RULES: Array<[Intent, RegExp]> = [
   ['cobre_exame', /\b(cobre tudo|sai no exame|cai no exame|vem no exame)\b/],
   ['universidade_fora', /\b(nao (vejo|tem|encontro) (a )?minha universidade|minha universidade nao)/],
   ['indicar_amigo', /\b(conheco alguem|tenho (um|uma) (amigo|amiga|colega)|meu (amigo|colega) (tambem )?quer|minha (amiga|colega) (tambem )?quer)/],
-  ['vai_passar', /\b(vou passar|vai dar para (eu )?passar|garant[ei])/],
+  // ("garantir um 15 valores" nao e perguntar se vai passar)
+  ['vai_passar', /\b(vou passar|vou conseguir (passar|entrar|admitir)|vai dar para (eu )?(passar|entrar)|garantem|garante que|garantia de (entrar|admiss|passar))/],
   ['muito_basico', /\b(muito basico|ja sei (tudo|isso)|facil demais)\b/],
   ['quer_pagar', /\b(como (faco para |posso |devo )?(pagar|activar|ativar)|quero (activar|ativar)|vou pagar|onde pago|numero (do|de|para) (m-?pesa|e-?mola)|pagar agora)\b/],
+  // "Quero o pacote D", "vou ficar com o B", "fico com o A"
+  ['escolhe_pacote', /\bpacote\s*[abcd]\b|^(o|quero o|fico com o|vou ficar com o|escolho o|vou querer o|pode ser o)\s*[abcd]\W*$/],
   ['super_nerd', /\b(super ?nerd|premium|plano pago|pacote|pacotes|mensalidade)\b/],
-  ['pergunta_preco', /\b(quanto (custa|e|fica|sai|pago)|preco|precos|valores|o valor|a mensalidade)\b/],
+  // ("garantir um 15 valores" e uma nota, nao o preco: so "os valores"/"o valor")
+  ['pergunta_preco', /\b(quanto (custa|e|fica|sai|pago)|preco|precos|(os|quais (sao )?os|saber os|ver os) valores|o valor (e|do|da|de|a pagar)|qual (e )?o valor|a mensalidade)\b/],
   ['nao_sei', /\b(nao sei|nao tenho certeza|ainda nao sei|nao faco ideia|nao lembro)\b/],
   // Perguntas sobre o conteudo ("tem videos de fisica?"): vao para a equipa.
   ['duvida', /^(tem|ha|existe|existem|quantos|quantas|quais|qual|como|o que|e possivel|da para|posso)\b.*\?\s*$/],
@@ -86,6 +112,8 @@ const NO = /^(nao|n|ainda nao|agora nao|talvez|depende|vou tentar|vou pensar|mai
 
 function ruleIntent(text: string): Intent | null {
   const t = norm(text).trim();
+  // ".", "..", "👍" sozinhos: nao e uma resposta (o modelo lia "." como "sim").
+  if (!/[a-z0-9]/.test(t)) return /[👍✅🙏👌]/u.test(text) ? 'sim' : 'vazio';
   for (const [intent, re] of RULES) if (re.test(t)) return intent;
   // respostas curtas de sim/nao (muito comuns nas vacinas)
   const short = t.replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -273,6 +301,13 @@ function findSnCount(text: string, namedSubjects: number): number | null {
   return namedSubjects > 0 ? namedSubjects : null;
 }
 
+// "Quero o pacote D", "o B", "fico com o pacote a"
+function findPkg(text: string): 'A' | 'B' | 'C' | 'D' | null {
+  const t = norm(text).trim();
+  const m = t.match(/\bpacote\s*([abcd])\b/) || t.match(/^(?:o|quero o|fico com o|vou ficar com o|escolho o|vou querer o|pode ser o)\s*([abcd])\W*$/);
+  return m ? (m[1].toUpperCase() as 'A' | 'B' | 'C' | 'D') : null;
+}
+
 function findSnMonths(text: string): 1 | 2 | null {
   const t = norm(text);
   if (/\b(2|dois) mes(es)?\b/.test(t)) return 2;
@@ -348,7 +383,9 @@ async function askModel(text: string, expecting: string): Promise<any> {
         prompt: buildPrompt(text, expecting),
         format: 'json',
         stream: false,
-        keep_alive: '60m',
+        // 24h: depois de uma noite parado, recarregar o modelo demorava e a
+        // primeira mensagem da manha dava timeout (visto a 22/11 as 07:31).
+        keep_alive: '24h',
         options: { temperature: 0, num_predict: 160 },
       }),
       signal: ctrl.signal,
@@ -379,6 +416,7 @@ export async function understand(text: string, expecting: string, slot: Slot = n
     examMonthsAhead: findMonthsAhead(text),
     snCount: findSnCount(text, subjects.length + missing.length),
     snMonths: findSnMonths(text),
+    pkg: findPkg(text),
     modelUsed: null,
     modelError: null,
   };
@@ -408,6 +446,20 @@ export async function understand(text: string, expecting: string, slot: Slot = n
     if (!out.course && course && norm(course) !== norm(out.university || '') && norm(course) !== norm(out.name || '')
         && !findSubjects(course).subjects.length && !findUniversity(course)) {
       out.course = titleCase(course);
+    }
+  }
+  // Instituicao que nao esta na lista ("Centro dos professores", "IFP",
+  // "Instituto Industrial e Comercial da Beira"): quando perguntamos a
+  // universidade, a resposta curta e a instituicao.
+  if (!out.university) {
+    const inst = text.match(/\b((?:instituto|escola|centro|faculdade|academia|universidade)\s+[A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){0,6})/i);
+    if (inst && /^(instituto|escola|centro|faculdade|academia)/i.test(inst[1])) out.university = inst[1].trim().replace(/[.,;!]+$/, '');
+  }
+  if (slot === 'university' && !out.university && !byRule && !/\?/.test(text)) {
+    const ans = text.trim().replace(/^(na|no|em|e|é|pra|para|a|o)\s+/i, '').replace(/[.!😊🙂]+$/u, '');
+    if (ans.split(/\s+/).length <= 8 && /^[A-Za-zÀ-ÿ0-9.' -]+$/.test(ans) && /[A-Za-zÀ-ÿ]{2,}/.test(ans)
+        && !BAD_NAMES.has(norm(ans.split(/\s+/)[0]))) {
+      out.university = ans;
     }
   }
   // Resposta curta ao pedido do curso ("Medicina", "Matematica", "Eng. Civil"):
@@ -453,6 +505,12 @@ export async function understand(text: string, expecting: string, slot: Slot = n
     // como duvida/pagamento. Intencoes que passam a conversa para a equipa so
     // valem quando as regras as confirmam; a duvida do modelo so com "?".
     if (['ja_pagou', 'quer_pagar', 'sem_dinheiro'].includes(out.intent)) out.intent = 'outro';
+    // O modelo confundia "o mais dificil e resolver exames" com problema de
+    // acesso, e "porque a conta e nova?" com pergunta de preco.
+    const tn = norm(text);
+    if (out.intent === 'problema_acesso' && !/\b(entrar|conta|site|app|aplicativo|link|login|abrir|abre|aceder|acessar)\b/.test(tn)) out.intent = 'outro';
+    if (out.intent === 'pergunta_preco' && !/\b(preco|precos|custa|valor|valores|pagar|pago|mzn|meticais|dinheiro|caro)\b/.test(tn)) out.intent = 'outro';
+    if (out.intent === 'acha_caro' && !/\b(caro|caros|dinheiro|preco|valor)\b/.test(tn)) out.intent = 'outro';
     if (out.intent === 'duvida' && !text.includes('?')) out.intent = 'outro';
     if (out.intent === 'problema_acesso' && /(link|site|pagina)/.test(norm(text)) && !/(codigo|conta|email|e-mail|senha)/.test(norm(text))) {
       out.intent = 'problema_link';

@@ -565,13 +565,43 @@ export async function maybeTriggerSalesSuggestion(opts: {
     const leizpro = await import('./leizpro/engine');
     let generated: { suggestion: any; normalized: { action: string } } | null;
     if (await leizpro.isLeizProWorkspace(opts.workspaceId)) {
-      generated = await leizpro.generateLeizProSuggestion({
-        workspaceId: opts.workspaceId,
-        contactId: opts.contactId,
-        leadId: opts.leadId || null,
-        triggerMessageId: opts.triggerMessageId || null,
+      // O estudante escreve muitas vezes em varias mensagens seguidas ("Magno",
+      // "Universidade Zambeze"). Sem isto saiam duas respostas ao mesmo tempo
+      // (visto a 21/11). Espera uns segundos, so a ultima mensagem responde, e
+      // uma conversa so e tratada de cada vez (incluindo o envio automatico).
+      await leizpro.debounceInbound();
+      if (opts.triggerMessageId && !(await leizpro.isLatestInbound(opts.contactId, opts.triggerMessageId))) return;
+      await leizpro.withContactLock(opts.contactId, async () => {
+        if (await leizpro.lastIsOutbound(opts.contactId)) return; // ja respondida entretanto
+        const gen = await leizpro.generateLeizProSuggestion({
+          workspaceId: opts.workspaceId,
+          contactId: opts.contactId,
+          leadId: opts.leadId || null,
+          triggerMessageId: opts.triggerMessageId || null,
+        });
+        if (!gen) return;
+        if (opts.io) opts.io.to(`workspace:${opts.workspaceId}`).emit('aiSales:suggestion', gen.suggestion);
+        if (ws.aiSalesMode === 'auto') {
+          if (['send_text', 'send_product', 'book_appointment'].includes(gen.normalized.action)) {
+            try {
+              const { autoDispatchSuggestion } = await import('./autoDispatchSalesSuggestion');
+              await autoDispatchSuggestion(gen.suggestion.id, opts.io);
+            } catch (e: any) {
+              console.error('[leizpro] auto-dispatch failed:', e?.message || e);
+            }
+            // Pacote escolhido / pagamento a validar: a equipa tem de saber.
+            if (gen.notify) {
+              await leizpro.notifyHandoff(opts.workspaceId, opts.contactId, gen.suggestion).catch((e: any) =>
+                console.error('[leizpro] notify failed:', e?.message || e));
+            }
+          } else if (gen.normalized.action === 'handoff') {
+            // Em modo automatico ninguem esta a ver as sugestoes: avisar a equipa.
+            await leizpro.notifyHandoff(opts.workspaceId, opts.contactId, gen.suggestion).catch((e: any) =>
+              console.error('[leizpro] notify handoff failed:', e?.message || e));
+          }
+        }
       });
-      if (!generated) return;
+      return;
     } else {
       generated = await generateSalesSuggestion({
         workspaceId: opts.workspaceId,

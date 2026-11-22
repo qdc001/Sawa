@@ -297,6 +297,13 @@ setInterval(() => {
   runScheduledDeliveries().catch((e) => console.error('runScheduledDeliveries error:', e));
 }, 60_000);
 
+// Leiz Pro: régua de follow-up depois dos pacotes (Fluxo 6) — corre a cada minuto
+setInterval(() => {
+  import('./lib/leizpro/followups')
+    .then((m) => m.runLeizProFollowups(io))
+    .catch((e) => console.error('runLeizProFollowups error:', e));
+}, 60_000);
+
 // Verifica tarefas atrasadas a cada minuto e dispara automações de task_overdue
 setInterval(() => {
   checkOverdueTasks().catch((e) => console.error('checkOverdueTasks error:', e));

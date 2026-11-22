@@ -93,7 +93,7 @@ export function parseTimeChoice(text: string, offered: Slot[] | null, now = new 
   }
 
   // So "sim"/"pode ser"/"ok" a uma proposta: fica a primeira.
-  if (hour === null && dayOffset === null && offered && /^(sim|pode ser|ok|combinado|esta bem|pode|claro|bora)\b/.test(t)) {
+  if (hour === null && dayOffset === null && offered && /^(sim|pode ser|ok|okay|combinado|esta bem|pode|claro|bora|yes|yeah|ya|serve|perfeito|ta bem|certo)\b/.test(t)) {
     return { kind: 'slot', at: new Date(offered[0].iso) };
   }
 
@@ -127,4 +127,12 @@ export function parseTimeChoice(text: string, offered: Slot[] | null, now = new 
   if (at.getTime() < now.getTime() + 15 * 60_000) return { kind: 'day_only' };
   const inHours = hour >= CALL_HOURS.from && (hour < CALL_HOURS.to || (hour === CALL_HOURS.to && minute === 0)) && hour < CALL_HOURS.to;
   return inHours ? { kind: 'slot', at } : { kind: 'out_of_hours', at };
+}
+
+// Dia combinado no envio dos pacotes (Passo 1.5.3): amanha as 18h, para o
+// estudante ver com calma. A regua de follow-up (Fluxo 6) conta a partir dai.
+export function decisionSlot(now = new Date()): Slot {
+  const n = toLocal(now);
+  const at = fromLocal(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + 1, 18);
+  return { iso: at.toISOString(), label: slotLabel(at, now) };
 }

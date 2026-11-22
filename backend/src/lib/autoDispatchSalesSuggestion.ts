@@ -41,8 +41,19 @@ export async function dispatchSalesParts(opts: {
   const { workspaceId, contactId, contactPhone, leadId, parts, productFiles, sentById, io } = opts;
   const sentMessageIds: string[] = [];
 
+  // A parte "<<PDF>>" (Leiz Pro) marca onde entram os anexos no meio das
+  // mensagens; sem ela, os anexos vao no fim, como antes.
+  let filesSent = false;
   for (let i = 0; i < parts.length; i++) {
     const text = parts[i];
+    if (text.trim() === '<<PDF>>') {
+      if (!filesSent) {
+        filesSent = true;
+        const fail = await sendFiles();
+        if (fail) return fail;
+      }
+      continue;
+    }
     // Presence: "a escrever" + pausa proporcional ao texto.
     await sendWhatsAppPresence(workspaceId, contactPhone, 'composing', typingDelayFor(text));
     await new Promise((r) => setTimeout(r, typingDelayFor(text)));
@@ -80,8 +91,15 @@ export async function dispatchSalesParts(opts: {
     }
   }
 
+  if (!filesSent) {
+    const fail = await sendFiles();
+    if (fail) return fail;
+  }
+  return { sentMessageIds };
+
   // Anexos de produto: tambem com pequena pausa entre cada para nao
   // bombardear o destinatario.
+  async function sendFiles(): Promise<{ sentMessageIds: string[]; failedAt?: number; error?: string } | null> {
   for (const file of productFiles) {
     const mtype = file.type?.startsWith('image/') ? 'IMAGE'
       : file.type?.startsWith('video/') ? 'VIDEO'
@@ -122,7 +140,8 @@ export async function dispatchSalesParts(opts: {
       return { sentMessageIds, failedAt: parts.length, error: result.error };
     }
   }
-  return { sentMessageIds };
+  return null;
+  }
 }
 
 // Executa a accao concreta associada a uma sugestao (book_appointment /
@@ -156,6 +175,20 @@ export async function executeSuggestionAction(
       }
       if (executionError) {
         return { createdEntity: null, executionError };
+      }
+      // Leiz Pro: o estudante mudou a hora da chamada. Cancela a chamada que a
+      // IA tinha marcado antes (so as futuras ainda por acontecer).
+      if (payload.replacePrevious) {
+        await prisma.appointment.updateMany({
+          where: {
+            workspaceId: suggestion.workspaceId,
+            contactId: suggestion.contactId,
+            createdByAi: true,
+            status: { in: ['SCHEDULED', 'CONFIRMED'] },
+            startsAt: { gt: new Date() },
+          },
+          data: { status: 'CANCELED' },
+        });
       }
       // Detectar conflitos: outra consulta do mesmo contacto na mesma hora
       // (janela de +/- 15min) e ja com estado activo.
