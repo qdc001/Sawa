@@ -86,7 +86,6 @@ export const TEXT_META: Record<TemplateKey, Meta> = {
   whyAsk: { group: '7. Auxiliares', label: '"É necessário?" (porque perguntamos)', help: 'A seguir o Klaru repete a pergunta.' },
   clarifyPrefix: { group: '7. Auxiliares', label: 'Introdução quando "não percebeu"', help: 'Vem antes da pergunta repetida.' },
   repeatPrefix: { group: '7. Auxiliares', label: 'Introdução ao repetir a pergunta', help: 'Quando a resposta não respondeu ao que foi perguntado.' },
-  handoffDraft: { group: '7. Auxiliares', label: 'Rascunho ao passar para a equipa', help: 'Não é enviado sozinho: aparece como sugestão para a equipa.' },
 };
 
 export const TEXT_KEYS = Object.keys(TEXT_META) as TemplateKey[];

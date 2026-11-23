@@ -173,7 +173,8 @@ function say(key: TemplateKey, st: LeizProState, nextStep: Step, reason: string,
 function handoff(st: LeizProState, reason: string): Decision {
   return {
     action: 'handoff',
-    parts: [`Leiz Pro passou a conversa para a equipa: ${reason}`, ...fill(CUR.handoffDraft, st)],
+    // So uma nota interna: o estudante nao recebe nada (sem "vou confirmar com a equipa").
+    parts: [`Nota interna (não é enviada ao estudante): a Sherone passou a conversa para a equipa porque ${reason}.`],
     next: { ...st, step: 'handoff', retries: 0 },
     reason,
   };

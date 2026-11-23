@@ -339,10 +339,6 @@ export const T = {
   repeatPrefix: [
     'Só para eu te orientar bem, [NOME]:',
   ],
-  // "Em caso de duvida" do guia: so serve de rascunho para a equipa.
-  handoffDraft: [
-    'Boa pergunta, [NOME].\n\nDeixa-me confirmar com a equipa e volto já a falar contigo.',
-  ],
 } satisfies Record<string, string[]>;
 
 export type TemplateKey = keyof typeof T;
