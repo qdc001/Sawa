@@ -668,6 +668,27 @@ export async function loadState(workspaceId: string, contactId: string): Promise
   return st;
 }
 
+// Ultimas 8 mensagens antes das que estao por responder (dos dois lados,
+// incluindo as da equipa), para o modelo perceber o contexto da conversa.
+async function recentHistory(contactId: string): Promise<string[]> {
+  const lastOut = await prisma.message.findFirst({
+    where: { contactId, direction: 'OUTBOUND', isInternal: false },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
+  if (!lastOut) return [];
+  const rows = await prisma.message.findMany({
+    where: { contactId, isInternal: false, createdAt: { lte: lastOut.createdAt } },
+    orderBy: { createdAt: 'desc' },
+    take: 8,
+    select: { direction: true, content: true, type: true },
+  });
+  return rows.reverse().map((m) => {
+    const body = (m.content || (m.type !== 'TEXT' ? `[${m.type}]` : '')).replace(/\s+/g, ' ').trim().slice(0, 220);
+    return `${m.direction === 'INBOUND' ? 'Estudante' : 'Zona Nerd'}: ${body}`;
+  }).filter((l) => !l.endsWith(': '));
+}
+
 async function pendingInboundText(contactId: string): Promise<string> {
   const lastOut = await prisma.message.findFirst({
     where: { contactId, direction: 'OUTBOUND', isInternal: false },
@@ -723,8 +744,8 @@ function expectingFor(st: LeizProState): string {
 
 // Uma volta completa (compreensao + decisao + verificacao). Exportada para o
 // simulador de testes (scripts/leizProSimulate.ts) usar exactamente o mesmo caminho.
-export async function runTurn(state: LeizProState, text: string, workspaceId?: string) {
-  const u = await understand(text, expectingFor(state), slotFor(state));
+export async function runTurn(state: LeizProState, text: string, workspaceId?: string, history: string[] = []) {
+  const u = await understand(text, expectingFor(state), slotFor(state), history);
   CUR = workspaceId ? await loadTexts(workspaceId) : T;
   let d = decide(state, u, text);
   if (d.action !== 'handoff' && d.action !== 'wait' && hasPlaceholders(d.parts)) {
@@ -1112,7 +1133,7 @@ export async function generateLeizProSuggestion(opts: {
     if (!isTriggerText(first?.content || '')) return null;
   }
 
-  let { u, d } = await runTurn(state, text, opts.workspaceId);
+  let { u, d } = await runTurn(state, text, opts.workspaceId, await recentHistory(opts.contactId));
 
   // PDF dos pacotes: do catalogo; sem ele, os pacotes em texto.
   let productId: string | null = null;

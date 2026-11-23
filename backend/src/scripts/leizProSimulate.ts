@@ -148,6 +148,7 @@ async function main() {
     console.log(`\n==================== ${sc.n}. ${sc.title}`);
     console.log(`Esperado: ${sc.expect}`);
     let st: LeizProState = { ...INITIAL_STATE };
+    const hist: string[] = []; // conversa ate agora, como no WhatsApp
     for (const msg of sc.turns) {
       if (msg === REGUA) {
         if (!st.regua || st.step !== 'pdf_sent' || st.regua.sent >= 3) { console.log('\n  (REGUA: nada a enviar, a regua parou)'); continue; }
@@ -159,7 +160,7 @@ async function main() {
         continue;
       }
       const t0 = Date.now();
-      const { u, d } = await runTurn(st, msg);
+      const { u, d } = await runTurn(st, msg, undefined, hist.slice(-8));
       const secs = ((Date.now() - t0) / 1000).toFixed(1);
       console.log('');
       show('ESTUDANTE: ', [msg]);
@@ -176,6 +177,8 @@ async function main() {
         if (d.action === 'send_pdf') console.log('  >>> (o <<PDF>> e o PDF dos pacotes do catalogo; sem ele vao os pacotes em texto)');
         if (d.notify) console.log(`  >>> AVISO A EQUIPA: ${d.notify}`);
       }
+      hist.push(`Estudante: ${msg}`);
+      if (d.action !== 'wait' && d.action !== 'handoff') hist.push(`Zona Nerd: ${d.parts.join(' ').replace(/\s+/g, ' ').slice(0, 220)}`);
       st = d.next;
       if (d.action === 'handoff') break;
     }

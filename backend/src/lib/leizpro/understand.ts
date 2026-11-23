@@ -360,7 +360,7 @@ const MODEL_INTENTS: Intent[] = [
   'problema_acesso', 'quer_pagar', 'ja_pagou', 'nao_sei', 'sim', 'nao', 'duvida', 'outro',
 ];
 
-function buildPrompt(text: string, expecting: string): string {
+function buildPrompt(text: string, expecting: string, history: string[] = []): string {
   return [
     'Es a assistente da Zona Nerd. Le a mensagem de um estudante mocambicano e responde SO com JSON:',
     '{"nome","universidade","curso","intencao"}.',
@@ -368,11 +368,17 @@ function buildPrompt(text: string, expecting: string): string {
     'nome e o nome da pessoa (nao e a universidade nem o curso). curso e o curso superior (ex: Medicina, Direito, Engenharia Civil).',
     'intencao e UMA destas: saudacao (cumprimenta ou quer saber como funciona/fazer parte), da_dados (diz nome, universidade, curso, disciplinas ou data do exame), pergunta_preco (pergunta quanto custa ou os valores), acha_caro (diz que e caro mas nao fala de falta de dinheiro), sem_dinheiro (diz que nao tem dinheiro ou condicoes agora, ou que so paga mais tarde), prefere_presencial (quer aulas presenciais ou pergunta como e estudar online), problema_acesso (nao consegue entrar, link nao abre, site pede conta, email ou codigo), quer_pagar (escolheu pacote ou pergunta como pagar), ja_pagou (diz que ja pagou ou manda comprovativo), nao_sei (diz que nao sabe a resposta), sim (concorda ou confirma), nao (recusa ou hesita), duvida (pergunta sobre conteudo, disciplinas, horarios ou apoio), outro.',
     `Contexto: a equipa acabou de perguntar ${expecting}.`,
-    `Mensagem: ${text}`,
+    // Ultimas mensagens da conversa (dos dois lados, incluindo as escritas a
+    // mao pela equipa), para perceber a que pergunta o estudante responde.
+    ...(history.length ? [
+      'Conversa recente (da mais antiga para a mais recente; serve so para perceber a mensagem nova, os campos nome/universidade/curso tiram-se SO da mensagem nova):',
+      history.join(' | '),
+    ] : []),
+    `Mensagem nova do estudante: ${text}`,
   ].join(' ');
 }
 
-async function askModel(text: string, expecting: string): Promise<any> {
+async function askModel(text: string, expecting: string, history: string[] = []): Promise<any> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 90_000);
   try {
@@ -381,7 +387,7 @@ async function askModel(text: string, expecting: string): Promise<any> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: LEIZPRO_MODEL,
-        prompt: buildPrompt(text, expecting),
+        prompt: buildPrompt(text, expecting, history),
         format: 'json',
         stream: false,
         // 24h: depois de uma noite parado, recarregar o modelo demorava e a
@@ -403,7 +409,7 @@ async function askModel(text: string, expecting: string): Promise<any> {
 // ("Medicina" sozinho e o curso quando perguntamos o curso).
 export type Slot = 'name' | 'university' | 'course' | 'subjects' | 'date' | null;
 
-export async function understand(text: string, expecting: string, slot: Slot = null): Promise<Understanding> {
+export async function understand(text: string, expecting: string, slot: Slot = null, history: string[] = []): Promise<Understanding> {
   const { subjects, missing } = findSubjects(text);
   const out: Understanding = {
     intent: 'outro',
@@ -427,7 +433,7 @@ export async function understand(text: string, expecting: string, slot: Slot = n
   let modelJson: any = null;
   if (byRule !== 'sem_texto') {
     try {
-      modelJson = await askModel(text, expecting);
+      modelJson = await askModel(text, expecting, history);
       out.modelUsed = LEIZPRO_MODEL;
     } catch (e: any) {
       out.modelError = e?.name === 'AbortError' ? 'timeout' : (e?.message || String(e));
