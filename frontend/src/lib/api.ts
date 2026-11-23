@@ -395,6 +395,8 @@ export interface AiSalesRuntimeConfig {
   aiSalesEnabled: boolean;
   aiSalesMode: 'supervised' | 'auto';
   aiSalesEnabledConversationIds: string[];
+  // Conversas desligadas a mao (valem mesmo com a Leizy ligada para todos).
+  aiSalesDisabledConversationIds?: string[];
   aiSalesMaxParts: number;
   aiSalesHandoffTriggers: string[];
 }

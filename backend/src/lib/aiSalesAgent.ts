@@ -493,12 +493,17 @@ export async function maybeTriggerSalesSuggestion(opts: {
   try {
     const ws = await prisma.workspace.findUnique({
       where: { id: opts.workspaceId },
-      select: { aiSalesEnabled: true, aiSalesEnabledConversationIds: true, aiSalesMode: true, aiSalesHandoffTriggers: true },
+      select: { aiSalesEnabled: true, aiSalesEnabledConversationIds: true, aiSalesDisabledConversationIds: true, aiSalesMode: true, aiSalesHandoffTriggers: true },
     });
     if (!ws) return;
     const enabledIds = Array.isArray(ws.aiSalesEnabledConversationIds)
       ? (ws.aiSalesEnabledConversationIds as any[]).filter((x) => typeof x === 'string')
       : [];
+    const disabledIds = Array.isArray(ws.aiSalesDisabledConversationIds)
+      ? (ws.aiSalesDisabledConversationIds as any[]).filter((x) => typeof x === 'string')
+      : [];
+    // Desligada a mao nesta conversa: vale mesmo com o toggle global ligado.
+    if (disabledIds.includes(opts.contactId)) return;
     const active = ws.aiSalesEnabled || enabledIds.includes(opts.contactId);
     if (!active) return;
 

@@ -562,7 +562,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
         if (u.intent === 'sim' || isThanks || tc.kind === 'slot') return wait(st, 'aceitou o dia combinado: a regua de follow-up conta a partir dai');
       }
       // A meio da regua (ou depois da despedida): "sim, ja decidi" -> qual pacote?
-      if (st.lastKey && ['reguaContact1', 'reguaContact2', 'reguaFarewell', 'askPackage'].includes(st.lastKey)) {
+      if (st.lastKey && ['reguaContact1', 'reguaContact1Generic', 'reguaContact1NoCourse', 'reguaContact2', 'reguaFarewell', 'askPackage'].includes(st.lastKey)) {
         if (u.intent === 'sim' && st.lastKey !== 'askPackage') return say('askPackage', st, 'pdf_sent', 'respondeu a regua: com qual dos pacotes vai ficar');
         if (u.intent === 'nao' || u.intent === 'sem_dinheiro') return say('reguaNotNow', st, 'followup', '"agora nao" na regua: agradecer e perguntar quando voltar a falar (Fluxo 6)');
         if (isThanks) return wait(st, 'agradeceu: nao e preciso responder');
@@ -724,42 +724,32 @@ function courseName(c: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-// Recomendacao do contacto 1 (modelo da Deise): pacote de 2 meses com as
-// disciplinas do exame do curso dele (editais 2026). Vazio se nao soubermos o exame.
-function reguaRecommendation(st: LeizProState): string {
-  if (!st.course) return '';
+// Contacto 1 (modelo da Deise): variante e campos conforme o curso dele.
+function reguaContact1(st: LeizProState): { key: TemplateKey; vars: Record<string, string> } {
+  if (!st.course) return { key: 'reguaContact1NoCourse', vars: {} };
   const opts = examOptions(st.university, st.course);
   if (!opts || !opts[0].length) {
-    // Curso fora dos editais: so o numero de disciplinas (2, ou o que ele disse
-    // no modo Super Nerd), sem a frase do capitulo.
     const n = st.snCount === 1 ? 1 : 2;
-    const parts = fill(CUR.reguaRecommendationGeneric, st, {
-      curso: courseName(st.course),
-      pacote: packageLabel(n, 2),
-      disciplinas: n === 1 ? '1 disciplina' : '2 disciplinas',
-      duracao: '2 meses',
-    });
-    return parts.length ? `${parts.join('\n\n')}\n\n` : '';
+    return {
+      key: 'reguaContact1Generic',
+      vars: { curso: courseName(st.course), pacote: packageLabel(n, 2), disciplinas: n === 1 ? '1 disciplina' : '2 disciplinas', duracao: '2 meses' },
+    };
   }
   const subs = opts[0].slice(0, 2);
   const disciplina = st.hardSubject && subs.includes(st.hardSubject) ? st.hardSubject : subs[subs.length - 1];
-  const parts = fill(CUR.reguaRecommendation, st, {
-    curso: courseName(st.course),
-    pacote: packageLabel(subs.length, 2),
-    disciplinas: subs.join(' e '),
-    duracao: '2 meses',
-    disciplina,
-  });
-  return parts.length ? `${parts.join('\n\n')}\n\n` : '';
+  return {
+    key: 'reguaContact1',
+    vars: { curso: courseName(st.course), pacote: packageLabel(subs.length, 2), disciplinas: subs.join(' e '), duracao: '2 meses', disciplina },
+  };
 }
 
 // Texto e estado do proximo contacto da regua (sem base de dados; o simulador usa-o).
 export function reguaTurn(st: LeizProState, texts?: Texts): { parts: string[]; next: LeizProState } {
   if (texts) CUR = texts;
   const n = st.regua?.sent ?? 0;
-  const key = REGUA_KEYS[n];
-  const extra: Record<string, string> = {};
-  if (key === 'reguaContact1') extra.recomendacao = reguaRecommendation(st);
+  let key = REGUA_KEYS[n];
+  let extra: Record<string, string> = {};
+  if (key === 'reguaContact1') ({ key, vars: extra } = reguaContact1(st));
   const parts = fill(CUR[key], st, { ...vars(st), ...extra });
   const next: LeizProState = { ...st, regua: { startAt: st.regua?.startAt || new Date().toISOString(), sent: n + 1 }, lastKey: key, lastQuestion: key, retries: 0 };
   return { parts, next };

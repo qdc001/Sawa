@@ -112,9 +112,16 @@ export async function runLeizProFollowups(io: any): Promise<void> {
       select: { workspaceId: true, contactId: true, leadId: true },
       take: 2000,
     });
+    const disabledBy = new Map<string, string[]>();
     for (const r of rows) {
       try {
         if (!(await isLeizProWorkspace(r.workspaceId))) continue;
+        // Leizy desligada a mao nesta conversa: sem regua.
+        if (!disabledBy.has(r.workspaceId)) {
+          const ws = await prisma.workspace.findUnique({ where: { id: r.workspaceId }, select: { aiSalesDisabledConversationIds: true } });
+          disabledBy.set(r.workspaceId, Array.isArray(ws?.aiSalesDisabledConversationIds) ? ws!.aiSalesDisabledConversationIds as string[] : []);
+        }
+        if (disabledBy.get(r.workspaceId)!.includes(r.contactId)) continue;
         const st = await loadState(r.workspaceId, r.contactId);
 
         const last = await prisma.message.findFirst({

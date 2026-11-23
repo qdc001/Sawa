@@ -9,6 +9,7 @@
 
 import prisma from '../prisma';
 import type { LeizProState } from './engine';
+import { norm as normBase } from './understand';
 
 export const PIPELINE_NAME = 'Leiz Pro · Zona Nerd';
 
@@ -133,4 +134,38 @@ export async function syncStage(workspaceId: string, contactId: string, st: Leiz
   } catch (e: any) {
     console.error('[leizpro] pipeline falhou para', contactId, e?.message || e);
   }
+}
+
+const normKey = (x: string) => normBase(x).replace(/[^a-z0-9]+/g, ' ').trim();
+
+// "Aplicar etapas" (painel da Leiz): linhas "ref = etapa", com a ref que vem
+// no ficheiro das conversas (ultimos 8 caracteres do contacto). Pode mover
+// para tras e fechar como ganho ("Pago"), porque e uma decisao da equipa.
+export async function applyStages(workspaceId: string, text: string): Promise<{ moved: string[]; errors: string[] }> {
+  const p = await ensurePipeline(workspaceId);
+  if (!p) return { moved: [], errors: ['Workspace sem dono/administrador para criar o pipeline'] };
+  const moved: string[] = [];
+  const errors: string[] = [];
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 1000);
+  for (const line of lines) {
+    const m = line.match(/^(?:ref\s*)?([a-z0-9]{6,30})\s*[=:>|-]+\s*(.+)$/i);
+    if (!m) { errors.push(`Linha não reconhecida: "${line.slice(0, 60)}"`); continue; }
+    const ref = m[1];
+    const want = normKey(m[2].replace(/\(.*\)$/, ''));
+    const stage = STAGES.find((s) => normKey(s.name) === want) || STAGES.find((s) => normKey(s.name).startsWith(want) && want.length >= 4);
+    if (!stage) { errors.push(`${ref}: etapa "${m[2].trim()}" não existe`); continue; }
+    const contacts = await prisma.contact.findMany({ where: { workspaceId, id: { endsWith: ref } }, select: { id: true, firstName: true, lastName: true }, take: 2 });
+    if (contacts.length !== 1) { errors.push(`${ref}: ${contacts.length ? 'mais de um contacto' : 'contacto não encontrado'}`); continue; }
+    const c = contacts[0];
+    await moveToStage(workspaceId, c.id, stage.key); // garante que o lead existe neste pipeline
+    const lead = await prisma.lead.findFirst({ where: { workspaceId, contactId: c.id, pipelineId: p.pipelineId }, orderBy: { createdAt: 'desc' }, select: { id: true } });
+    if (!lead) { errors.push(`${ref}: não foi possível criar o lead`); continue; }
+    const won = (stage as any).type === 'WON';
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: { stageId: p.stageIds[stage.key], status: won ? 'WON' : 'OPEN', closedAt: won ? new Date() : null },
+    });
+    moved.push(`${[c.firstName, c.lastName].filter(Boolean).join(' ') || ref} → ${stage.name}`);
+  }
+  return { moved, errors };
 }

@@ -154,19 +154,18 @@ export const T = {
   ],
 
   // ---- Fluxo 6: regua de follow-up (sem resposta depois dos pacotes) ----------
-  // Contacto 1, no dia combinado (modelo da conversa da Deise). {recomendacao}:
-  // o paragrafo reguaRecommendation preenchido com o curso dele (editais 2026),
-  // ou vazio se o curso nao estiver nos editais.
+  // Contacto 1, no dia combinado (modelo da conversa da Deise). Campos
+  // preenchidos pelo Klaru a partir dos editais 2026.
   reguaContact1: [
-    'Olá, [NOME]! 😊\n\n{recomendacao}Lembrei-me de ti. Já decidiste com qual pacote vais ficar?',
+    'Olá, [NOME]! 😊\n\nPara quem vai fazer {curso}, uma das opções de preparação é o {pacote}, que inclui {disciplinas}, com duração de {duracao}. É uma forma de organizar o estudo e avançar gradualmente pelos conteúdos. Em {disciplina}, por exemplo, já podes chegar ao capítulo 3.\n\nLembrei-me de ti. Já decidiste com qual pacote vais ficar?',
   ],
-  // Recomendacao do contacto 1: pacote de 2 meses com as disciplinas do exame.
-  reguaRecommendation: [
-    'Para quem vai fazer {curso}, uma das opções de preparação é o {pacote}, que inclui {disciplinas}, com duração de {duracao}. É uma forma de organizar o estudo e avançar gradualmente pelos conteúdos. Em {disciplina}, por exemplo, já podes chegar ao capítulo 3.',
+  // Contacto 1 quando o curso nao esta nos editais: so o numero de disciplinas.
+  reguaContact1Generic: [
+    'Olá, [NOME]! 😊\n\nPara quem vai fazer {curso}, uma das opções de preparação é o {pacote}, que inclui {disciplinas}, com duração de {duracao}. É uma forma de organizar o estudo e avançar gradualmente pelos conteúdos.\n\nLembrei-me de ti. Já decidiste com qual pacote vais ficar?',
   ],
-  // Recomendacao quando o curso nao esta nos editais: so o numero de disciplinas.
-  reguaRecommendationGeneric: [
-    'Para quem vai fazer {curso}, uma das opções de preparação é o {pacote}, que inclui {disciplinas}, com duração de {duracao}. É uma forma de organizar o estudo e avançar gradualmente pelos conteúdos.',
+  // Contacto 1 quando nao sabemos o curso.
+  reguaContact1NoCourse: [
+    'Olá, [NOME]! 😊\n\nLembrei-me de ti. Já decidiste com qual pacote vais ficar?',
   ],
   // Contacto 2 (3 dias depois): dar espaco para um "nao"
   reguaContact2: [

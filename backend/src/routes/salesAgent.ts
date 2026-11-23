@@ -52,6 +52,7 @@ router.get('/runtime-config', async (req: AuthRequest, res: Response, next) => {
       aiSalesEnabled: ws.aiSalesEnabled,
       aiSalesMode: ws.aiSalesMode,
       aiSalesEnabledConversationIds: ws.aiSalesEnabledConversationIds,
+      aiSalesDisabledConversationIds: (ws as any).aiSalesDisabledConversationIds || [],
       aiSalesMaxParts: ws.aiSalesMaxParts,
       aiSalesHandoffTriggers: ws.aiSalesHandoffTriggers,
       aiHandoffContactName: ws.aiHandoffContactName,
@@ -69,7 +70,7 @@ router.patch('/config', async (req: AuthRequest, res: Response, next) => {
     requireAdmin(req);
     const {
       sector, aiAgentName, aiAgentRole, aiBrandVoice, aiAgentInstructions,
-      aiSalesEnabled, aiSalesMode, aiSalesEnabledConversationIds,
+      aiSalesEnabled, aiSalesMode, aiSalesEnabledConversationIds, aiSalesDisabledConversationIds,
       aiSalesMaxParts, aiSalesHandoffTriggers,
       aiHandoffContactName, aiHandoffContactPhone,
     } = req.body || {};
@@ -124,6 +125,14 @@ router.patch('/config', async (req: AuthRequest, res: Response, next) => {
         .filter((x: any) => typeof x === 'string' && x.trim())
         .slice(0, 5000) as any;
     }
+    if (aiSalesDisabledConversationIds !== undefined) {
+      if (!Array.isArray(aiSalesDisabledConversationIds)) {
+        throw new AppError('aiSalesDisabledConversationIds deve ser array', 400);
+      }
+      data.aiSalesDisabledConversationIds = aiSalesDisabledConversationIds
+        .filter((x: any) => typeof x === 'string' && x.trim())
+        .slice(0, 5000) as any;
+    }
     if (aiSalesMaxParts !== undefined) {
       const n = Number(aiSalesMaxParts);
       if (!Number.isInteger(n) || n < 1 || n > 6) {
@@ -155,6 +164,7 @@ router.patch('/config', async (req: AuthRequest, res: Response, next) => {
       aiSalesEnabled: updated.aiSalesEnabled,
       aiSalesMode: updated.aiSalesMode,
       aiSalesEnabledConversationIds: updated.aiSalesEnabledConversationIds,
+      aiSalesDisabledConversationIds: (updated as any).aiSalesDisabledConversationIds || [],
       aiSalesMaxParts: updated.aiSalesMaxParts,
       aiSalesHandoffTriggers: updated.aiSalesHandoffTriggers,
       aiHandoffContactName: updated.aiHandoffContactName,
@@ -765,6 +775,19 @@ router.post('/leizpro/organize', async (req: AuthRequest, res: Response, next) =
     const days = Math.min(90, Math.max(1, Number(req.body?.days) || 30));
     const { organizeContacts } = await import('../lib/leizpro/organize');
     res.json(await organizeContacts(workspaceId, days));
+  } catch (e) { next(e); }
+});
+
+// POST { text } -> "ref = etapa" por linha (ref vem no ficheiro das conversas).
+router.post('/leizpro/stages', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const workspaceId = req.user!.workspaceId;
+    if (!(await isLeizProWorkspace(workspaceId))) throw new AppError('A Leiz Pro nao esta activa neste workspace', 400);
+    const text = typeof req.body?.text === 'string' ? req.body.text : '';
+    if (!text.trim()) throw new AppError('Cola pelo menos uma linha "ref = etapa"', 400);
+    const { applyStages } = await import('../lib/leizpro/pipeline');
+    res.json(await applyStages(workspaceId, text));
   } catch (e) { next(e); }
 });
 

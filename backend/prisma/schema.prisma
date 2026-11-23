@@ -198,6 +198,9 @@ model Workspace {
   // global esta desligado. Array de strings. Decisao por conversa, conforme
   // a escolha feita na Fase 2.
   aiSalesEnabledConversationIds Json                   @default("[]")
+  // Conversas onde a Leizy foi desligada a mao no Inbox. Vale mesmo com o
+  // toggle global ligado (aiSalesEnabled=true).
+  aiSalesDisabledConversationIds Json                  @default("[]")
   // Limite duro de mensagens fragmentadas por resposta da IA. Conforme decisao
   // da Fase 2, default 4.
   aiSalesMaxParts               Int                    @default(4)

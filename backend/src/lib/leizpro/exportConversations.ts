@@ -96,6 +96,19 @@ export async function buildConversationsExport(opts: { workspaceId: string; days
     }
   }
 
+  // Etapa actual no pipeline da Leiz Pro (para ajustar depois com "Aplicar etapas").
+  const { PIPELINE_NAME } = await import('./pipeline');
+  const pipe = await prisma.pipeline.findFirst({ where: { workspaceId: opts.workspaceId, name: PIPELINE_NAME }, select: { id: true } });
+  const stageOf = new Map<string, string>();
+  if (pipe) {
+    const leads = await prisma.lead.findMany({
+      where: { workspaceId: opts.workspaceId, pipelineId: pipe.id, contactId: { in: [...byContact.keys()] } },
+      orderBy: { createdAt: 'asc' },
+      select: { contactId: true, status: true, stage: { select: { name: true } } },
+    });
+    for (const l of leads) if (l.contactId) stageOf.set(l.contactId, `${l.stage.name}${l.status !== 'OPEN' ? ` (${l.status === 'WON' ? 'ganho' : 'perdido'})` : ''}`);
+  }
+
   const convs = [...byContact.entries()]
     .filter(([, items]) => !opts.onlyWithAi || items.some((i) => i.kind === 'sug'))
     .sort((a, b) => a[1][0].at.getTime() - b[1][0].at.getTime());
@@ -123,7 +136,7 @@ export async function buildConversationsExport(opts: { workspaceId: string; days
     for (const i of sugs) sStat[i.s.status] = (sStat[i.s.status] || 0) + 1;
     out.push('');
     out.push('='.repeat(78));
-    out.push(`Conversa ${idx + 1}/${convs.length} · ${info.name} · ${info.phone} · ${nMsgs} mensagens · IA: ${sugs.length} sugestões${sugs.length ? ` (${Object.entries(sStat).map(([k, v]) => `${v} ${(STATUS_PT[k] || k).toLowerCase()}`).join(', ')})` : ''}`);
+    out.push(`Conversa ${idx + 1}/${convs.length} · ${info.name} · ${info.phone} · ref ${contactId.slice(-8)} · Etapa: ${stageOf.get(contactId) || 'fora do pipeline'} · ${nMsgs} mensagens · IA: ${sugs.length} sugestões${sugs.length ? ` (${Object.entries(sStat).map(([k, v]) => `${v} ${(STATUS_PT[k] || k).toLowerCase()}`).join(', ')})` : ''}`);
     out.push('='.repeat(78));
     for (const it of items) {
       if (it.kind === 'msg') {

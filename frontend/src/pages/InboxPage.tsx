@@ -874,6 +874,7 @@ export default function InboxPage() {
         aiSalesEnabled: !!data.aiSalesEnabled,
         aiSalesMode: data.aiSalesMode || 'supervised',
         aiSalesEnabledConversationIds: Array.isArray(data.aiSalesEnabledConversationIds) ? data.aiSalesEnabledConversationIds : [],
+        aiSalesDisabledConversationIds: Array.isArray(data.aiSalesDisabledConversationIds) ? data.aiSalesDisabledConversationIds : [],
         aiSalesMaxParts: Number(data.aiSalesMaxParts) || 4,
         aiSalesHandoffTriggers: Array.isArray(data.aiSalesHandoffTriggers) ? data.aiSalesHandoffTriggers : [],
       }))
@@ -885,6 +886,8 @@ export default function InboxPage() {
   // de conversas onde foi ligada manualmente.
   const isSalesAiActiveForContact = (contactId?: string | null): boolean => {
     if (!contactId || !salesConfig) return false;
+    // Desligada a mao nesta conversa: vale mesmo com o toggle global ligado.
+    if ((salesConfig.aiSalesDisabledConversationIds || []).includes(contactId)) return false;
     if (salesConfig.aiSalesEnabled) return true;
     return (salesConfig.aiSalesEnabledConversationIds || []).includes(contactId);
   };
@@ -893,15 +896,21 @@ export default function InboxPage() {
   // Faz PATCH /sales-agent/config com a nova lista.
   const toggleSalesAiForContact = async (contactId: string) => {
     if (!salesConfig) return;
-    const current = salesConfig.aiSalesEnabledConversationIds || [];
-    const next = current.includes(contactId)
-      ? current.filter((id) => id !== contactId)
-      : [...current, contactId];
+    const wasOn = isSalesAiActiveForContact(contactId);
+    // Com a Leizy ligada para todos, desligar uma conversa vai para a lista de
+    // desligadas; sem o toggle global, liga/desliga na lista de ligadas.
+    const enabled = (salesConfig.aiSalesEnabledConversationIds || []).filter((id) => id !== contactId);
+    const disabled = (salesConfig.aiSalesDisabledConversationIds || []).filter((id) => id !== contactId);
+    if (wasOn) {
+      if (salesConfig.aiSalesEnabled) disabled.push(contactId);
+    } else if (!salesConfig.aiSalesEnabled) {
+      enabled.push(contactId);
+    }
     try {
-      await api.patch('/sales-agent/config', { aiSalesEnabledConversationIds: next });
-      setSalesConfig({ ...salesConfig, aiSalesEnabledConversationIds: next });
-      toast.success(next.includes(contactId) ? 'Leizy ligada nesta conversa' : 'Leizy desligada');
-      if (!next.includes(contactId)) {
+      await api.patch('/sales-agent/config', { aiSalesEnabledConversationIds: enabled, aiSalesDisabledConversationIds: disabled });
+      setSalesConfig({ ...salesConfig, aiSalesEnabledConversationIds: enabled, aiSalesDisabledConversationIds: disabled });
+      toast.success(wasOn ? 'Leizy desligada nesta conversa' : 'Leizy ligada nesta conversa');
+      if (wasOn) {
         setSalesSuggestion(null);
         setSalesEditing(false);
       }

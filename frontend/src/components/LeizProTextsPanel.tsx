@@ -71,6 +71,50 @@ function OrganizePipelineCard() {
   );
 }
 
+// Aplicar etapas a mao: "ref = etapa" por linha (a ref vem no ficheiro das
+// conversas). Serve para corrigir onde cada estudante esta no pipeline.
+function ApplyStagesCard() {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ moved: string[]; errors: string[] } | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post('/sales-agent/leizpro/stages', { text }, { timeout: 300_000 });
+      setResult(data);
+      toast.success(`${data.moved.length} estudantes movidos`);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao aplicar as etapas');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Aplicar etapas</h3>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          Uma linha por estudante: <code>ref = etapa</code>. A ref aparece no ficheiro das conversas (ex.: <code>ref a1b2c3d4</code>).
+          Exemplo: <code>a1b2c3d4 = Pacotes enviados</code>. Aqui pode mover para trás e "Pago" fecha o lead como ganho.
+        </p>
+      </div>
+      <textarea className="input-base w-full text-xs font-mono" rows={5} value={text} onChange={(e) => setText(e.target.value)}
+        placeholder={'a1b2c3d4 = Pacotes enviados\ne5f6g7h8 = Escolheu o pacote (falta pagar)'} />
+      <div className="flex justify-end">
+        <button className="btn btn-primary text-xs flex items-center gap-1" onClick={run} disabled={busy || !text.trim()}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Aplicar
+        </button>
+      </div>
+      {result && (
+        <div className="text-xs space-y-1" style={{ color: 'var(--text-secondary)' }}>
+          {result.moved.map((m) => <div key={m}>✓ {m}</div>)}
+          {result.errors.map((m) => <div key={m} style={{ color: '#B45309' }}>⚠ {m}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Descarregar todas as conversas de WhatsApp num .txt, com as sugestoes da IA
 // intercaladas, para analisar como a Leiz Pro se esta a portar.
 function ExportConversationsCard() {
@@ -192,6 +236,7 @@ export default function LeizProTextsPanel({ items: initial, onSaved }: { items: 
 
       <OrganizePipelineCard />
       <ExportConversationsCard />
+      <ApplyStagesCard />
 
       {groups.map(([group, list]) => (
         <div key={group}>
