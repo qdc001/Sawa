@@ -321,6 +321,7 @@ const BAD_NAMES = new Set([
   'noite', 'sim', 'nao', 'obrigado', 'obrigada', 'uem', 'up', 'medicina', 'eu', 'aqui', 'ok', 'tudo', 'bem',
   'quero', 'gostaria', 'vi', 'anuncio', 'estou', 'sou', 'hmm', 'hm', 'hmmm', 'ah', 'eh', 'eish', 'ya', 'yah',
   'kkk', 'kkkk', 'haha', 'hehe', 'oii', 'ola', 'oie', 'certo', 'beleza', 'blz', 'pois', 'entao', 'nada', 'tempo',
+  'claro', 'pode', 'yes', 'yeah', 'okay', 'perfeito', 'combinado', 'nome', 'chamo', 'meu', 'pre', 'universitario',
 ]);
 
 function titleCase(v: string): string {

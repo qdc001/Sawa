@@ -23,9 +23,9 @@ const UNTIL_PDF = [...UNTIL_COMMIT, 'sim estou'];
 
 const SCENARIOS: Scenario[] = [
   { title: 'Caminho feliz: pacotes, conta, "consegui"', expect: 'vacinas, PDF dos pacotes, passo a passo da conta, conta criada (capitulo 1 de Matematica, convites, proximo contacto), ok sem resposta',
-    turns: [...UNTIL_PDF, 'sim consigo', 'pronto consegui', 'ok obrigado'] },
+    turns: [...UNTIL_PDF, 'quero criar a conta', 'pronto consegui', 'ok obrigado'] },
   { title: 'Print da conta', expect: 'equipa, com a mensagem de conta criada pronta como rascunho',
-    turns: [...UNTIL_PDF, 'sim consigo', '[IMAGE]'] },
+    turns: [...UNTIL_PDF, 'quero criar a conta', '[IMAGE]'] },
   { title: 'Escolhe o pacote D e paga', expect: 'canais de pagamento (aviso a equipa); comprovativo (imagem) -> equipa confirma',
     turns: [...UNTIL_PDF, 'quero o pacote D', '[IMAGE]'] },
   { title: 'Diz que pagou por texto', expect: 'equipa confirma (a Sherone nao confirma pagamentos)',
@@ -48,6 +48,15 @@ const SCENARIOS: Scenario[] = [
     turns: [TRIGGER, 'Sou a Deise, vou fazer UEM', 'Medicina', 'tenho dificuldade em Matemática', 'sim', 'sim estou'] },
   { title: 'Edital: Medicina com dificuldade em Quimica', expect: 'capitulo 1 de Quimica',
     turns: [TRIGGER, 'Sou a Deise, vou fazer UEM', 'Medicina', 'fico perdida em Química', 'sim', 'sim estou'] },
+  // ---- Conversas reais de 22/11 (noite) ---------------------------------------
+  { title: 'Real 22/11: dois cursos de uma vez (Paula)', expect: 'aceita Quimica Ambiental e segue para a conexao',
+    turns: [TRIGGER, 'Paula Mirasse\nUEM', 'Química ambiental e ,geologia e pesquisa mineral'] },
+  { title: 'Real 22/11: "Claro" nao e nome', expect: 'pede o nome, sem "Prazer, Claro"',
+    turns: [TRIGGER, 'Claro'] },
+  { title: 'Real 22/11: "Nao consigo me concentrar" e uma dificuldade (Rosalina)', expect: '"Percebo..." e nao "Optimo"',
+    turns: [TRIGGER, 'Chamo-me Rosalina, UEM', 'Medicina', 'Não consigo me concentrar'] },
+  { title: 'Real 22/11: "Tudo bem... sem problemas" depois dos pacotes (Benedito)', expect: 'aceita o dia combinado, sem resposta',
+    turns: [...UNTIL_PDF, 'Tudo bem... sem problemas'] },
   { title: 'Hesita no compromisso', expect: 'capitulo 1 sem conta e proximo contacto; "ok" sem resposta',
     turns: [...UNTIL_COMMIT, 'vou tentar', 'ok'] },
   { title: 'Agora nao, depois dos pacotes', expect: 'capitulo 1 gratis e proximo contacto',

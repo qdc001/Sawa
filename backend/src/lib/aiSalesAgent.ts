@@ -573,6 +573,7 @@ export async function maybeTriggerSalesSuggestion(opts: {
       if (opts.triggerMessageId && !(await leizpro.isLatestInbound(opts.contactId, opts.triggerMessageId))) return;
       await leizpro.withContactLock(opts.contactId, async () => {
         if (await leizpro.lastIsOutbound(opts.contactId)) return; // ja respondida entretanto
+        if (await leizpro.teamTookOver(opts.contactId)) return;   // a equipa esta a conduzir esta conversa
         const gen = await leizpro.generateLeizProSuggestion({
           workspaceId: opts.workspaceId,
           contactId: opts.contactId,
@@ -594,11 +595,13 @@ export async function maybeTriggerSalesSuggestion(opts: {
               await leizpro.notifyHandoff(opts.workspaceId, opts.contactId, gen.suggestion).catch((e: any) =>
                 console.error('[leizpro] notify failed:', e?.message || e));
             }
-          } else if (gen.normalized.action === 'handoff') {
-            // Em modo automatico ninguem esta a ver as sugestoes: avisar a equipa.
-            await leizpro.notifyHandoff(opts.workspaceId, opts.contactId, gen.suggestion).catch((e: any) =>
-              console.error('[leizpro] notify handoff failed:', e?.message || e));
           }
+        }
+        // Passou para a equipa (nao percebeu, audio, pagamento...): avisar
+        // sempre, tambem em modo supervisionado.
+        if (gen.normalized.action === 'handoff') {
+          await leizpro.notifyHandoff(opts.workspaceId, opts.contactId, gen.suggestion).catch((e: any) =>
+            console.error('[leizpro] notify handoff failed:', e?.message || e));
         }
       });
       return;

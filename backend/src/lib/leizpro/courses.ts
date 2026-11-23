@@ -122,3 +122,23 @@ export function examSubjects(university: string | null, course: string | null): 
   if (!opts) return null;
   return [...new Set(opts.flat())];
 }
+
+// Curso dos editais mencionado numa mensagem (o primeiro, se forem varios).
+export function findCourseIn(university: string | null, text: string): string | null {
+  const t = ` ${norm(text).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ')} `;
+  const u = university ? norm(university) : '';
+  const unis = UNIS.filter((x) => x.match.test(u));
+  let best: { name: string; at: number; len: number } | null = null;
+  for (const un of unis.length ? unis : UNIS) {
+    for (const co of un.courses) {
+      for (const n of [co.name, ...(co.aliases || [])]) {
+        const k = ` ${norm(n).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()} `;
+        if (k.trim().length < 5) continue;
+        const at = t.indexOf(k);
+        if (at < 0) continue;
+        if (!best || at < best.at || (at === best.at && k.length > best.len)) best = { name: co.name, at, len: k.length };
+      }
+    }
+  }
+  return best?.name || null;
+}

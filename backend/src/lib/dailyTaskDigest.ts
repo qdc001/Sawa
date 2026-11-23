@@ -190,7 +190,7 @@ function buildMessage(userName: string, buckets: DigestBuckets, template?: Parti
 // - JID acabado em @g.us → enviado tal como está (grupo).
 // - JID acabado em @s.whatsapp.net → tal como está.
 // - Caso contrário → dígitos do telefone.
-async function sendWhatsAppToDestination(workspace: any, destination: string, body: string): Promise<boolean> {
+export async function sendWhatsAppToDestination(workspace: any, destination: string, body: string): Promise<boolean> {
   const evo = await prisma.integration.findFirst({
     where: { workspaceId: workspace.id, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
   });

@@ -24,7 +24,8 @@ import {
 } from './guide';
 import { loadTexts, type Texts } from './texts';
 import { understand, norm, LEIZPRO_MODEL, type Understanding, type Slot as AskSlot } from './understand';
-import { examSubjects } from './courses';
+import { examSubjects, findCourseIn } from './courses';
+import { syncStage } from './pipeline';
 import { proposeSlots, decisionSlot, parseTimeChoice, slotLabel, type Slot } from './schedule';
 
 // Textos em uso nesta volta (guia + edicoes do painel). Definido em runTurn
@@ -132,6 +133,7 @@ function vars(st: LeizProState): Record<string, string> {
     curso: st.course || '',
     opcao1: st.offered?.[0]?.label || '',
     opcao2: st.offered?.[1]?.label || '',
+    capitulo1: capitulo1(st),
   };
 }
 
@@ -170,15 +172,11 @@ function lastQuestionText(st: LeizProState): string | null {
   return parts[parts.length - 1] || null;
 }
 
+// Resposta que a Sherone nao percebe: passa logo a equipa (sem repetir a
+// pergunta). Nas conversas reais, repetir "So para eu te orientar bem"
+// irritava quem estava a falar de outra coisa.
 function repeatOrHandoff(st: LeizProState, why: string): Decision {
-  const q = lastQuestionText(st);
-  if (st.retries >= 1 || !q) return handoff(st, `${why} (depois de repetir a pergunta)`);
-  return {
-    action: 'send_text',
-    parts: [...fill(CUR.repeatPrefix, st), q],
-    next: { ...st, lastKey: 'repeatPrefix', retries: st.retries + 1 },
-    reason: `${why}: repetir a pergunta`,
-  };
+  return handoff(st, `nao percebi a resposta: ${why}`);
 }
 
 // Junta a uma resposta a pergunta do passo em que o estudante esta.
@@ -402,16 +400,28 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
     u = { ...u0, intent: 'sim' };
   }
   const st = merge(stIn, u);
-  const gotData = u.intent === 'da_dados';
+  // Curso pela lista dos editais ("Quimica ambiental e geologia..." -> o primeiro).
+  let courseFound = false;
+  if (st.step === 'diagnosis' && !st.course && st.name && st.university) {
+    const c = findCourseIn(st.university, rawText);
+    if (c) { st.course = c; courseFound = true; }
+  }
+  const gotData = u.intent === 'da_dados' || courseFound;
   const THANKS = new Set(['ok', 'okay', 'okk', 'obrigado', 'obrigada', 'obg', 'ta', 'esta', 'bem', 'combinado', 'beleza', 'blz',
     'certo', 'perfeito', 'fixe', 'sim', 'muito', 'entendido', 'percebido', 'entendi', 'tudo', 'valeu', 'tranquilo',
     'ate', 'la', 'amanha', 'logo', 'mais', 'inshallah', 'insha', 'incha', 'inch', 'allah', 'ja', 'agradeco', 'pela', 'informacao',
-    'e', 'aguardo', 'pronto', 'pronta', 'vou', 'ver', 'abrir', 'tentar', 'ficarei', 'fico', 'ligada', 'ligado', 'atenta', 'atento', 'aguardando']);
+    'e', 'aguardo', 'pronto', 'pronta', 'vou', 'ver', 'abrir', 'tentar', 'sem', 'problema', 'problemas', 'ficarei', 'fico', 'ligada', 'ligado', 'atenta', 'atento', 'aguardando']);
   const words = text.replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean);
   const isThanks = (words.length > 0 && words.length <= 9 && words.every((w) => THANKS.has(w)))
     || (words.length === 0 && /[👍🙏✅]/u.test(rawText));
 
   if (u.intent === 'vazio' && st.step !== 'start') return wait(st, 'mensagem sem texto (so pontuacao): nao responder');
+
+  // Audios: a Sherone nao responde (a equipa ouve). Imagens logo no inicio tambem.
+  if (/\[(audio|ptt)\]/i.test(rawText)) return handoff(st, 'mandou um audio: a Sherone nao responde a audios');
+  if (st.step === 'start' && /\[(image|imagem|video|document|sticker)\]/i.test(rawText)) {
+    return handoff(st, 'primeira mensagem e uma imagem/documento: a equipa ve o conteudo');
+  }
 
   // Primeira mensagem (gatilho do anuncio ou qualquer outra).
   if (st.step === 'start') {
@@ -511,7 +521,9 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
       const hard = u.subjects.find((s) => !exam || exam.includes(s)) || null;
       const s2 = { ...st, difficulty: rawText.trim().slice(0, 300) || null, hardSubject: hard || st.hardSubject };
       const d = say('vaccineOnline', s2, 'ask_online', 'vacina do online (Passo 1.5.1)');
-      if (u.intent === 'nao' || /^(nada|nenhum|nenhuma|nao|n)\b/.test(text)) {
+      // "Óptimo" so quando diz que nada foi dificil ("nada", "nao tive
+      // dificuldades"); "nao consigo concentrar-me" e uma dificuldade.
+      if (/^(nada|nenhum|nenhuma|nao|n|nada de especial|nao tive (nenhuma )?dificuldades?|nao tenho (nenhuma )?dificuldades?)\W*$/.test(text)) {
         d.parts[0] = s2.name ? `Óptimo, ${firstName(s2.name)}! 😊` : 'Óptimo! 😊';
       }
       return d;
@@ -638,8 +650,8 @@ async function pendingInboundText(contactId: string): Promise<string> {
   });
   return inbound
     // Imagens/documentos ficam sempre marcados (mesmo com legenda): a Leiz Pro nao os ve.
-    .map((m) => (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(m.type)
-      ? `[${m.type}] ${m.content || ''}`.trim()
+    .map((m) => (['IMAGE', 'VIDEO', 'DOCUMENT', 'AUDIO'].includes(m.type)
+      ? `[${m.type}] ${m.type === 'AUDIO' ? '' : m.content || ''}`.trim()
       : m.content || m.transcription || (m.type !== 'TEXT' ? `[${m.type}]` : '')))
     .filter(Boolean)
     .join('\n');
@@ -778,6 +790,7 @@ export async function generateLeizProFollowup(opts: { workspaceId: string; conta
       status: 'PENDING',
     },
   });
+  await syncStage(opts.workspaceId, opts.contactId, next);
   return suggestion;
 }
 
@@ -813,6 +826,23 @@ export async function isLatestInbound(contactId: string, messageId: string): Pro
     select: { id: true },
   });
   return !last || last.id === messageId;
+}
+
+// A equipa assumiu a conversa: a ultima mensagem nossa foi escrita por uma
+// pessoa (nao saiu de uma sugestao da Sherone). Nesse caso a Sherone fica
+// calada, para nao responder por cima da equipa (conversas reais de 22/11).
+export async function teamTookOver(contactId: string): Promise<boolean> {
+  const lastOut = await prisma.message.findFirst({
+    where: { contactId, direction: 'OUTBOUND', isInternal: false },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  if (!lastOut) return false;
+  const fromSherone = await prisma.aiSalesSuggestion.findFirst({
+    where: { contactId, sentMessageIds: { array_contains: [lastOut.id] } },
+    select: { id: true },
+  });
+  return !fromSherone;
 }
 
 export async function lastIsOutbound(contactId: string): Promise<boolean> {
@@ -854,6 +884,20 @@ export async function notifyHandoff(workspaceId: string, contactId: string, sugg
       link: '/inbox',
     })),
   });
+  // Mensagem no WhatsApp para o contacto humano de handoff (Leizy > configuracao).
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+    const phone = (ws as any)?.aiHandoffContactPhone?.trim();
+    if (ws && phone) {
+      const c = await prisma.contact.findUnique({ where: { id: contactId }, select: { whatsapp: true, phone: true } });
+      const num = c?.whatsapp || c?.phone || '';
+      const { sendWhatsAppToDestination } = await import('../dailyTaskDigest');
+      await sendWhatsAppToDestination(ws, phone,
+        `🔔 *Sherone precisa de ti*\n👤 ${name}${num ? ` (${num})` : ''}\n📝 ${reason || 'A conversa precisa de uma pessoa da equipa.'}\n\nAbre o Klaru > Mensagens para responder.`);
+    }
+  } catch (e: any) {
+    console.error('[leizpro] aviso por WhatsApp falhou:', e?.message || e);
+  }
 }
 
 // Gera a sugestao da Leiz Pro. Devolve o mesmo formato que generateSalesSuggestion
@@ -912,6 +956,7 @@ export async function generateLeizProSuggestion(opts: {
       ...(d.action === 'wait' ? { decidedAt: new Date() } : {}),
     },
   });
+  if (d.action !== 'handoff') await syncStage(opts.workspaceId, opts.contactId, d.next);
   return { suggestion, normalized: { action }, notify: d.notify || null };
 }
 

@@ -89,7 +89,7 @@ export default function AppLayout() {
   const isLegacy = useIsLegacy();
   const navItems = navConfig
     .filter((n) => !(isMobile && n.desktopOnly))
-    .filter((n) => !(n.legacyOnly && !isLegacy && !(n.alsoMeta && isMetaWorkspace(workspace?.name))))
+    .filter((n) => !(n.legacyOnly && !isLegacy && !(n.alsoMeta && (isMetaWorkspace(workspace?.name) || workspace?.leizPro))))
     .filter((n) => !n.metaOnly || isMetaWorkspace(workspace?.name))
     .map((n) => {
       // Labels dinamicas por UI mode.

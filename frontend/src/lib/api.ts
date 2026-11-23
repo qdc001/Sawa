@@ -201,6 +201,8 @@ export interface Workspace {
   // 'legacy' = UI antiga completa (Pipeline, Chamadas, Chatbots, etc)
   // 'clinical' = UI enxuta para clinicas (default para workspaces novos)
   uiMode?: 'legacy' | 'clinical';
+  // Workspace com a Leiz Pro (Zona Nerd): mostra o Pipeline com as etapas da Sherone.
+  leizPro?: boolean;
 }
 
 export interface DigestTemplate {

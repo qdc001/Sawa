@@ -19,7 +19,8 @@ router.get('/me', async (req: AuthRequest, res: Response, next) => {
     // uiMode: computado, nao guardado. 'legacy' = UI antiga preservada para
     // workspaces cujo owner esta em KLARU_LEGACY_WORKSPACES env var.
     const isLegacy = await isLegacyWorkspace(workspace.id);
-    res.json({ ...workspace, uiMode: isLegacy ? 'legacy' : 'clinical' });
+    const { isLeizProWorkspace } = await import('../lib/leizpro/engine');
+    res.json({ ...workspace, uiMode: isLegacy ? 'legacy' : 'clinical', leizPro: await isLeizProWorkspace(workspace.id) });
   } catch (e) { next(e); }
 });
 
