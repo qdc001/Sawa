@@ -134,6 +134,9 @@ export async function syncStage(workspaceId: string, contactId: string, st: Leiz
   } catch (e: any) {
     console.error('[leizpro] pipeline falhou para', contactId, e?.message || e);
   }
+  // Tarefas da regua em Agenda > Tarefas.
+  const { syncReguaTasks } = await import('./reguaTasks');
+  await syncReguaTasks(workspaceId, contactId, st);
 }
 
 const normKey = (x: string) => normBase(x).replace(/[^a-z0-9]+/g, ' ').trim();

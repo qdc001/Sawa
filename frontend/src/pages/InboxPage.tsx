@@ -7,6 +7,7 @@ import {
   Inbox, Building2, User as UserIcon, Users as UsersIcon, Star, Archive, Edit3, Trash2,
   Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, Calendar,
   ChevronLeft, ChevronRight, ChevronDown, Smile, SmilePlus, Bot, Power, BookOpen, CalendarClock, Camera, CheckCircle2, Circle,
+  Download,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -753,6 +754,36 @@ export default function InboxPage() {
 
   // Modais
   const [newMessageOpen, setNewMessageOpen] = useState(false);
+  // Descarregar todas as conversas (.txt, com as sugestoes da IA e a etapa no pipeline).
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const downloadAllConversations = async (days: number) => {
+    setDownloadMenuOpen(false);
+    setDownloading(true);
+    try {
+      const res = await api.get('/sales-agent/leizpro/export', {
+        params: { days, onlyAi: '0' },
+        responseType: 'blob',
+        timeout: 180_000,
+      });
+      const dispo = res.headers['content-disposition'] || '';
+      const match = dispo.match(/filename="?([^";]+)"?/i);
+      const fname = match ? match[1] : `conversas_${days}d.txt`;
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/plain;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = fname;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Conversas descarregadas');
+    } catch (e: any) {
+      let msg = 'Erro ao descarregar as conversas';
+      if (e.response?.data instanceof Blob) {
+        try { msg = JSON.parse(await e.response.data.text()).message || msg; } catch { /* ignora */ }
+      }
+      toast.error(msg);
+    } finally { setDownloading(false); }
+  };
   const [creatingLead, setCreatingLead] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
@@ -1909,6 +1940,21 @@ export default function InboxPage() {
               <button onClick={() => setNewMessageOpen(true)} className="p-1.5 rounded hover:bg-slate-100" title="Nova mensagem manual">
                 <MessageCircle size={14} style={{ color: 'var(--primary)' }} />
               </button>
+              <div className="relative">
+                <button onClick={() => setDownloadMenuOpen((v) => !v)} disabled={downloading} className="p-1.5 rounded hover:bg-slate-100" title="Descarregar todas as conversas">
+                  {downloading ? <Loader2 size={14} className="animate-spin" style={{ color: 'var(--text-muted)' }} /> : <Download size={14} style={{ color: 'var(--text-muted)' }} />}
+                </button>
+                {downloadMenuOpen && (
+                  <div className="absolute right-0 mt-1 z-30 card p-1 text-xs shadow-lg" style={{ minWidth: 190 }}>
+                    <div className="px-2 py-1 font-semibold" style={{ color: 'var(--text-secondary)' }}>Descarregar conversas</div>
+                    {[1, 7, 30, 90].map((d) => (
+                      <button key={d} onClick={() => downloadAllConversations(d)} className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-100" style={{ color: 'var(--text-primary)' }}>
+                        {d === 1 ? 'Último dia' : `Últimos ${d} dias`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <div className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>

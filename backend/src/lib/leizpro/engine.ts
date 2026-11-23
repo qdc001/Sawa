@@ -965,7 +965,8 @@ export async function generateLeizProSuggestion(opts: {
       ...(d.action === 'wait' ? { decidedAt: new Date() } : {}),
     },
   });
-  if (d.action !== 'handoff') await syncStage(opts.workspaceId, opts.contactId, d.next);
+  // Pipeline (a passagem a equipa nao muda a etapa) e tarefas da regua.
+  await syncStage(opts.workspaceId, opts.contactId, d.next);
   return { suggestion, normalized: { action }, notify: d.notify || null };
 }
 
