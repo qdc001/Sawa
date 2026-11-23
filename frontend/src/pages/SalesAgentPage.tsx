@@ -65,6 +65,7 @@ export default function SalesAgentPage() {
   const [showHandoffModal, setShowHandoffModal] = useState(false);
   // true = so mudar o contacto de avisos (sem activar o modo Autonomo)
   const [handoffEditOnly, setHandoffEditOnly] = useState(false);
+  const [testingAlert, setTestingAlert] = useState(false);
   const [savingHandoff, setSavingHandoff] = useState(false);
   // Leiz Pro (Zona Nerd): textos da Sherone editaveis. So aparece se estiver activa.
   const [leizProItems, setLeizProItems] = useState<LeizProTextItem[] | null>(null);
@@ -470,8 +471,28 @@ export default function SalesAgentPage() {
               </div>
               <div>
                 <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>Número (WhatsApp/telefone) *</label>
-                <input value={handoffPhone} onChange={(e) => setHandoffPhone(e.target.value)} placeholder="Ex: +258 84 000 0000" maxLength={30} className="input-base w-full text-sm" />
-                <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Este número não é mostrado ao paciente. Serve para a Leizy mencionar naturalmente ("vou passar à Dra. Ana") e para futuras notificações automáticas.</p>
+                <div className="flex gap-2">
+                  <input value={handoffPhone} onChange={(e) => setHandoffPhone(e.target.value)} placeholder="Ex: +258 84 000 0000" maxLength={30} className="input-base w-full text-sm" />
+                  <button
+                    type="button"
+                    disabled={testingAlert || !handoffPhone.trim()}
+                    className="btn text-xs px-3 whitespace-nowrap"
+                    style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+                    onClick={async () => {
+                      setTestingAlert(true);
+                      try {
+                        const { data } = await api.post('/sales-agent/handoff-test', { phone: handoffPhone.trim() });
+                        if (data.ok) toast.success('Mensagem de teste enviada. Confirma no WhatsApp desse número.');
+                        else toast.error(data.reason || 'O envio falhou');
+                      } catch (e: any) {
+                        toast.error(e.response?.data?.message || 'O envio falhou');
+                      } finally { setTestingAlert(false); }
+                    }}
+                  >
+                    {testingAlert ? <Loader2 size={13} className="animate-spin" /> : 'Enviar teste'}
+                  </button>
+                </div>
+                <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Este número não é mostrado ao estudante. Recebe por WhatsApp os avisos da Leizy (conversa passada para a equipa, follow-up que não foi possível fazer, pagamentos). Usa "Enviar teste" para confirmar que chegam. Escreve com o indicativo 258.</p>
               </div>
             </div>
             <div className="flex gap-2 mt-4">

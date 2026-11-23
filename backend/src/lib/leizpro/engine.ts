@@ -23,6 +23,7 @@ import {
   T, PDF_MARK, SUPER_NERD_PRICES, EXTRA_SUBJECT_PRICE, PACKAGES, AVAILABLE_SUBJECTS, type TemplateKey,
 } from './guide';
 import { loadTexts, type Texts } from './texts';
+import { subjectListOnly, findSubjects } from './understand';
 import { understand, norm, LEIZPRO_MODEL, type Understanding, type Slot as AskSlot } from './understand';
 import { examSubjects, examOptions, findCourseIn } from './courses';
 import { syncStage } from './pipeline';
@@ -51,7 +52,8 @@ export type LeizProState = {
   university: string | null;
   course: string | null;
   difficulty: string | null;     // o que contou no Passo 1.4
-  hardSubject: string | null;    // disciplina em que tem mais dificuldade (para o capitulo 1)
+  hardSubject: string | null;
+  examSubjects: string[] | null; // disciplinas do exame que o estudante disse    // disciplina em que tem mais dificuldade (para o capitulo 1)
   offered: Slot[] | null;        // hora proposta para o proximo contacto
   snCount: number | null;
   snMonths: 1 | 2 | null;
@@ -69,7 +71,7 @@ export type LeizProState = {
 };
 
 export const INITIAL_STATE: LeizProState = {
-  step: 'start', name: null, university: null, course: null, difficulty: null, hardSubject: null, offered: null,
+  step: 'start', name: null, university: null, course: null, difficulty: null, hardSubject: null, examSubjects: null, offered: null,
   snCount: null, snMonths: null, snReturn: null, snReturnQ: null, pkg: null, regua: null, payFollow: null, paidOnce: false,
   lastKey: null, lastQuestion: null, retries: 0,
 };
@@ -224,7 +226,7 @@ function packageLabel(count: number, months: 1 | 2): string {
 // Fecha com o dia combinado (amanha as 18h): a regua conta a partir dai.
 function capitulo1(st: LeizProState): string {
   if (st.hardSubject) return `o capítulo 1 de ${st.hardSubject}`;
-  const exam = examSubjects(st.university, st.course);
+  const exam = (examSubjects(st.university, st.course) || (st.examSubjects?.length ? st.examSubjects : null));
   if (exam) return `o capítulo 1 de ${joinOr(exam)}`;
   return 'o capítulo 1 da disciplina em que tens mais dificuldade';
 }
@@ -314,7 +316,7 @@ function diagnosisQuestion(st: LeizProState, reason: string): Decision {
 // Conta criada (1.5.5): comeca pelo capitulo 1 da disciplina dificil.
 function accountCreated(st: LeizProState, reason: string): Decision {
   const s2 = withSlot(st);
-  const exam = examSubjects(s2.university, s2.course);
+  const exam = (examSubjects(s2.university, s2.course) || (s2.examSubjects?.length ? s2.examSubjects : null));
   const comeca = s2.hardSubject
     ? `Começa pelo capítulo 1 de ${s2.hardSubject}, que é onde disseste que te custa mais.`
     : exam
@@ -400,6 +402,11 @@ function merge(stIn: LeizProState, u: Understanding): LeizProState {
     name: stIn.name || u.name,
     university: u.university || stIn.university,
     course: u.course || stIn.course,
+    // Disciplinas do exame: ditas no diagnostico, ou numa mensagem que e so a lista.
+    examSubjects: (() => {
+      const list = u.subjects.length && ['start', 'diagnosis'].includes(stIn.step) ? u.subjects : [];
+      return list.length ? [...new Set([...(stIn.examSubjects || []), ...list])] : stIn.examSubjects;
+    })(),
     snCount: snTalk ? (u.snCount ?? stIn.snCount) : stIn.snCount,
     snMonths: snTalk ? (u.snMonths ?? stIn.snMonths) : stIn.snMonths,
   };
@@ -418,6 +425,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
     u = { ...u0, intent: 'sim' };
   }
   const st = merge(stIn, u);
+  { const only = subjectListOnly(rawText); if (only.length) st.examSubjects = [...new Set([...(st.examSubjects || []), ...only])]; }
   // Curso pela lista dos editais ("Quimica ambiental e geologia..." -> o primeiro).
   let courseFound = false;
   if (st.step === 'diagnosis' && !st.course && st.name && st.university) {
@@ -544,7 +552,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
       // capitulo 1 (1.5.5).
       // So conta uma disciplina que sai no exame dele (editais 2026): um
       // estudante de Medicina que diz "Matematica" nao vai abrir Matematica.
-      const exam = examSubjects(st.university, st.course);
+      const exam = (examSubjects(st.university, st.course) || (st.examSubjects?.length ? st.examSubjects : null));
       const hard = u.subjects.find((s) => !exam || exam.includes(s)) || null;
       const s2 = { ...st, difficulty: rawText.trim().slice(0, 300) || null, hardSubject: hard || st.hardSubject };
       const d = say('vaccineOnline', s2, 'ask_online', 'vacina do online (Passo 1.5.1)');
@@ -582,7 +590,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
         if (u.intent === 'sim' || isThanks || tc.kind === 'slot') return wait(st, 'aceitou o dia combinado: a regua de follow-up conta a partir dai');
       }
       // A meio da regua (ou depois da despedida): "sim, ja decidi" -> qual pacote?
-      if (st.lastKey && ['reguaContact1', 'reguaContact1Generic', 'reguaContact1NoCourse', 'reguaContact2', 'reguaFarewell', 'askPackage'].includes(st.lastKey)) {
+      if (st.lastKey && ['reguaContact1', 'reguaContact2', 'reguaFarewell', 'askPackage'].includes(st.lastKey)) {
         if (u.intent === 'sim' && st.lastKey !== 'askPackage') return say('askPackage', st, 'pdf_sent', 'respondeu a regua: com qual dos pacotes vai ficar');
         if (u.intent === 'nao' || u.intent === 'sem_dinheiro') return say('reguaNotNow', st, 'followup', '"agora nao" na regua: agradecer e perguntar quando voltar a falar (Fluxo 6)');
         if (isThanks) return wait(st, 'agradeceu: nao e preciso responder');
@@ -747,21 +755,26 @@ function courseName(c: string): string {
 }
 
 // Contacto 1 (modelo da Deise): variante e campos conforme o curso dele.
-function reguaContact1(st: LeizProState): { key: TemplateKey; vars: Record<string, string> } {
-  if (!st.course) return { key: 'reguaContact1NoCourse', vars: {} };
+// Contexto para a regua: curso e disciplinas do exame (editais ou o que ele
+// disse). Sem isto a regua nao e enviada (a equipa recebe um aviso).
+export function reguaContext(st: LeizProState): { course: string; subjects: string[] } | null {
+  if (!st.course) return null;
   const opts = examOptions(st.university, st.course);
-  if (!opts || !opts[0].length) {
-    const n = st.snCount === 1 ? 1 : 2;
-    return {
-      key: 'reguaContact1Generic',
-      vars: { curso: courseName(st.course), pacote: packageLabel(n, 2), disciplinas: n === 1 ? '1 disciplina' : '2 disciplinas', duracao: '2 meses' },
-    };
-  }
-  const subs = opts[0].slice(0, 2);
+  const subjects = opts && opts[0].length ? opts[0].slice(0, 2) : (st.examSubjects || []);
+  return subjects.length ? { course: st.course, subjects } : null;
+}
+
+function joinE(list: string[]): string {
+  return list.length <= 1 ? (list[0] || '') : `${list.slice(0, -1).join(', ')} e ${list[list.length - 1]}`;
+}
+
+function reguaContact1(st: LeizProState): { key: TemplateKey; vars: Record<string, string> } {
+  const ctx = reguaContext(st)!;
+  const subs = ctx.subjects;
   const disciplina = st.hardSubject && subs.includes(st.hardSubject) ? st.hardSubject : subs[subs.length - 1];
   return {
     key: 'reguaContact1',
-    vars: { curso: courseName(st.course), pacote: packageLabel(subs.length, 2), disciplinas: subs.join(' e '), duracao: '2 meses', disciplina },
+    vars: { curso: courseName(ctx.course), pacote: packageLabel(subs.length, 2), disciplinas: joinE(subs), duracao: '2 meses', disciplina },
   };
 }
 
@@ -842,6 +855,23 @@ export async function generateLeizProPayFollowup(opts: { workspaceId: string; co
   return suggestion;
 }
 
+async function contextFromMessages(contactId: string, st: LeizProState): Promise<LeizProState> {
+  const msgs = await prisma.message.findMany({
+    where: { contactId, direction: 'INBOUND', isInternal: false, type: 'TEXT' },
+    orderBy: { createdAt: 'asc' }, take: 60, select: { content: true },
+  });
+  const texts = msgs.map((m) => m.content || '').filter(Boolean);
+  const course = st.course || findCourseIn(st.university, texts.join(' \n '));
+  const subs = new Set(st.examSubjects || []);
+  for (const t of texts) {
+    const n = norm(t);
+    const only = subjectListOnly(t);
+    const said = /\b(exame|exames|disciplinas)\b/.test(n) ? findSubjects(t).subjects : [];
+    for (const x of [...only, ...said]) subs.add(x);
+  }
+  return { ...st, course, examSubjects: subs.size ? [...subs] : null };
+}
+
 // Gera o proximo contacto da regua para um estudante (chamado pelo agendador).
 // Em modo supervisionado fica PENDING (sugestao para aprovar).
 export async function generateLeizProFollowup(opts: { workspaceId: string; contactId: string; leadId?: string | null }) {
@@ -857,8 +887,38 @@ export async function generateLeizProFollowup(opts: { workspaceId: string; conta
   });
   if (exists) return null;
 
+  // Sem curso nem disciplinas (atendido a mao, ou curso fora dos editais sem as
+  // disciplinas): procura nas mensagens dele; se nao houver, nao envia e avisa.
+  let ctxState = st;
+  if (!reguaContext(st)) ctxState = await contextFromMessages(opts.contactId, st);
+  if (!reguaContext(ctxState)) {
+    const skipKey = `${st.regua!.startAt}#sem-contexto`;
+    const warned = await prisma.aiSalesSuggestion.findFirst({
+      where: { contactId: opts.contactId, actionPayload: { path: ['followupKey'], equals: skipKey } }, select: { id: true },
+    });
+    if (!warned) {
+      const why = !ctxState.course
+        ? 'nao sei o curso do estudante'
+        : `o curso "${ctxState.course}" nao esta nos editais e o estudante nao disse as disciplinas do exame`;
+      const notify = `nao fiz o follow-up da regua porque ${why}. Diz-me o curso e as disciplinas, ou faz o follow-up a mao.`;
+      const rec = await prisma.aiSalesSuggestion.create({
+        data: {
+          workspaceId: opts.workspaceId, contactId: opts.contactId, leadId: opts.leadId || null,
+          parts: [] as any, action: 'wait', productFileIds: [] as any,
+          actionPayload: { leizpro: { ...st, regua: null }, followupKey: skipKey, notify } as any,
+          reasoning: `Regua de follow-up nao enviada: ${why}.`,
+          principlesUsed: [] as any, modelUsed: 'leizpro:regua-sem-contexto', status: 'APPROVED', decidedAt: new Date(),
+        },
+      });
+      await notifyHandoff(opts.workspaceId, opts.contactId, rec).catch(() => {});
+      await syncStage(opts.workspaceId, opts.contactId, { ...st, regua: null });
+    }
+    return null;
+  }
+
   CUR = await loadTexts(opts.workspaceId);
-  const { parts, next } = reguaTurn(st);
+  const { parts, next: next0 } = reguaTurn(ctxState);
+  const next = { ...next0, course: ctxState.course, examSubjects: ctxState.examSubjects };
   if (hasPlaceholders(parts)) return null;
   const suggestion = await prisma.aiSalesSuggestion.create({
     data: {

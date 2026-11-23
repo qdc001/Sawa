@@ -159,14 +159,6 @@ export const T = {
   reguaContact1: [
     'Olá, [NOME]! 😊\n\nPara quem vai fazer {curso}, uma das opções de preparação é o {pacote}, que inclui {disciplinas}, com duração de {duracao}. É uma forma de organizar o estudo e avançar gradualmente pelos conteúdos. Em {disciplina}, por exemplo, já podes chegar ao capítulo 3.\n\nLembrei-me de ti. Já decidiste com qual pacote vais ficar?',
   ],
-  // Contacto 1 quando o curso nao esta nos editais: so o numero de disciplinas.
-  reguaContact1Generic: [
-    'Olá, [NOME]! 😊\n\nPara quem vai fazer {curso}, uma das opções de preparação é o {pacote}, que inclui {disciplinas}, com duração de {duracao}. É uma forma de organizar o estudo e avançar gradualmente pelos conteúdos.\n\nLembrei-me de ti. Já decidiste com qual pacote vais ficar?',
-  ],
-  // Contacto 1 quando nao sabemos o curso.
-  reguaContact1NoCourse: [
-    'Olá, [NOME]! 😊\n\nLembrei-me de ti. Já decidiste com qual pacote vais ficar?',
-  ],
   // Follow-up de pagamento: 1 dia depois dos canais de pagamento, sem
   // comprovativo nem resposta. {pacote}: ex. "Pacote B (390 MZN)".
   payFollowup: [

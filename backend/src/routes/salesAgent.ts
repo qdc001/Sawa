@@ -778,6 +778,31 @@ router.post('/leizpro/organize', async (req: AuthRequest, res: Response, next) =
   } catch (e) { next(e); }
 });
 
+// POST { phone? } -> envia uma mensagem de teste ao numero dos avisos (ou ao
+// numero indicado), para confirmar que os avisos da Leizy chegam mesmo.
+router.post('/handoff-test', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const ws = await prisma.workspace.findUnique({ where: { id: req.user!.workspaceId } });
+    if (!ws) throw new AppError('Workspace nao encontrado', 404);
+    const phone = String(req.body?.phone || (ws as any).aiHandoffContactPhone || '').trim();
+    if (!phone) return res.json({ ok: false, reason: 'Escreve primeiro o número.' });
+    const digits = phone.replace(/\D/g, '');
+    if (!phone.includes('@') && digits.length < 11) {
+      return res.json({ ok: false, reason: 'O número tem de ter o indicativo do país (ex.: 258 84 123 4567).' });
+    }
+    const evo = await prisma.integration.findFirst({
+      where: { workspaceId: ws.id, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+      select: { id: true },
+    });
+    if (!evo) return res.json({ ok: false, reason: 'O WhatsApp (Evolution) não está ligado neste workspace.' });
+    const { sendWhatsAppToDestination } = await import('../lib/dailyTaskDigest');
+    const ok = await sendWhatsAppToDestination(ws, phone,
+      '🔔 *Teste dos avisos da Leizy*\n\nSe recebeste esta mensagem, os avisos da Sherone (conversa passada para a equipa, follow-up que não foi possível fazer, pagamentos) chegam a este número. ✅');
+    res.json(ok ? { ok: true } : { ok: false, reason: 'O envio falhou. Verifica se a instância do WhatsApp está ligada e se o número está certo.' });
+  } catch (e) { next(e); }
+});
+
 // POST { text } -> "ref = etapa" por linha (ref vem no ficheiro das conversas).
 router.post('/leizpro/stages', async (req: AuthRequest, res: Response, next) => {
   try {

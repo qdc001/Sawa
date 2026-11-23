@@ -158,7 +158,7 @@ const SUBJECT_WORDS: Array<[string, string]> = [
   ['Francês', 'frances'], ['Inglês', 'ingles'],
 ];
 
-function findSubjects(text: string): { subjects: string[]; missing: string[] } {
+export function findSubjects(text: string): { subjects: string[]; missing: string[] } {
   const t = norm(text);
   const found = SUBJECT_ALIASES.filter(([, re]) => re.test(t)).map(([name]) => name);
   // Palavras com 1 erro (2 nas compridas): "quimca" -> Quimica.
@@ -549,4 +549,16 @@ export function recommendPackage(nSubjects: number, months: number | null): { pk
   return two
     ? { pkg: 'D', total, text: `🏆 Para o teu caso, recomendo o *Pacote D*: as 2 disciplinas com acesso até ao exame.\n\nFaltam ${months} meses: *${months} meses = ${fmt} MZN*.` }
     : { pkg: 'C', total, text: `🎯 Para o teu caso, recomendo o *Pacote C*: 1 disciplina com acesso até ao exame.\n\nFaltam ${months} meses: *${months} meses = ${fmt} MZN*.` };
+}
+
+// "Biologia e Quimica", "Historia e portugues": mensagem que e so uma lista de
+// disciplinas (as do exame). Devolve as disciplinas, ou [] se tiver mais coisas.
+export function subjectListOnly(text: string): string[] {
+  const { subjects } = findSubjects(text);
+  if (!subjects.length) return [];
+  let rest = norm(text);
+  for (const w of ['matematica', 'fisica', 'quimica', 'quimca', 'biologia', 'portugues', 'historia', 'geografia', 'filosofia', 'ingles', 'frances', 'lingua portuguesa', 'lingua', 'disciplinas', 'disciplina', 'exame', 'exames', 'de', 'do', 'e', 'ou', 'sao', 'as', 'os', 'minhas', 'meu', 'a', 'o', 'seja', 'ou seja']) {
+    rest = rest.replace(new RegExp(`\\b${w}\\b`, 'g'), ' ');
+  }
+  return rest.replace(/[^a-z]+/g, '').length <= 3 ? subjects : [];
 }

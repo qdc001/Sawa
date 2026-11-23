@@ -6,7 +6,7 @@
 // So um cenario:                      node dist/scripts/leizProSimulate.js 7
 // Sem o modelo (so regras):           OLLAMA_URL=http://127.0.0.1:1 node dist/scripts/leizProSimulate.js
 
-import { runTurn, reguaTurn, INITIAL_STATE, type LeizProState } from '../lib/leizpro/engine';
+import { runTurn, reguaTurn, reguaContext, INITIAL_STATE, type LeizProState } from '../lib/leizpro/engine';
 import { T } from '../lib/leizpro/guide';
 
 // Turno especial: chegou a hora do proximo contacto da regua (Fluxo 6).
@@ -151,6 +151,7 @@ async function main() {
     for (const msg of sc.turns) {
       if (msg === REGUA) {
         if (!st.regua || st.step !== 'pdf_sent' || st.regua.sent >= 3) { console.log('\n  (REGUA: nada a enviar, a regua parou)'); continue; }
+        if (st.regua.sent === 0 && !reguaContext(st)) { console.log('\n  (REGUA: sem curso/disciplinas: nao envia e avisa a equipa)'); st = { ...st, regua: null }; continue; }
         const r = reguaTurn(st, T);
         console.log(`\n  --- regua: contacto ${st.regua.sent + 1} (sem resposta) ---`);
         show('  SHERONE:  ', r.parts);

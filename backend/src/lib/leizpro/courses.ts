@@ -100,7 +100,9 @@ export function examOptions(university: string | null, course: string | null): s
   const text = norm(course).replace(/^(licenciatura em|curso de) /, '').trim();
   const u = university ? norm(university) : '';
   const unis = UNIS.filter((x) => x.match.test(u));
-  const pool = unis.length ? unis : UNIS;
+  // Universidade conhecida mas fora dos editais (UniRovuma, ISCAM...): nao usar
+  // os editais das outras; contam as disciplinas que o estudante disse.
+  const pool = unis.length ? unis : u ? [] : UNIS;
   let best = 0;
   let hits: Course[] = [];
   for (const un of pool) {
