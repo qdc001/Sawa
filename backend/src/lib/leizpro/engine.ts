@@ -60,6 +60,8 @@ export type LeizProState = {
   pkg: string | null;            // pacote escolhido (ex.: "Pacote D")
   // Regua de follow-up (Fluxo 6): dia combinado e quantos contactos ja foram.
   regua: { startAt: string; sent: number } | null;
+  // Follow-up de pagamento: quando sai (1 dia depois dos canais) e se ja saiu.
+  payFollow: { at: string; sent: boolean; skip?: boolean } | null; // skip: disse quando paga (sem follow-up)
   paidOnce: boolean;
   lastKey: TemplateKey | null;
   lastQuestion: TemplateKey | null;
@@ -68,7 +70,7 @@ export type LeizProState = {
 
 export const INITIAL_STATE: LeizProState = {
   step: 'start', name: null, university: null, course: null, difficulty: null, hardSubject: null, offered: null,
-  snCount: null, snMonths: null, snReturn: null, snReturnQ: null, pkg: null, regua: null, paidOnce: false,
+  snCount: null, snMonths: null, snReturn: null, snReturnQ: null, pkg: null, regua: null, payFollow: null, paidOnce: false,
   lastKey: null, lastQuestion: null, retries: 0,
 };
 
@@ -248,7 +250,10 @@ export function packagesTextParts(st: LeizProState): string[] {
 function choosePackage(st: LeizProState, count: number, months: 1 | 2, reason: string): Decision {
   const label = packageLabel(count, months);
   const valor = priceFor(count, months);
-  const s2: LeizProState = { ...st, snCount: count, snMonths: months, pkg: `${label} (${valor} MZN)` };
+  const s2: LeizProState = {
+    ...st, snCount: count, snMonths: months, pkg: `${label} (${valor} MZN)`,
+    payFollow: { at: new Date(Date.now() + 86_400_000).toISOString(), sent: false },
+  };
   const d = say('paymentChannels', s2, 'paying', `${reason}: ${label}, ${valor} MZN (Passo 3.2)`);
   d.notify = `escolheu o ${label} (${valor} MZN) e recebeu os canais de pagamento`;
   return d;
@@ -482,6 +487,15 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
     return accountCreated(st, 'conseguiu criar a conta (Passo 1.5.5)');
   }
 
+  // A pagar e diz quando consegue ("so no fim do mes", "amanha", "ainda nao tenho"):
+  // resposta do guia e a data vai para a equipa; sem follow-up de pagamento.
+  if (st.step === 'paying' && u.intent !== 'ja_pagou' && u.intent !== 'nao_abriu'
+      && (u.intent === 'sem_dinheiro' || /\b(amanha|depois de amanha|semana|mes|fim do mes|logo|mais tarde|ainda nao|sexta|segunda|terca|quarta|quinta|sabado|domingo|quando receber|vou pagar)\b/.test(text))) {
+    const d = say('payLater', { ...st, payFollow: { at: new Date().toISOString(), sent: true, skip: true } }, 'paying', 'diz quando consegue pagar ("JA DISSE QUANDO CONSIGO PAGAR")');
+    d.notify = `diz quando consegue pagar${st.pkg ? ` o ${st.pkg}` : ''}: "${rawText.trim().slice(0, 100)}" (registar a data)`;
+    return d;
+  }
+
   const obj = objection(u, st, text);
   if (obj) return obj;
 
@@ -710,6 +724,8 @@ export async function runTurn(state: LeizProState, text: string, workspaceId?: s
   }
   // A regua so continua enquanto ele esta a decidir o pacote (pdf_sent).
   if (d.next.step !== 'pdf_sent') d.next = { ...d.next, regua: null };
+  // O follow-up de pagamento so existe enquanto ele esta a pagar.
+  if (d.next.step !== 'paying') d.next = { ...d.next, payFollow: null };
   return { u, d };
 }
 
@@ -759,6 +775,42 @@ export function reguaTurn(st: LeizProState, texts?: Texts): { parts: string[]; n
   const parts = fill(CUR[key], st, { ...vars(st), ...extra });
   const next: LeizProState = { ...st, regua: { startAt: st.regua?.startAt || new Date().toISOString(), sent: n + 1 }, lastKey: key, lastQuestion: key, retries: 0 };
   return { parts, next };
+}
+
+// Follow-up de pagamento (1 dia depois dos canais, uma vez). lastOutAt: a
+// ultima mensagem nossa, para quem escolheu o pacote antes desta funcao existir.
+export async function generateLeizProPayFollowup(opts: { workspaceId: string; contactId: string; leadId?: string | null; lastOutAt: Date }) {
+  const st = await loadState(opts.workspaceId, opts.contactId);
+  if (st.step !== 'paying' || st.payFollow?.sent) return null;
+  const at = st.payFollow?.at ? new Date(st.payFollow.at) : new Date(opts.lastOutAt.getTime() + 86_400_000);
+  if (at.getTime() > Date.now()) return null;
+  const followupKey = `pay:${st.pkg || ''}:${at.toISOString().slice(0, 10)}`;
+  const exists = await prisma.aiSalesSuggestion.findFirst({
+    where: { contactId: opts.contactId, actionPayload: { path: ['followupKey'], equals: followupKey } },
+    select: { id: true },
+  });
+  if (exists) return null;
+  CUR = await loadTexts(opts.workspaceId);
+  const parts = fill(CUR.payFollowup, st, { ...vars(st), pacote: st.pkg || 'pacote' });
+  if (hasPlaceholders(parts)) return null;
+  const next: LeizProState = { ...st, payFollow: { at: at.toISOString(), sent: true }, lastKey: 'payFollowup', lastQuestion: 'payFollowup', retries: 0 };
+  const suggestion = await prisma.aiSalesSuggestion.create({
+    data: {
+      workspaceId: opts.workspaceId,
+      contactId: opts.contactId,
+      leadId: opts.leadId || null,
+      parts: parts as any,
+      action: 'send_text',
+      productFileIds: [] as any,
+      actionPayload: { leizpro: next, followupKey } as any,
+      reasoning: `Follow-up de pagamento: escolheu o ${st.pkg || 'pacote'} e passou 1 dia sem comprovativo nem resposta.`,
+      principlesUsed: [] as any,
+      modelUsed: 'leizpro:pagamento',
+      status: 'PENDING',
+    },
+  });
+  await syncStage(opts.workspaceId, opts.contactId, next);
+  return suggestion;
 }
 
 // Gera o proximo contacto da regua para um estudante (chamado pelo agendador).

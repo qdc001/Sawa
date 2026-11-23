@@ -142,6 +142,20 @@ export async function reguaSentCount(contactId: string, startAt: string): Promis
   return rows.filter((r) => Array.isArray(r.sentMessageIds) && (r.sentMessageIds as any[]).length > 0).length;
 }
 
+// Etapa "Follow-up de pagamento" quando o follow-up foi mesmo enviado.
+export async function paySentAt(contactId: string): Promise<boolean> {
+  const rows = await prisma.aiSalesSuggestion.findMany({
+    where: { contactId, modelUsed: 'leizpro:pagamento', status: { in: ['SENT', 'APPROVED', 'EDITED'] } },
+    select: { sentMessageIds: true },
+  });
+  return rows.some((r) => Array.isArray(r.sentMessageIds) && (r.sentMessageIds as any[]).length > 0);
+}
+
+export async function syncPayStage(workspaceId: string, contactId: string, st: LeizProState): Promise<void> {
+  if (st.step !== 'paying') return;
+  if (await paySentAt(contactId)) await moveToStage(workspaceId, contactId, 'payFollowup').catch(() => {});
+}
+
 // Etapa "Régua n" conforme os contactos ja enviados.
 export async function syncReguaStage(workspaceId: string, contactId: string, st: LeizProState): Promise<void> {
   if (!st.regua) return;
@@ -157,8 +171,9 @@ export async function syncStage(workspaceId: string, contactId: string, st: Leiz
     console.error('[leizpro] pipeline falhou para', contactId, e?.message || e);
   }
   // Tarefas da regua em Agenda > Tarefas.
-  const { syncReguaTasks } = await import('./reguaTasks');
+  const { syncReguaTasks, syncPayTask } = await import('./reguaTasks');
   await syncReguaTasks(workspaceId, contactId, st);
+  await syncPayTask(workspaceId, contactId, st);
 }
 
 const normKey = (x: string) => normBase(x).replace(/[^a-z0-9]+/g, ' ').trim();

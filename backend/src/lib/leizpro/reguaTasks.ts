@@ -78,3 +78,47 @@ export async function syncReguaTasks(workspaceId: string, contactId: string, st:
     console.error('[leizpro] tarefas da regua falharam para', contactId, e?.message || e);
   }
 }
+
+// Tarefa "Follow-up de pagamento": criada quando escolhe o pacote, concluida
+// quando o follow-up e enviado, apagada se pagar/sair do passo de pagamento.
+const PAY_MARK = 'Pagamento Leiz Pro';
+export async function syncPayTask(workspaceId: string, contactId: string, st: LeizProState): Promise<void> {
+  try {
+    const existing = await prisma.task.findMany({
+      where: { contactId, description: { contains: PAY_MARK } },
+      select: { id: true, status: true, description: true },
+    });
+    const active = st.step === 'paying' && st.payFollow && !st.payFollow.skip ? st.payFollow : null;
+    if (!active) {
+      const pending = existing.filter((t) => t.status !== 'COMPLETED').map((t) => t.id);
+      if (pending.length) await prisma.task.deleteMany({ where: { id: { in: pending } } });
+      return;
+    }
+    const tag = `[${PAY_MARK} ${active.at}]`;
+    const t = existing.find((x) => x.description?.includes(tag));
+    const { paySentAt } = await import('./pipeline');
+    const sent = await paySentAt(contactId);
+    if (t) {
+      if (sent && t.status !== 'COMPLETED') await prisma.task.update({ where: { id: t.id }, data: { status: 'COMPLETED', completedAt: new Date() } });
+      return;
+    }
+    if (sent) return;
+    const lead = await prisma.lead.findFirst({ where: { workspaceId, contactId }, orderBy: { createdAt: 'desc' }, select: { id: true, assignedToId: true } });
+    const assignee = lead?.assignedToId || (await prisma.user.findFirst({
+      where: { workspaceId, role: { in: ['OWNER', 'ADMIN'] } }, orderBy: { createdAt: 'asc' }, select: { id: true },
+    }))?.id;
+    if (!assignee) return;
+    const contact = await prisma.contact.findUnique({ where: { id: contactId }, select: { firstName: true, lastName: true } });
+    const name = [contact?.firstName, contact?.lastName].filter(Boolean).join(' ') || 'Estudante';
+    await prisma.task.create({
+      data: {
+        title: `Follow-up de pagamento · ${name}${st.pkg ? ` (${st.pkg})` : ''}`,
+        description: `A Sherone pergunta se conseguiu pagar (em modo supervisionado fica no Inbox para aprovar). Se mandar o comprovativo antes, a tarefa desaparece.\n${tag}`,
+        type: 'FOLLOW_UP', status: 'PENDING', priority: 'HIGH',
+        dueAt: new Date(active.at), contactId, leadId: lead?.id || null, assignedToId: assignee,
+      },
+    });
+  } catch (e: any) {
+    console.error('[leizpro] tarefa de pagamento falhou para', contactId, e?.message || e);
+  }
+}

@@ -8,16 +8,17 @@
 //     contacto da regua quando chega a hora (dia combinado, +3 dias, despedida
 //     aos 9 dias). Em modo supervisionado fica como sugestao para aprovar; em
 //     modo automatico e enviado logo.
-//  3. Escolheu o pacote e passou 1 dia sem pagar nem responder: etapa
-//     "Follow-up de pagamento" no pipeline.
+//  3. Escolheu o pacote e passou 1 dia sem comprovativo nem resposta: gera o
+//     follow-up de pagamento (uma vez); a etapa "Follow-up de pagamento" muda
+//     quando e enviado.
 
 import prisma from '../prisma';
 import {
-  isLeizProWorkspace, loadState, reguaDue, generateLeizProFollowup, withContactLock,
+  isLeizProWorkspace, loadState, reguaDue, generateLeizProFollowup, generateLeizProPayFollowup, withContactLock,
 } from './engine';
 import { decisionSlot, parseTimeChoice, slotLabel } from './schedule';
-import { moveToStage, syncStage, syncReguaStage } from './pipeline';
-import { syncReguaTasks } from './reguaTasks';
+import { moveToStage, syncStage, syncReguaStage, syncPayStage } from './pipeline';
+import { syncReguaTasks, syncPayTask } from './reguaTasks';
 
 let running = false;
 
@@ -139,9 +140,27 @@ export async function runLeizProFollowups(io: any): Promise<void> {
         // O estudante escreveu e ainda nao lhe respondemos: nao e follow-up.
         if (last?.direction !== 'OUTBOUND') continue;
 
-        // 3. Escolheu o pacote ha mais de 1 dia e nada: follow-up de pagamento.
-        if (st.step === 'paying' && Date.now() - last.createdAt.getTime() > 86_400_000) {
-          await moveToStage(r.workspaceId, r.contactId, 'payFollowup').catch(() => {});
+        // 3. Escolheu o pacote e passou 1 dia sem comprovativo nem resposta:
+        //    follow-up de pagamento (uma vez). A etapa muda quando e enviado.
+        if (st.step === 'paying') {
+          await syncPayStage(r.workspaceId, r.contactId, st);
+          await syncPayTask(r.workspaceId, r.contactId, st);
+          const pendingPay = await prisma.aiSalesSuggestion.findFirst({
+            where: { contactId: r.contactId, modelUsed: { startsWith: 'leizpro' }, status: 'PENDING', action: { in: ['send_text', 'send_product'] } },
+            select: { id: true },
+          });
+          if (!pendingPay) {
+            await withContactLock(r.contactId, async () => {
+              const suggestion = await generateLeizProPayFollowup({ workspaceId: r.workspaceId, contactId: r.contactId, leadId: r.leadId, lastOutAt: last.createdAt });
+              if (!suggestion) return;
+              if (io) io.to(`workspace:${r.workspaceId}`).emit('aiSales:suggestion', suggestion);
+              const ws = await prisma.workspace.findUnique({ where: { id: r.workspaceId }, select: { aiSalesMode: true } });
+              if (ws?.aiSalesMode === 'auto') {
+                const { autoDispatchSuggestion } = await import('../autoDispatchSalesSuggestion');
+                await autoDispatchSuggestion(suggestion.id, io);
+              }
+            });
+          }
           continue;
         }
 

@@ -167,6 +167,17 @@ export const T = {
   reguaContact1NoCourse: [
     'Olá, [NOME]! 😊\n\nLembrei-me de ti. Já decidiste com qual pacote vais ficar?',
   ],
+  // Follow-up de pagamento: 1 dia depois dos canais de pagamento, sem
+  // comprovativo nem resposta. {pacote}: ex. "Pacote B (390 MZN)".
+  payFollowup: [
+    'Olá, [NOME]! 😊\n\nOntem escolheste o {pacote}. Conseguiste fazer o pagamento?\n\nSe já pagaste, manda-me aqui a foto do comprovativo, que a equipa activa o teu acesso. Se ficou alguma dúvida no pagamento, diz-me que eu ajudo.',
+  ],
+  // "JA DISSE QUANDO CONSIGO PAGAR" (Fluxo 5): a data vai para a equipa.
+  payLater: [
+    'Combinado, [NOME]! 😊 Sem problema nenhum.',
+    `Até lá, continuas a estudar o capítulo 1 de todas as disciplinas, grátis, em ${SITE}.`,
+    'Quando fizeres o pagamento, manda-me aqui o comprovativo. 😊',
+  ],
   // Contacto 2 (3 dias depois): dar espaco para um "nao"
   reguaContact2: [
     'Olá, [NOME]. 😊\n\nSei que às vezes não é o momento certo. Se agora não quiseres avançar, diz-me só "agora não", sem problema nenhum. Assim não te incomodo.\n\nSe quiseres, continuo aqui para te ajudar a escolher.',
