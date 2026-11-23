@@ -24,7 +24,7 @@ import {
 } from './guide';
 import { loadTexts, type Texts } from './texts';
 import { understand, norm, LEIZPRO_MODEL, type Understanding, type Slot as AskSlot } from './understand';
-import { examSubjects, findCourseIn } from './courses';
+import { examSubjects, examOptions, findCourseIn } from './courses';
 import { syncStage } from './pipeline';
 import { proposeSlots, decisionSlot, parseTimeChoice, slotLabel, type Slot } from './schedule';
 
@@ -718,45 +718,30 @@ export function reguaDue(st: LeizProState): Date | null {
   return new Date(new Date(st.regua.startAt).getTime() + REGUA_DAYS[st.regua.sent] * 86_400_000);
 }
 
-// Caso real para o contacto 1: outro estudante do mesmo curso que escolheu um
-// pacote nos ultimos 30 dias (dados do Klaru). Sem caso real, fica vazio.
-async function realCase(workspaceId: string, contactId: string, course: string | null): Promise<string> {
-  if (!course) return '';
-  const key = norm(course).split(/\s+/).filter((w) => w.length > 3)[0];
-  if (!key) return '';
-  const since = new Date(Date.now() - 30 * 86_400_000);
-  const rows = await prisma.aiSalesSuggestion.findMany({
-    where: {
-      workspaceId, contactId: { not: contactId }, modelUsed: { startsWith: 'leizpro' }, createdAt: { gte: since },
-      reasoning: { contains: 'Passo 3.2' }, status: { notIn: ['PENDING', 'DISCARDED', 'FAILED'] },
-    },
-    orderBy: { createdAt: 'desc' },
-    take: 200,
-    select: { actionPayload: true, createdAt: true },
+// Recomendacao do contacto 1 (modelo da Deise): pacote de 2 meses com as
+// disciplinas do exame do curso dele (editais 2026). Vazio se nao soubermos o exame.
+function reguaRecommendation(st: LeizProState): string {
+  const opts = examOptions(st.university, st.course);
+  if (!opts || !st.course || !opts[0].length) return '';
+  const subs = opts[0].slice(0, 2);
+  const disciplina = st.hardSubject && subs.includes(st.hardSubject) ? st.hardSubject : subs[subs.length - 1];
+  const parts = fill(CUR.reguaRecommendation, st, {
+    curso: st.course,
+    pacote: packageLabel(subs.length, 2),
+    disciplinas: subs.join(' e '),
+    duracao: '2 meses',
+    disciplina,
   });
-  for (const r of rows) {
-    const o = (r.actionPayload as any)?.leizpro as LeizProState | undefined;
-    if (!o?.course || !o.snCount || !o.snMonths || !norm(o.course).includes(key)) continue;
-    const when = Date.now() - r.createdAt.getTime() < 7 * 86_400_000 ? 'Esta semana' : 'Há pouco tempo';
-    const disc = o.snCount === 1 ? '1 disciplina' : `${o.snCount} disciplinas`;
-    const dur = o.snMonths === 1 ? '1 mês' : '2 meses';
-    return `${when} estive a ajudar outro estudante que também vai para ${o.course}. Escolheu o ${packageLabel(o.snCount, o.snMonths)} (${disc}, ${dur}).\n\n`;
-  }
-  return '';
+  return parts.length ? `${parts.join('\n\n')}\n\n` : '';
 }
 
 // Texto e estado do proximo contacto da regua (sem base de dados; o simulador usa-o).
-export function reguaTurn(st: LeizProState, casoReal = '', texts?: Texts): { parts: string[]; next: LeizProState } {
+export function reguaTurn(st: LeizProState, texts?: Texts): { parts: string[]; next: LeizProState } {
   if (texts) CUR = texts;
   const n = st.regua?.sent ?? 0;
   const key = REGUA_KEYS[n];
   const extra: Record<string, string> = {};
-  if (key === 'reguaContact1') {
-    extra.caso_real = casoReal;
-    extra.ligacao = st.hardSubject
-      ? `Lembrei-me de ti, porque disseste que ${st.hardSubject} é onde te custa mais. `
-      : 'Lembrei-me de ti. ';
-  }
+  if (key === 'reguaContact1') extra.recomendacao = reguaRecommendation(st);
   const parts = fill(CUR[key], st, { ...vars(st), ...extra });
   const next: LeizProState = { ...st, regua: { startAt: st.regua?.startAt || new Date().toISOString(), sent: n + 1 }, lastKey: key, lastQuestion: key, retries: 0 };
   return { parts, next };
@@ -778,10 +763,8 @@ export async function generateLeizProFollowup(opts: { workspaceId: string; conta
   if (exists) return null;
 
   CUR = await loadTexts(opts.workspaceId);
-  const casoReal = n === 0 ? await realCase(opts.workspaceId, opts.contactId, st.course) : '';
-  const { parts, next } = reguaTurn(st, casoReal);
+  const { parts, next } = reguaTurn(st);
   if (hasPlaceholders(parts)) return null;
-  const extra = { caso_real: casoReal };
   const suggestion = await prisma.aiSalesSuggestion.create({
     data: {
       workspaceId: opts.workspaceId,
@@ -791,7 +774,7 @@ export async function generateLeizProFollowup(opts: { workspaceId: string; conta
       action: 'send_text',
       productFileIds: [] as any,
       actionPayload: { leizpro: next, followupKey } as any,
-      reasoning: `Regua de follow-up (Fluxo 6): contacto ${n + 1} de ${REGUA_DAYS.length}, sem resposta desde os pacotes.${extra.caso_real ? ' Com caso real do Klaru.' : ''}`,
+      reasoning: `Regua de follow-up (Fluxo 6): contacto ${n + 1} de ${REGUA_DAYS.length}, sem resposta desde os pacotes.`,
       principlesUsed: [] as any,
       modelUsed: 'leizpro:regua',
       status: 'PENDING',

@@ -11,7 +11,6 @@ import { T } from '../lib/leizpro/guide';
 
 // Turno especial: chegou a hora do proximo contacto da regua (Fluxo 6).
 const REGUA = '<<REGUA>>';
-const REGUA_CASE = 'Esta semana estive a ajudar outro estudante que tambem vai para Medicina. Escolheu o Pacote D (2 disciplinas, 2 meses).\n\n';
 
 type Scenario = { title: string; expect: string; turns: string[] };
 
@@ -152,7 +151,7 @@ async function main() {
     for (const msg of sc.turns) {
       if (msg === REGUA) {
         if (!st.regua || st.step !== 'pdf_sent' || st.regua.sent >= 3) { console.log('\n  (REGUA: nada a enviar, a regua parou)'); continue; }
-        const r = reguaTurn(st, st.regua.sent === 0 ? REGUA_CASE : '', T);
+        const r = reguaTurn(st, T);
         console.log(`\n  --- regua: contacto ${st.regua.sent + 1} (sem resposta) ---`);
         show('  SHERONE:  ', r.parts);
         st = r.next;
