@@ -211,13 +211,14 @@ export default function LeizProTextsPanel({ items: initial, onSaved }: { items: 
   const send = async (it: LeizProTextItem, value: string[] | null) => {
     setSaving(it.key);
     try {
-      await api.put('/sales-agent/leizpro/texts', { texts: { [it.key]: value } });
+      const { data: saved } = await api.put('/sales-agent/leizpro/texts', { texts: { [it.key]: value } });
       const { data } = await api.get('/sales-agent/leizpro/texts');
       const { [it.key]: _, ...rest } = drafts;
       setDrafts(rest);
       setItems(data.items);
       onSaved(data.items);
-      toast.success(value === null ? 'Texto do guia reposto' : 'Texto guardado. Vale a partir da próxima mensagem.');
+      const refreshed = Number(saved?.refreshed || 0);
+      toast.success(`${value === null ? 'Texto do guia reposto' : 'Texto guardado. Vale a partir da próxima mensagem.'}${refreshed ? ` ${refreshed} follow-up(s) por aprovar foram actualizados.` : ''}`);
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Erro ao guardar');
     } finally { setSaving(null); }

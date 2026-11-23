@@ -777,6 +777,35 @@ export function reguaTurn(st: LeizProState, texts?: Texts): { parts: string[]; n
   return { parts, next };
 }
 
+// Depois de editar os textos no painel: reescreve com o texto novo os
+// follow-ups (regua e pagamento) que ainda estao por aprovar no Inbox.
+export async function refreshPendingFollowups(workspaceId: string): Promise<number> {
+  const rows = await prisma.aiSalesSuggestion.findMany({
+    where: { workspaceId, status: 'PENDING', modelUsed: { in: ['leizpro:regua', 'leizpro:pagamento'] } },
+    select: { id: true, modelUsed: true, actionPayload: true },
+    take: 500,
+  });
+  if (!rows.length) return 0;
+  CUR = await loadTexts(workspaceId);
+  let n = 0;
+  for (const r of rows) {
+    const next = (r.actionPayload as any)?.leizpro as LeizProState | undefined;
+    if (!next) continue;
+    let parts: string[];
+    if (r.modelUsed === 'leizpro:regua') {
+      if (!next.regua || next.regua.sent < 1) continue;
+      const prev: LeizProState = { ...INITIAL_STATE, ...next, regua: { ...next.regua, sent: next.regua.sent - 1 } };
+      parts = reguaTurn(prev).parts;
+    } else {
+      parts = fill(CUR.payFollowup, next, { ...vars(next), pacote: next.pkg || 'pacote' });
+    }
+    if (hasPlaceholders(parts)) continue;
+    await prisma.aiSalesSuggestion.update({ where: { id: r.id }, data: { parts: parts as any } });
+    n += 1;
+  }
+  return n;
+}
+
 // Follow-up de pagamento (1 dia depois dos canais, uma vez). lastOutAt: a
 // ultima mensagem nossa, para quem escolheu o pacote antes desta funcao existir.
 export async function generateLeizProPayFollowup(opts: { workspaceId: string; contactId: string; leadId?: string | null; lastOutAt: Date }) {

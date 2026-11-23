@@ -817,7 +817,10 @@ router.put('/leizpro/texts', async (req: AuthRequest, res: Response, next) => {
       data: { leizProTexts: Object.keys(current).length ? (current as any) : Prisma.DbNull },
     });
     clearTextsCache(workspaceId);
-    res.json({ ok: true, customized: Object.keys(current) });
+    // Follow-ups por aprovar passam a ter o texto novo.
+    const { refreshPendingFollowups } = await import('../lib/leizpro/engine');
+    const refreshed = await refreshPendingFollowups(workspaceId).catch(() => 0);
+    res.json({ ok: true, customized: Object.keys(current), refreshed });
   } catch (e) { next(e); }
 });
 
