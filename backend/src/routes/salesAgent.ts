@@ -756,6 +756,18 @@ router.get('/leizpro/export', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// POST { days } -> arruma no pipeline da Leiz Pro os estudantes ja atendidos.
+router.post('/leizpro/organize', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const workspaceId = req.user!.workspaceId;
+    if (!(await isLeizProWorkspace(workspaceId))) throw new AppError('A Leiz Pro nao esta activa neste workspace', 400);
+    const days = Math.min(90, Math.max(1, Number(req.body?.days) || 30));
+    const { organizeContacts } = await import('../lib/leizpro/organize');
+    res.json(await organizeContacts(workspaceId, days));
+  } catch (e) { next(e); }
+});
+
 // PUT { texts: { chave: string[] | null } } -> null volta ao texto do guia.
 router.put('/leizpro/texts', async (req: AuthRequest, res: Response, next) => {
   try {

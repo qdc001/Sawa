@@ -95,6 +95,13 @@ export async function isLeizProWorkspace(workspaceId: string): Promise<boolean> 
   return wsCache.ids.has(workspaceId);
 }
 
+// Mensagem de gatilho do anuncio: "Ola! Vi o anuncio da Zona Nerd e gostaria
+// de saber como fazer parte." (aceita pequenas variacoes).
+export function isTriggerText(text: string): boolean {
+  const t = norm(text);
+  return /vi o anuncio/.test(t) || (/zona nerd/.test(t) && /fazer parte/.test(t));
+}
+
 // ---- Texto ------------------------------------------------------------------
 function firstName(name: string | null): string | null {
   return name ? name.split(/\s+/)[0] : null;
@@ -913,6 +920,17 @@ export async function generateLeizProSuggestion(opts: {
 
   const text = await pendingInboundText(opts.contactId);
   if (!text.trim()) return null;
+
+  // So comeca conversas que vieram do anuncio: a primeira mensagem do contacto
+  // (ou a que chegou agora) tem de ser a de gatilho. Os outros ficam com a equipa.
+  if (state.step === 'start' && !isTriggerText(text)) {
+    const first = await prisma.message.findFirst({
+      where: { contactId: opts.contactId, direction: 'INBOUND', isInternal: false },
+      orderBy: { createdAt: 'asc' },
+      select: { content: true },
+    });
+    if (!isTriggerText(first?.content || '')) return null;
+  }
 
   let { u, d } = await runTurn(state, text, opts.workspaceId);
 

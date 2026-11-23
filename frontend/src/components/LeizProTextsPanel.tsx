@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Save, RotateCcw, Plus, Trash2, ChevronDown, ChevronRight, Info, Download } from 'lucide-react';
+import { Loader2, Save, RotateCcw, Plus, Trash2, ChevronDown, ChevronRight, Info, Download, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../lib/api';
 
@@ -18,6 +18,57 @@ export interface LeizProTextItem {
   defaultParts: string[];
   parts: string[];
   custom: boolean;
+}
+
+// Arrumar no pipeline "Leiz Pro · Zona Nerd" os estudantes ja atendidos
+// (pela Sherone ou a mao). Nao envia mensagens.
+function OrganizePipelineCard() {
+  const [days, setDays] = useState(30);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ total: number; byStage: Record<string, number> } | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post('/sales-agent/leizpro/organize', { days }, { timeout: 300_000 });
+      setResult(data);
+      toast.success(`${data.total} estudantes arrumados no pipeline`);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao organizar os contactos');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Organizar contactos no pipeline</h3>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          Põe no pipeline "Leiz Pro · Zona Nerd" os estudantes já atendidos, pela Sherone ou à mão, na etapa em que estão
+          (Diagnóstico, Apresentação, Pacotes enviados, Régua, Escolheu o pacote). Só faz avançar, não mexe em leads ganhos ou perdidos e não envia mensagens.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <label className="flex items-center gap-2">
+          <span style={{ color: 'var(--text-secondary)' }}>Conversas dos:</span>
+          <select className="input py-1" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            <option value={7}>Últimos 7 dias</option>
+            <option value={30}>Últimos 30 dias</option>
+            <option value={90}>Últimos 90 dias</option>
+          </select>
+        </label>
+        <div className="flex-1" />
+        <button className="btn btn-primary text-xs flex items-center gap-1" onClick={run} disabled={busy}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Organizar
+        </button>
+      </div>
+      {result && (
+        <ul className="text-xs space-y-0.5" style={{ color: 'var(--text-secondary)' }}>
+          {Object.entries(result.byStage).map(([stage, n]) => <li key={stage}>{stage}: <b>{n}</b></li>)}
+          {result.total === 0 && <li>Nenhum estudante para arrumar.</li>}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 // Descarregar todas as conversas de WhatsApp num .txt, com as sugestoes da IA
@@ -139,6 +190,7 @@ export default function LeizProTextsPanel({ items: initial, onSaved }: { items: 
         </div>
       </div>
 
+      <OrganizePipelineCard />
       <ExportConversationsCard />
 
       {groups.map(([group, list]) => (
