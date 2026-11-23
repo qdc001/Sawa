@@ -164,6 +164,10 @@ export const T = {
   reguaRecommendation: [
     'Para quem vai fazer {curso}, uma das opções de preparação é o {pacote}, que inclui {disciplinas}, com duração de {duracao}. É uma forma de organizar o estudo e avançar gradualmente pelos conteúdos. Em {disciplina}, por exemplo, já podes chegar ao capítulo 3.',
   ],
+  // Recomendacao quando o curso nao esta nos editais: so o numero de disciplinas.
+  reguaRecommendationGeneric: [
+    'Para quem vai fazer {curso}, uma das opções de preparação é o {pacote}, que inclui {disciplinas}, com duração de {duracao}. É uma forma de organizar o estudo e avançar gradualmente pelos conteúdos.',
+  ],
   // Contacto 2 (3 dias depois): dar espaco para um "nao"
   reguaContact2: [
     'Olá, [NOME]. 😊\n\nSei que às vezes não é o momento certo. Se agora não quiseres avançar, diz-me só "agora não", sem problema nenhum. Assim não te incomodo.\n\nSe quiseres, continuo aqui para te ajudar a escolher.',

@@ -63,6 +63,8 @@ export default function SalesAgentPage() {
   const [handoffPhone, setHandoffPhone] = useState('');
   // Modal que aparece ao clicar em Autonomo pela 1a vez sem contacto configurado.
   const [showHandoffModal, setShowHandoffModal] = useState(false);
+  // true = so mudar o contacto de avisos (sem activar o modo Autonomo)
+  const [handoffEditOnly, setHandoffEditOnly] = useState(false);
   const [savingHandoff, setSavingHandoff] = useState(false);
   // Leiz Pro (Zona Nerd): textos da Sherone editaveis. So aparece se estiver activa.
   const [leizProItems, setLeizProItems] = useState<LeizProTextItem[] | null>(null);
@@ -119,6 +121,7 @@ export default function SalesAgentPage() {
     if (next === 'auto') {
       const hasContact = handoffName.trim() && handoffPhone.trim();
       if (!hasContact) {
+        setHandoffEditOnly(false);
         setShowHandoffModal(true);
         return;
       }
@@ -148,11 +151,15 @@ export default function SalesAgentPage() {
       await api.patch('/sales-agent/config', {
         aiHandoffContactName: n,
         aiHandoffContactPhone: p,
-        aiSalesMode: 'auto',
+        ...(handoffEditOnly ? {} : { aiSalesMode: 'auto' }),
       });
-      setAiSalesMode('auto');
       setShowHandoffModal(false);
-      toast.success('Modo Autónomo activo. Handoffs serão notificados a ' + n);
+      if (handoffEditOnly) {
+        toast.success('Os avisos passam a ir para ' + n);
+      } else {
+        setAiSalesMode('auto');
+        toast.success('Modo Autónomo activo. Handoffs serão notificados a ' + n);
+      }
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Erro ao guardar');
     } finally { setSavingHandoff(false); }
@@ -271,6 +278,16 @@ export default function SalesAgentPage() {
             <span>Só actua nas conversas onde a ligares manualmente no menu do Inbox.</span>
           </div>
         )}
+        <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+          <span>
+            Avisos para: {handoffName.trim() || handoffPhone.trim()
+              ? <b style={{ color: 'var(--text-secondary)' }}>{handoffName.trim() || 'sem nome'}{handoffPhone.trim() ? ` · ${handoffPhone.trim()}` : ''}</b>
+              : <b style={{ color: '#B45309' }}>ninguém definido</b>}
+          </span>
+          <button className="underline" style={{ color: 'var(--primary)' }} onClick={() => { setHandoffEditOnly(true); setShowHandoffModal(true); }}>
+            Alterar
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -441,10 +458,10 @@ export default function SalesAgentPage() {
           <div className="card p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle size={20} style={{ color: '#B45309' }} />
-              <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Antes de activar o modo Autónomo</h3>
+              <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>{handoffEditOnly ? 'Quem recebe os avisos da Leizy' : 'Antes de activar o modo Autónomo'}</h3>
             </div>
             <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
-              Em Autónomo a Leizy responde sozinha e cria marcações sem aprovação. Precisamos de saber a quem passar o assunto quando ela decidir escalar (emergência clínica, reclamação, pergunta fora do domínio dela).
+              {handoffEditOnly ? 'Quando a Leizy passa uma conversa para a equipa (não percebeu, áudio, pagamento...), envia um aviso por WhatsApp para este número.' : <>Em Autónomo a Leizy responde sozinha e cria marcações sem aprovação. Precisamos de saber a quem passar o assunto quando ela decidir escalar (emergência clínica, reclamação, pergunta fora do domínio dela).</>}
             </p>
             <div className="space-y-3">
               <div>
@@ -462,7 +479,7 @@ export default function SalesAgentPage() {
                 Cancelar
               </button>
               <button onClick={saveHandoffAndGoAuto} disabled={savingHandoff} className="btn btn-primary flex-1 py-2">
-                {savingHandoff ? <Loader2 size={14} className="animate-spin" /> : 'Guardar e activar Autónomo'}
+                {savingHandoff ? <Loader2 size={14} className="animate-spin" /> : handoffEditOnly ? 'Guardar' : 'Guardar e activar Autónomo'}
               </button>
             </div>
           </div>

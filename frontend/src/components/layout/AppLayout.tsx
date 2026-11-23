@@ -128,6 +128,12 @@ export default function AppLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Ao abrir a app, refresca o workspace (o guardado no login pode nao ter
+  // campos novos, ex.: leizPro, que mostra o Pipeline na barra lateral).
+  useEffect(() => {
+    api.get('/workspaces/me').then(({ data }) => { if (data) updateWorkspace(data); }).catch(() => {});
+  }, [updateWorkspace]);
+
   // Banner de desconexão Evolution
   const [evoDown, setEvoDown] = useState<{ minutes: number; message: string; title?: string } | null>(null);
   useEffect(() => {

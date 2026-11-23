@@ -718,15 +718,33 @@ export function reguaDue(st: LeizProState): Date | null {
   return new Date(new Date(st.regua.startAt).getTime() + REGUA_DAYS[st.regua.sent] * 86_400_000);
 }
 
+// "Licenciatura em lingua francesa" -> "Lingua francesa"
+function courseName(c: string): string {
+  const t = c.replace(/^(licenciatura|curso|lic\.?)\s+(em|de)\s+/i, '').trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 // Recomendacao do contacto 1 (modelo da Deise): pacote de 2 meses com as
 // disciplinas do exame do curso dele (editais 2026). Vazio se nao soubermos o exame.
 function reguaRecommendation(st: LeizProState): string {
+  if (!st.course) return '';
   const opts = examOptions(st.university, st.course);
-  if (!opts || !st.course || !opts[0].length) return '';
+  if (!opts || !opts[0].length) {
+    // Curso fora dos editais: so o numero de disciplinas (2, ou o que ele disse
+    // no modo Super Nerd), sem a frase do capitulo.
+    const n = st.snCount === 1 ? 1 : 2;
+    const parts = fill(CUR.reguaRecommendationGeneric, st, {
+      curso: courseName(st.course),
+      pacote: packageLabel(n, 2),
+      disciplinas: n === 1 ? '1 disciplina' : '2 disciplinas',
+      duracao: '2 meses',
+    });
+    return parts.length ? `${parts.join('\n\n')}\n\n` : '';
+  }
   const subs = opts[0].slice(0, 2);
   const disciplina = st.hardSubject && subs.includes(st.hardSubject) ? st.hardSubject : subs[subs.length - 1];
   const parts = fill(CUR.reguaRecommendation, st, {
-    curso: st.course,
+    curso: courseName(st.course),
     pacote: packageLabel(subs.length, 2),
     disciplinas: subs.join(' e '),
     duracao: '2 meses',
