@@ -17,6 +17,23 @@ import { STAGES, stageFor, moveToStage, type StageKey } from './pipeline';
 
 const idx = (k: StageKey | null) => (k ? STAGES.findIndex((s) => s.key === k) : -1);
 
+// De hora a hora (server.ts): o mesmo que o botao, para os ultimos 7 dias,
+// em todos os workspaces da Leiz Pro. Assim o que a equipa envia a mao tambem
+// move o estudante. So avanca e nao envia mensagens.
+let organizing = false;
+export async function runOrganizeAll(): Promise<void> {
+  if (organizing) return;
+  organizing = true;
+  try {
+    const { leizProWorkspaceIds } = await import('./engine');
+    for (const ws of await leizProWorkspaceIds()) {
+      await organizeContacts(ws, 7).catch((e) => console.error('[leizpro] organizar automatico falhou:', e?.message || e));
+    }
+  } finally {
+    organizing = false;
+  }
+}
+
 export async function organizeContacts(workspaceId: string, days = 30): Promise<{ total: number; byStage: Record<string, number> }> {
   const since = new Date(Date.now() - days * 86_400_000);
   const recent = await prisma.message.findMany({

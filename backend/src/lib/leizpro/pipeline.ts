@@ -76,10 +76,10 @@ export function stageFor(st: LeizProState): StageKey | null {
   switch (step) {
     case 'start': case 'diagnosis': case 'connection': return 'diagnosis';
     case 'ask_online': case 'ask_commitment': return 'presentation';
-    case 'pdf_sent': case 'account_help': case 'followup': {
-      const n = st.regua?.sent || 0;
-      return n >= 3 ? 'regua3' : n === 2 ? 'regua2' : n === 1 ? 'regua1' : 'packages';
-    }
+    // Recebeu os pacotes. As etapas "Régua 1/2/3" so mudam quando o contacto da
+    // regua e mesmo enviado (ver reguaSentCount, no agendador), nao quando a
+    // Sherone o prepara (em modo supervisionado fica por aprovar).
+    case 'pdf_sent': case 'account_help': case 'followup': return 'packages';
     case 'paying': return 'chosen';
     default: return null;
   }
@@ -126,6 +126,28 @@ export async function moveToStage(workspaceId: string, contactId: string, key: S
   const curIdx = curPos ? STAGES.findIndex((s) => s.key === curPos) : -1;
   if (curIdx >= targetPos) return; // so avanca
   await prisma.lead.update({ where: { id: lead.id }, data: { stageId: target } });
+}
+
+// Quantos contactos desta regua (dia combinado startAt) ja foram mesmo
+// enviados ao estudante (automatico, aprovado ou editado e enviado).
+export async function reguaSentCount(contactId: string, startAt: string): Promise<number> {
+  const rows = await prisma.aiSalesSuggestion.findMany({
+    where: {
+      contactId, modelUsed: 'leizpro:regua',
+      status: { in: ['SENT', 'APPROVED', 'EDITED'] },
+      actionPayload: { path: ['followupKey'], string_starts_with: `${startAt}#` },
+    },
+    select: { sentMessageIds: true },
+  });
+  return rows.filter((r) => Array.isArray(r.sentMessageIds) && (r.sentMessageIds as any[]).length > 0).length;
+}
+
+// Etapa "Régua n" conforme os contactos ja enviados.
+export async function syncReguaStage(workspaceId: string, contactId: string, st: LeizProState): Promise<void> {
+  if (!st.regua) return;
+  const n = await reguaSentCount(contactId, st.regua.startAt);
+  if (n <= 0) return;
+  await moveToStage(workspaceId, contactId, n >= 3 ? 'regua3' : n === 2 ? 'regua2' : 'regua1').catch(() => {});
 }
 
 export async function syncStage(workspaceId: string, contactId: string, st: LeizProState): Promise<void> {

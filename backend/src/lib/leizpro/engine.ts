@@ -95,6 +95,12 @@ export async function isLeizProWorkspace(workspaceId: string): Promise<boolean> 
   return wsCache.ids.has(workspaceId);
 }
 
+// Todos os workspaces com a Leiz Pro (para tarefas periodicas).
+export async function leizProWorkspaceIds(): Promise<string[]> {
+  await isLeizProWorkspace('');
+  return [...wsCache!.ids];
+}
+
 // Mensagem de gatilho do anuncio: "Ola! Vi o anuncio da Zona Nerd e gostaria
 // de saber como fazer parte." (aceita pequenas variacoes).
 export function isTriggerText(text: string): boolean {

@@ -33,6 +33,9 @@ export async function syncReguaTasks(workspaceId: string, contactId: string, st:
     const stale = existing.filter((t) => t.status !== 'COMPLETED' && !DAYS.some((_, n) => t.description?.includes(tag(n))));
     if (stale.length) await prisma.task.deleteMany({ where: { id: { in: stale.map((t) => t.id) } } });
 
+    // So conta como feito o contacto que foi mesmo enviado ao estudante.
+    const { reguaSentCount } = await import('./pipeline');
+    const sentCount = await reguaSentCount(contactId, active.startAt);
     let assignee: string | null = null;
     let leadId: string | null = null;
     const contact = await prisma.contact.findUnique({ where: { id: contactId }, select: { firstName: true, lastName: true } });
@@ -40,7 +43,7 @@ export async function syncReguaTasks(workspaceId: string, contactId: string, st:
 
     for (let n = 0; n < DAYS.length; n++) {
       const t = existing.find((x) => x.description?.includes(tag(n)));
-      const done = n < active.sent;
+      const done = n < sentCount;
       if (t) {
         if (done && t.status !== 'COMPLETED') {
           await prisma.task.update({ where: { id: t.id }, data: { status: 'COMPLETED', completedAt: new Date() } });

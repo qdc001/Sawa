@@ -16,7 +16,7 @@ import {
   isLeizProWorkspace, loadState, reguaDue, generateLeizProFollowup, withContactLock,
 } from './engine';
 import { decisionSlot, parseTimeChoice, slotLabel } from './schedule';
-import { moveToStage, syncStage } from './pipeline';
+import { moveToStage, syncStage, syncReguaStage } from './pipeline';
 import { syncReguaTasks } from './reguaTasks';
 
 let running = false;
@@ -125,7 +125,11 @@ export async function runLeizProFollowups(io: any): Promise<void> {
         if (disabledBy.get(r.workspaceId)!.includes(r.contactId)) continue;
         const st = await loadState(r.workspaceId, r.contactId);
         // Tarefas da regua (cria as que faltam a quem ja estava na regua).
-        if (st.regua && st.step === 'pdf_sent') await syncReguaTasks(r.workspaceId, r.contactId, st);
+        if (st.regua && st.step === 'pdf_sent') {
+          await syncReguaTasks(r.workspaceId, r.contactId, st);
+          // "Régua n" so quando o contacto foi mesmo enviado (aprovado ou automatico).
+          await syncReguaStage(r.workspaceId, r.contactId, st);
+        }
 
         const last = await prisma.message.findFirst({
           where: { contactId: r.contactId, isInternal: false },

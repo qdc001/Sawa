@@ -304,6 +304,13 @@ setInterval(() => {
     .catch((e) => console.error('runLeizProFollowups error:', e));
 }, 60_000);
 
+// Leiz Pro: arruma os estudantes no pipeline (inclui o que a equipa faz a mao) — de hora a hora
+setInterval(() => {
+  import('./lib/leizpro/organize')
+    .then((m) => m.runOrganizeAll())
+    .catch((e) => console.error('runOrganizeAll error:', e));
+}, 60 * 60_000);
+
 // Verifica tarefas atrasadas a cada minuto e dispara automações de task_overdue
 setInterval(() => {
   checkOverdueTasks().catch((e) => console.error('checkOverdueTasks error:', e));
