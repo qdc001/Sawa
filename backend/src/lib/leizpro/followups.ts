@@ -14,7 +14,7 @@
 
 import prisma from '../prisma';
 import {
-  isLeizProWorkspace, loadState, reguaDue, generateLeizProFollowup, generateLeizProPayFollowup, withContactLock,
+  isLeizProWorkspace, loadState, reguaDue, generateLeizProFollowup, generateLeizProPayFollowup, withContactLock, cleanupPendingReguaWithoutContext,
 } from './engine';
 import { decisionSlot, parseTimeChoice, slotLabel } from './schedule';
 import { moveToStage, syncStage, syncReguaStage, syncPayStage } from './pipeline';
@@ -104,6 +104,7 @@ export async function runLeizProFollowups(io: any): Promise<void> {
   running = true;
   try {
     await startReguaForManualPackages().catch((e) => console.error('[leizpro] regua manual falhou:', e?.message || e));
+    await cleanupPendingReguaWithoutContext().catch((e) => console.error('[leizpro] limpeza da regua falhou:', e?.message || e));
 
     const since = new Date(Date.now() - 15 * 86_400_000);
     // Candidatos: contactos com sugestoes da Leiz Pro nos ultimos 15 dias.

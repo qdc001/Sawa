@@ -855,6 +855,68 @@ export async function generateLeizProPayFollowup(opts: { workspaceId: string; co
   return suggestion;
 }
 
+// Aviso (uma vez por regua): nao fez o follow-up por falta de curso/disciplinas.
+async function warnNoReguaContext(workspaceId: string, contactId: string, leadId: string | null, st: LeizProState, ctxState: LeizProState) {
+  if (!st.regua) return;
+  const skipKey = `${st.regua.startAt}#sem-contexto`;
+  const warned = await prisma.aiSalesSuggestion.findFirst({
+    where: { contactId, actionPayload: { path: ['followupKey'], equals: skipKey } }, select: { id: true },
+  });
+  if (warned) return;
+  const why = !ctxState.course
+    ? 'nao sei o curso do estudante'
+    : `o curso "${ctxState.course}" nao esta nos editais e o estudante nao disse as disciplinas do exame`;
+  const notify = `nao fiz o follow-up da regua porque ${why}. Diz-me o curso e as disciplinas, ou faz o follow-up a mao.`;
+  const rec = await prisma.aiSalesSuggestion.create({
+    data: {
+      workspaceId, contactId, leadId,
+      parts: [] as any, action: 'wait', productFileIds: [] as any,
+      actionPayload: { leizpro: { ...st, regua: null }, followupKey: skipKey, notify } as any,
+      reasoning: `Regua de follow-up nao enviada: ${why}.`,
+      principlesUsed: [] as any, modelUsed: 'leizpro:regua-sem-contexto', status: 'APPROVED', decidedAt: new Date(),
+    },
+  });
+  await notifyHandoff(workspaceId, contactId, rec).catch(() => {});
+  await syncStage(workspaceId, contactId, { ...st, regua: null });
+}
+
+// Limpeza (agendador): follow-ups da regua por aprovar, feitos antes desta
+// regra, sem curso/disciplinas -> descartados e aviso a equipa; com contexto
+// encontrado nas mensagens -> reescritos com o texto completo.
+export async function cleanupPendingReguaWithoutContext(): Promise<number> {
+  const rows = await prisma.aiSalesSuggestion.findMany({
+    where: { status: 'PENDING', modelUsed: 'leizpro:regua' },
+    select: { id: true, workspaceId: true, contactId: true, leadId: true, actionPayload: true },
+    take: 500,
+  });
+  let n = 0;
+  for (const r of rows) {
+    const next = (r.actionPayload as any)?.leizpro as LeizProState | undefined;
+    if (!next?.regua) continue;
+    const prev: LeizProState = { ...INITIAL_STATE, ...next, regua: { ...next.regua, sent: Math.max(0, next.regua.sent - 1) } };
+    if (reguaContext(prev)) continue;
+    const ctx = await contextFromMessages(r.contactId, prev);
+    if (reguaContext(ctx)) {
+      CUR = await loadTexts(r.workspaceId);
+      const { parts, next: n2 } = reguaTurn(ctx);
+      if (!hasPlaceholders(parts)) {
+        await prisma.aiSalesSuggestion.update({
+          where: { id: r.id },
+          data: { parts: parts as any, actionPayload: { ...(r.actionPayload as any), leizpro: { ...n2, course: ctx.course, examSubjects: ctx.examSubjects } } as any },
+        });
+      }
+      continue;
+    }
+    await prisma.aiSalesSuggestion.update({
+      where: { id: r.id },
+      data: { status: 'DISCARDED', decidedAt: new Date(), reasoning: 'Descartada: follow-up da regua sem curso/disciplinas conhecidos (regra nova).' },
+    });
+    await warnNoReguaContext(r.workspaceId, r.contactId, r.leadId, prev, ctx);
+    n += 1;
+  }
+  return n;
+}
+
 async function contextFromMessages(contactId: string, st: LeizProState): Promise<LeizProState> {
   const msgs = await prisma.message.findMany({
     where: { contactId, direction: 'INBOUND', isInternal: false, type: 'TEXT' },
@@ -892,27 +954,7 @@ export async function generateLeizProFollowup(opts: { workspaceId: string; conta
   let ctxState = st;
   if (!reguaContext(st)) ctxState = await contextFromMessages(opts.contactId, st);
   if (!reguaContext(ctxState)) {
-    const skipKey = `${st.regua!.startAt}#sem-contexto`;
-    const warned = await prisma.aiSalesSuggestion.findFirst({
-      where: { contactId: opts.contactId, actionPayload: { path: ['followupKey'], equals: skipKey } }, select: { id: true },
-    });
-    if (!warned) {
-      const why = !ctxState.course
-        ? 'nao sei o curso do estudante'
-        : `o curso "${ctxState.course}" nao esta nos editais e o estudante nao disse as disciplinas do exame`;
-      const notify = `nao fiz o follow-up da regua porque ${why}. Diz-me o curso e as disciplinas, ou faz o follow-up a mao.`;
-      const rec = await prisma.aiSalesSuggestion.create({
-        data: {
-          workspaceId: opts.workspaceId, contactId: opts.contactId, leadId: opts.leadId || null,
-          parts: [] as any, action: 'wait', productFileIds: [] as any,
-          actionPayload: { leizpro: { ...st, regua: null }, followupKey: skipKey, notify } as any,
-          reasoning: `Regua de follow-up nao enviada: ${why}.`,
-          principlesUsed: [] as any, modelUsed: 'leizpro:regua-sem-contexto', status: 'APPROVED', decidedAt: new Date(),
-        },
-      });
-      await notifyHandoff(opts.workspaceId, opts.contactId, rec).catch(() => {});
-      await syncStage(opts.workspaceId, opts.contactId, { ...st, regua: null });
-    }
+    await warnNoReguaContext(opts.workspaceId, opts.contactId, opts.leadId || null, st, ctxState);
     return null;
   }
 
