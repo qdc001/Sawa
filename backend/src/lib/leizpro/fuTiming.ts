@@ -56,6 +56,39 @@ function dayStart(t: Date, plusDays: number): Date {
   return new Date(Date.UTC(l.getUTCFullYear(), l.getUTCMonth(), l.getUTCDate() + plusDays, 0) - OFFSET_MS);
 }
 
+// Guia v32: "anotar no CRM o dia que ele disser e mandar o 1.o follow-up nesse
+// dia, a tarde". Le o dia da mensagem do estudante e devolve o inicio da janela
+// das 12h desse dia (hora de Maputo). Sem dia concreto ("quando receber",
+// "mais tarde"): null, e seguem-se as regras dos tiques.
+const WEEKDAYS = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+export function payDayAt(text: string, now = new Date()): Date | null {
+  const l = new Date(now.getTime() + OFFSET_MS);
+  const y = l.getUTCFullYear(), m = l.getUTCMonth(), d = l.getUTCDate(), wd = l.getUTCDay();
+  let plus: number | null = null;
+  let dayOfMonth: number | null = null;
+  if (/\bdepois de amanha\b/.test(text)) plus = 2;
+  else if (/\bamanha\b/.test(text)) plus = 1;
+  else if (/\bhoje\b/.test(text)) plus = 0;
+  else if (/\b(proxima semana|semana que vem|semana seguinte)\b/.test(text)) plus = ((8 - wd) % 7) || 7;
+  else if (/\b(fim|final) do mes\b/.test(text)) dayOfMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  else {
+    const dm = text.match(/\bdia (\d{1,2})\b/);
+    if (dm && +dm[1] >= 1 && +dm[1] <= 31) dayOfMonth = +dm[1];
+    else {
+      const i = WEEKDAYS.findIndex((w) => new RegExp(`\\b${w}\\b`).test(text));
+      if (i >= 0) plus = ((i - wd + 7) % 7) || 7;
+    }
+  }
+  let target: Date;
+  if (plus !== null) target = new Date(Date.UTC(y, m, d + plus, 12) - OFFSET_MS);
+  else if (dayOfMonth !== null) {
+    const mm = dayOfMonth >= d ? m : m + 1;
+    target = new Date(Date.UTC(y, mm, dayOfMonth, 12) - OFFSET_MS);
+  } else return null;
+  // Hoje e ja passou das 12h: a janela seguinte (18h); depois das 20h, amanha.
+  return target.getTime() < now.getTime() ? nextSendTime(now) : target;
+}
+
 export type Ticks = 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
 
 export type FuInput = {

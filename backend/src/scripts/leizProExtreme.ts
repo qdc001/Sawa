@@ -58,6 +58,23 @@ const STATES: Record<string, { st: LeizProState; hist: string[] }> = {
     st: { ...BASE, step: 'followup', lastKey: 'reguaNotNow', lastQuestion: 'reguaNotNow' },
     hist: ['Estudante: agora não', 'Zona Nerd: Está bem, Elton, obrigada por me dizeres. 😊 Quando achas que podemos voltar a falar?'],
   },
+  get pay32() { return this.paying; },
+  // Guia v34: acesso activo (boas-vindas da equipa).
+  accmid: {
+    st: { ...BASE, step: 'active', lastKey: 'accessMid', lastQuestion: 'accessMid', pkg: 'Pacote D (570 MZN)', snCount: 2, snMonths: 2,
+      access: { start: '2026-11-24T09:30:00.000Z', end: '2027-01-23T10:00:00.000Z', subjects: 'Biologia e Química', mid: true, renew: 0 } },
+    hist: ['Zona Nerd: Olá, Elton! 😊 Já passou metade do teu acesso. Como está a correr o estudo de Biologia e Química?', 'Zona Nerd: Em que capítulo estás agora?'],
+  },
+  renew1: {
+    st: { ...BASE, step: 'active', lastKey: 'renew1', lastQuestion: 'renew1', pkg: 'Pacote D (570 MZN)', snCount: 2, snMonths: 2,
+      access: { start: '2026-11-24T09:30:00.000Z', end: '2027-01-23T10:00:00.000Z', subjects: 'Biologia e Química', mid: true, renew: 1 } },
+    hist: ['Zona Nerd: Olá, Elton! O teu acesso a Biologia e Química termina no dia 23 de janeiro, daqui a 3 dias.', 'Zona Nerd: Queres continuar a estudar sem parar? Diz-me e mando-te as opções.'],
+  },
+  renewsame: {
+    st: { ...BASE, step: 'active', lastKey: 'renewSame', lastQuestion: 'renewSame', pkg: 'Pacote D (570 MZN)', snCount: 2, snMonths: 2,
+      access: { start: '2026-11-24T09:30:00.000Z', end: '2027-01-23T10:00:00.000Z', subjects: 'Biologia e Química', mid: true, renew: 1 } },
+    hist: ['Estudante: Quero continuar', 'Zona Nerd: Boa, Elton! 😊 Ficas com o mesmo pacote (Pacote D) ou queres mudar?'],
+  },
   paying: {
     st: { ...BASE, step: 'paying', lastKey: 'paymentChannels', lastQuestion: 'paymentChannels', pkg: 'Pacote D (570 MZN)', snCount: 2, snMonths: 2, payFollow: { at: startAt, sent: false } },
     hist: ['Estudante: quero o pacote D', 'Zona Nerd: Estes são os canais de pagamento 😊 ... Após o pagamento, peço que mandes o comprovativo por aqui, no WhatsApp.'],
@@ -122,7 +139,7 @@ const STATES: Record<string, { st: LeizProState; hist: string[] }> = {
   },
   fupay2: {
     st: { ...BASE, step: 'paying', lastKey: 'fuPay2', lastQuestion: 'fuPay2', pkg: 'Pacote D (570 MZN)', snCount: 2, snMonths: 2, payFollow: { at: startAt, sent: true }, fu: { stage: 'pay', n: 2 } },
-    hist: ['Zona Nerd: Boa tarde, Elton! Assim que mandares o comprovativo, activamos o teu acesso no mesmo dia. Consegues hoje?'],
+    hist: ['Zona Nerd: Boa tarde, Elton! Assim que mandares o comprovativo, activamos o teu acesso no mesmo dia. Quando é que consegues?'],
   },
   react: {
     st: { ...BASE, step: 'ask_online', lastKey: 'reactivation', lastQuestion: 'reactivation', fu: { stage: 'online', n: 4 } },
@@ -339,6 +356,19 @@ add('commit', 'safe', ['Não posso prometer', 'Estou na dúvida', 'Não tenho a 
 add('pdf', 'action:wait', ['ok mana', 'Okk', 'Tranquilo', 'Valeu', 'Sem stress', 'Inshallah']);
 add('regua1', 'money', ['Tou mal de bolso', 'Estou a zero', 'Sem guita', 'Ainda nao recebi', 'Os meus pais ainda não pagaram']);
 add('paying', 'money', ['Só depois do dia 25', 'Quando o meu pai mandar']);
+// Guia v32: dia concreto -> 1.o follow-up nesse dia; sem dia -> regras dos tiques; hoje -> sem resposta.
+add('pay32', 'key:payLater&payday:sim', ['Amanhã', 'Só na sexta', 'No fim do mês', 'Depois de amanhã', 'Na próxima semana', 'Dia 30', 'Consigo pagar amanhã', 'Pago na segunda']);
+add('pay32', 'key:payLater&payday:nao', ['Quando receber o salário', 'Mais tarde', 'Quando o meu pai mandar o dinheiro']);
+add('pay32', 'action:wait&payday:sim', ['Hoje', 'Ainda hoje', 'Hoje mesmo', 'Hoje à tarde', 'Só hoje à noite']);
+// Guia v34: a meio do acesso e renovacao.
+add('accmid', 'key:accessGood', ['Está a correr bem', 'Bem, estou no capítulo 5', 'Tudo bem, já vou no capítulo 6', 'Muito bem obrigado', 'Está a correr bem, estou adiantado', 'Bom, quase a terminar']);
+add('accmid', 'action:handoff', ['Estou atrasado', 'Ainda não comecei', 'Estou no capítulo 3', 'Tenho dificuldade em genética', 'Não estou a conseguir estudar', 'Estou parado no capítulo 2', 'Química está difícil', 'Capítulo 4']);
+add('accmid', 'action:wait', ['Ok', 'Obrigado']);
+add('renew1', 'key:renewSame', ['Sim', 'Quero continuar', 'Continuar', 'Sim, manda as opções', 'Quero renovar', 'Claro']);
+add('renew1', 'action:wait|money|action:handoff', ['Não, obrigado', 'Agora não', 'Não quero']);
+add('renew1', 'money|action:handoff', ['Não tenho dinheiro', 'Estou sem dinheiro agora']);
+add('renewsame', 'key:paymentChannels', ['O mesmo', 'Mesmo pacote', 'Fico com o mesmo', 'Sim, o mesmo', 'Mantenho']);
+add('renewsame', 'key:packagesPdf|action:send_pdf', ['Quero mudar', 'Quero outro pacote', 'Quero trocar', 'Quero mais disciplinas']);
 add('paying', 'action:handoff', ['Já está pago', 'Pago ✅', 'Feito, paguei']);
 const EXTREME2: string[] = [
   'Quanto ganhas?', 'Qual é o teu número pessoal?', 'Manda foto', 'Gosto de ti', 'Queres namorar comigo?',
@@ -449,6 +479,7 @@ function check1(stateName: string, before: LeizProState, d: Decision, e: string,
   if (kind === 'step') return d.next.step === val;
   if (kind === 'key') return d.action !== 'handoff' && d.action !== 'wait' && d.next.lastKey === val;
   if (kind === 'action') return d.action === val;
+  if (kind === 'payday') return val === 'sim' ? !!d.next.payFollow?.day : !d.next.payFollow?.day && !!d.next.payFollow && !d.next.payFollow.skip;
   return false;
 }
 
@@ -529,7 +560,7 @@ async function main() {
   const t0 = Date.now();
 
   if (filter !== 'cadeias') {
-    const V31 = ['amb', 'ambno', 'ambshy', 'ambfu2', 'fucourse2', 'fuconn1', 'fuonline2', 'fucommit1', 'fuaccount1', 'fuaccount2', 'fupkg1', 'fupay2', 'react'];
+    const V31 = ['amb', 'ambno', 'ambshy', 'ambfu2', 'fucourse2', 'fuconn1', 'fuonline2', 'fucommit1', 'fuaccount1', 'fuaccount2', 'fupkg1', 'fupay2', 'react', 'pay32', 'accmid', 'renew1', 'renewsame'];
     const list = CASES.filter(([s, , e]) => !filter || (filter === 'v31' ? V31.includes(s) : filter === 'extremos' ? e === 'extreme' : s === filter && e !== 'extreme') || (filter === 'tudo'));
     for (const [stateName, reply, exp] of list) {
       const { st, hist } = STATES[stateName];

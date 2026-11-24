@@ -165,10 +165,12 @@ export const T = {
     'Olá, [NOME]! 😊 Conseguiste fazer o pagamento? Se tiveres alguma dificuldade com o M-Pesa ou o e-Mola, diz-me.',
   ],
   fuPay2: [
-    'Bom dia, [NOME]! Assim que mandares o comprovativo, activamos o teu acesso no mesmo dia. Consegues hoje?',
+    'Bom dia, [NOME]! Assim que mandares o comprovativo, activamos o teu acesso no mesmo dia.',
+    'Quando é que consegues?',
   ],
   fuPay3: [
-    'Olá, [NOME]. Quando fizeres o pagamento, manda o comprovativo por aqui e eu activo logo. 😊 Até lá, o capítulo 1 continua grátis.',
+    'Olá, [NOME]. Quando fizeres o pagamento, manda o comprovativo por aqui e eu activo logo. 😊',
+    'Até lá, o capítulo 1 continua grátis.',
   ],
   // "JA DISSE QUANDO CONSIGO PAGAR" (Fluxo 5): a data vai para a equipa.
   payLater: [
@@ -204,6 +206,26 @@ export const T = {
   fuPkg1: ['Olá, [NOME]! 😊 Ficou alguma dúvida sobre os pacotes? Para {n_disciplinas}, o que faz mais sentido para ti: 1 mês ou 2 meses?'],
   fuPkg2: ['Bom dia, [NOME]! Hoje é um bom dia para avançares para o capítulo 2. Com qual dos pacotes vais ficar?'],
   fuPkg3: ['Olá, [NOME]. Se agora não for o momento, diz-me só "agora não", sem problema. 😊 Assim não te incomodo.'],
+  // ---- Acesso activo (guia v34, Fluxo 7) ----------------------------------------
+  // As boas-vindas (Passo 4.2) sao mandadas pela equipa; daqui em diante, a Sherone.
+  accessMid: [
+    'Olá, [NOME]! 😊 Já passou metade do teu acesso. Como está a correr o estudo de {disciplinas}?',
+    'Em que capítulo estás agora?',
+  ],
+  accessGood: [
+    'Boa, [NOME]! 💪 Estás no bom ritmo. Continua assim e, se algum tema te custar, diz-me qual que eu ajudo-te.',
+  ],
+  renew1: [
+    'Olá, [NOME]! O teu acesso a {disciplinas} termina no dia {data_fim}, daqui a 3 dias.',
+    'Depois voltas ao capítulo 1 grátis, mas o teu progresso fica guardado: se renovares, continuas exactamente onde paraste.',
+    'Queres continuar a estudar sem parar? Diz-me e mando-te as opções.',
+  ],
+  renew2: [
+    '[NOME], o teu acesso termina hoje. 😊 Se quiseres continuar sem interromper o estudo, manda-me só "continuar" e envio-te os canais de pagamento.',
+  ],
+  renewSame: [
+    'Boa, [NOME]! 😊 Ficas com o mesmo pacote ({pacote}) ou queres mudar?',
+  ],
   // Reactivacao (2 a 3 semanas depois do 3.o follow-up sem resposta)
   reactivation: [
     'Olá, [NOME].\n\nComo está a preparação para o exame? 📚',
@@ -251,6 +273,7 @@ export const T = {
     'Estes são os canais de pagamento 😊\n- 871443442 - Absalão Mate\n- 858395481 - Absalão Mate',
     'Após o pagamento, peço que mandes o comprovativo por aqui, no WhatsApp.',
     'Assim que validarmos o pagamento, o teu acesso fica activo.',
+    'Quando é que consegues fazer o pagamento?',
   ],
 
   // ---- Fluxo 5: situacoes comuns ------------------------------------------------

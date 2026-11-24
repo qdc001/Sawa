@@ -28,6 +28,8 @@ import { understand, norm, LEIZPRO_MODEL, type Understanding, type Slot as AskSl
 import { examSubjects, examOptions, findCourseIn } from './courses';
 import { syncStage } from './pipeline';
 import { proposeSlots, decisionSlot, parseTimeChoice, slotLabel, type Slot } from './schedule';
+import { payDayAt } from './fuTiming';
+import { type Access, type AccessKey, daysLeft } from './access';
 
 // Textos em uso nesta volta (guia + edicoes do painel). Definido em runTurn
 // antes de decide(), que e sincrono, por isso nao ha mistura entre conversas.
@@ -45,6 +47,7 @@ export type Step =
   | 'sn_activate'     // "queres que te explique como activar?"
   | 'paying'          // recebeu os canais de pagamento
   | 'ambassador'      // sem dinheiro: Premio Embaixador ("consegues fazer isso?")
+  | 'active'          // acesso activo (boas-vindas da equipa): meio do acesso e renovacao
   | 'handoff';
 
 export type LeizProState = {
@@ -64,10 +67,12 @@ export type LeizProState = {
   // Regua de follow-up (Fluxo 6): dia combinado e quantos contactos ja foram.
   regua: { startAt: string; sent: number } | null;
   // Follow-up de pagamento: quando sai (1 dia depois dos canais) e se ja saiu.
-  payFollow: { at: string; sent: boolean; skip?: boolean } | null; // skip: disse quando paga (sem follow-up)
+  payFollow: { at: string; sent: boolean; skip?: boolean; day?: string } | null; // day: dia que disse que paga (1.o follow-up nesse dia, guia v32)
   paidOnce: boolean;
   // Follow-ups por etapa (guia v31): etapa e quantos ja foram (4 = reactivacao feita).
   fu: { stage: FuStage; n: number } | null;
+  // Acesso activo (guia v34): datas lidas das boas-vindas da equipa.
+  access: Access | null;
   lastKey: TemplateKey | null;
   lastQuestion: TemplateKey | null;
   retries: number;
@@ -75,7 +80,7 @@ export type LeizProState = {
 
 export const INITIAL_STATE: LeizProState = {
   step: 'start', name: null, university: null, course: null, difficulty: null, hardSubject: null, examSubjects: null, offered: null,
-  snCount: null, snMonths: null, snReturn: null, snReturnQ: null, pkg: null, regua: null, payFollow: null, paidOnce: false, fu: null,
+  snCount: null, snMonths: null, snReturn: null, snReturnQ: null, pkg: null, regua: null, payFollow: null, paidOnce: false, fu: null, access: null,
   lastKey: null, lastQuestion: null, retries: 0,
 };
 
@@ -601,6 +606,9 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
     return wait(st, 'vai pagar agora: espera o comprovativo');
   }
 
+  // Acesso activo (Fluxo 7): a meio do acesso e renovacao.
+  if (st.step === 'active') return accessReply(st, u, text, rawText, isThanks);
+
   // Reactivacao ("Queres que te envie uma sugestao de rotina?"): a equipa responde.
   if (st.lastKey === 'reactivation') {
     if (isThanks && !/\bsim\b/.test(text)) return wait(st, 'agradeceu a reactivacao: nao e preciso responder');
@@ -611,12 +619,23 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
   // A pagar e diz quando consegue ("so no fim do mes", "amanha", "ainda nao tenho"):
   // resposta do guia e a data vai para a equipa; sem follow-up de pagamento.
   // Sem dinheiro e sem data ("nao tenho dinheiro"): Premio Embaixador.
-  const payDate = /\b(amanha|depois de amanha|semana|mes|fim do mes|logo|mais tarde|sexta|segunda|terca|quarta|quinta|sabado|domingo|quando receber|vou pagar|meu pai|minha mae|meus pais)\b/.test(text);
+  const payDate = /\b(amanha|depois de amanha|semana|mes|fim do mes|logo|mais tarde|sexta|segunda|terca|quarta|quinta|sabado|domingo|quando receber|vou pagar|meu pai|minha mae|meus pais|dia \d{1,2})\b/.test(text);
+  // "Quando e que consegues fazer o pagamento?" -> "Hoje" / "Ainda hoje": sem
+  // resposta; o 1.o follow-up vai na janela seguinte de hoje (guia v32).
+  if (st.step === 'paying' && u.intent !== 'ja_pagou' && u.intent !== 'nao_abriu' && u.intent !== 'sem_dinheiro'
+      && /^(so |ainda |e |vou pagar |pago |consigo )?(hoje|agora|ja ja|daqui a pouco|logo mais)( mesmo| ainda| a tarde| a noite| sim)?\W*$/.test(text)) {
+    const at = payDayAt('hoje', new Date());
+    return wait({ ...st, payFollow: { at: at!.toISOString(), sent: false, day: at!.toISOString() } }, 'diz que paga hoje: 1.o follow-up de pagamento hoje (guia v32)');
+  }
   if (st.step === 'paying' && u.intent === 'sem_dinheiro' && !payDate) return noMoney(st, text);
   if (st.step === 'paying' && u.intent !== 'ja_pagou' && u.intent !== 'nao_abriu'
       && (u.intent === 'sem_dinheiro' || payDate || /\bainda nao\b/.test(text))) {
-    const d = say('payLater', { ...st, payFollow: { at: new Date().toISOString(), sent: true, skip: true } }, 'paying', 'diz quando consegue pagar ("JA DISSE QUANDO CONSIGO PAGAR")');
-    d.notify = `diz quando consegue pagar${st.pkg ? ` o ${st.pkg}` : ''}: "${rawText.trim().slice(0, 100)}" (registar a data)`;
+    // Guia v32: 1.o follow-up no dia que ele disse, a tarde; sem dia concreto, regras dos tiques.
+    const day = payDayAt(text, new Date());
+    const pf = day ? { at: day.toISOString(), sent: false, day: day.toISOString() } : { at: new Date().toISOString(), sent: false };
+    const d = say('payLater', { ...st, payFollow: pf }, 'paying', 'diz quando consegue pagar ("JA DISSE QUANDO CONSIGO PAGAR")');
+    d.notify = `diz quando consegue pagar${st.pkg ? ` o ${st.pkg}` : ''}: "${rawText.trim().slice(0, 100)}"`
+      + (day ? ` (1.o follow-up ${day.toLocaleDateString('pt-PT', { timeZone: 'Africa/Maputo', weekday: 'long', day: 'numeric', month: 'long' })}, as 12h)` : ' (sem dia concreto: follow-ups pelas regras dos tiques)');
     return d;
   }
 
@@ -820,7 +839,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
 }
 
 // ---- Estado -----------------------------------------------------------------
-const KNOWN_STEPS: Step[] = ['start', 'diagnosis', 'connection', 'ask_online', 'ask_commitment', 'pdf_sent',
+const KNOWN_STEPS: Step[] = ['active', 'start', 'diagnosis', 'connection', 'ask_online', 'ask_commitment', 'pdf_sent',
   'account_help', 'followup', 'sn_choice', 'sn_activate', 'paying', 'ambassador', 'handoff'];
 
 export async function loadState(workspaceId: string, contactId: string): Promise<LeizProState> {
@@ -924,6 +943,9 @@ function expectingFor(st: LeizProState): string {
     case 'sn_activate': return 'se quer que expliquem como activar o modo Super Nerd (sim/nao)';
     case 'paying': return 'o comprovativo do pagamento (quem confirma e a equipa)';
     case 'ambassador': return 'se consegue partilhar o link de convite com 5 colegas (sim/nao) ou o motivo de nao conseguir';
+    case 'active': return st.lastKey === 'accessMid' ? 'como esta a correr o estudo e em que capitulo esta'
+      : st.lastKey === 'renewSame' ? 'se fica com o mesmo pacote ou se quer mudar'
+      : 'se quer renovar o acesso (sim/nao/continuar)';
     default: return 'nada';
   }
 }
@@ -944,6 +966,83 @@ export async function runTurn(state: LeizProState, text: string, workspaceId?: s
   // Respondeu: os follow-ups da etapa recomecam do zero (na etapa onde ficar).
   d.next = { ...d.next, fu: null };
   return { u, d };
+}
+
+// ---- Acesso activo (guia v34, Fluxo 7) -----------------------------------------
+// Textos do workspace (editados no painel) para o agendador.
+export async function loadTextsFor(workspaceId: string): Promise<void> {
+  CUR = await loadTexts(workspaceId);
+}
+
+function accessVars(st: LeizProState): Record<string, string> {
+  const a = st.access;
+  const subj = a?.subjects || (st.examSubjects?.length ? st.examSubjects.join(' e ') : '');
+  const fim = a ? new Date(a.end).toLocaleDateString('pt-PT', { timeZone: 'Africa/Maputo', day: 'numeric', month: 'long' }) : '';
+  return { disciplinas: subj, data_fim: fim, pacote: st.pkg ? st.pkg.replace(/\s*\(.*\)$/, '') : '' };
+}
+
+// Mensagem do acompanhamento (a meio / renovacao), para o agendador.
+export function accessTurn(st: LeizProState, key: AccessKey): { parts: string[]; next: LeizProState } {
+  const a = st.access!;
+  const parts = fill(CUR[key], st, { ...vars(st), ...accessVars(st) });
+  const access: Access = key === 'accessMid' ? { ...a, mid: true }
+    : key === 'renew1' ? { ...a, mid: true, renew: 1, renewAt: new Date().toISOString() }
+    : { ...a, mid: true, renew: 2 };
+  return { parts, next: { ...st, step: 'active', access, lastKey: key, lastQuestion: key, retries: 0, fu: null, regua: null, payFollow: null } };
+}
+
+function accessReply(st: LeizProState, u: Understanding, text: string, rawText: string, isThanks: boolean): Decision {
+  const k = st.lastKey;
+  const quote = rawText.trim().slice(0, 80);
+  const left = st.access ? daysLeft(st.access) : null;
+  if (k === 'accessMid') {
+    // Dificuldade num tema: acompanhamento pelo WhatsApp (equipa).
+    if (/\b(dificuldade|dificil|custa|nao (percebo|entendo|consigo perceber)|ajuda|duvida|duvidas)\b/.test(text)) {
+      return handoff(st, `a meio do acesso, diz que tem dificuldade ("${quote}"): encaminhar para o acompanhamento pelo WhatsApp`);
+    }
+    // Atrasado: a resposta precisa de N capitulos em falta (a equipa calcula).
+    if (/\b(atrasad\w*|ainda nao comecei|nao comecei|nem comecei|parad\w*|pouco|devagar|nao (tenho|estou a) (estudado|estudar|conseguir)|sem tempo|mal)\b/.test(text) || NOT_YES.test(text) && !/\bbem\b/.test(text)) {
+      return handoff(st, `a meio do acesso, esta atrasado ("${quote}")${left !== null ? `; faltam ${left} dias` : ''}: responder com "Se ele estiver atrasado" do Fluxo 7 (N capitulos em falta, N/X por dia)`);
+    }
+    if (/\b(bem|bom|boa|otimo|optimo|excelente|tranquilo|no ritmo|a correr bem|tudo certo|quase|terminei|acabei|ja vou no|adiantad\w*)\b/.test(text)) {
+      return say('accessGood', st, 'active', 'a meio do acesso: esta bem encaminhado');
+    }
+    if (isThanks) return wait(st, 'agradeceu: nao e preciso responder');
+    // So o capitulo ("estou no capitulo 4"): sem o total de capitulos nao se sabe o ritmo.
+    return handoff(st, `a meio do acesso respondeu "${quote}"${left !== null ? ` (faltam ${left} dias)` : ''}: ver se esta no ritmo e responder com a mensagem do Fluxo 7`);
+  }
+  if (k === 'accessGood') {
+    if (isThanks || u.intent === 'sim') return wait(st, 'agradeceu: nao e preciso responder');
+    return handoff(st, `depois do contacto a meio do acesso: "${quote}"`);
+  }
+  if (k === 'renew1' || k === 'renew2') {
+    // "Nao quero", "agora nao": nao renova (antes do "quero").
+    if (/^(nao|agora nao|ainda nao|por agora nao)\b/.test(text) && u.intent !== 'sem_dinheiro') {
+      return isThanks || u.intent === 'nao' || /^nao\W*$|\bnao (quero|vou|obrigad\w*)\b/.test(text)
+        ? wait(st, 'nao quer renovar agora: entra na Reactivacao') : handoff(st, `respondeu a renovacao ("${quote}")`);
+    }
+    if (/\b(continuar|continua|renovar|renovo|quero|manda|mande|envia|opcoes|bora|siga)\b/.test(text) || (u.intent === 'sim' && !NOT_YES.test(text))) {
+      if (st.pkg && st.snCount && st.snMonths) return say('renewSame', st, 'active', 'quer renovar: mesmo pacote ou mudar?', accessVars(st));
+      return sendPackages({ ...st, step: 'active' }, 'quer renovar (pacote anterior desconhecido): envia os pacotes');
+    }
+    if (u.intent === 'sem_dinheiro') return noMoney(st, text);
+    if (isThanks) return wait(st, 'agradeceu: nao e preciso responder');
+    if (u.intent === 'nao') return wait(st, 'nao quer renovar agora: entra na Reactivacao');
+    return handoff(st, `respondeu a renovacao ("${quote}")`);
+  }
+  if (k === 'renewSame') {
+    if (/\b(mudar|muda|outro|outra|trocar|troca|diferente|mais disciplinas|menos)\b/.test(text)) {
+      return sendPackages({ ...st, step: 'active' }, 'quer renovar com outro pacote: envia os pacotes');
+    }
+    if (/\b(mesmo|igual|esse|este|manter|mantenho|o mesmo)\b/.test(text) || (u.intent === 'sim' && !NOT_YES.test(text))) {
+      return choosePackage(st, st.snCount!, st.snMonths!, 'renova com o mesmo pacote');
+    }
+    if (isThanks) return wait(st, 'agradeceu: nao e preciso responder');
+    return handoff(st, `respondeu a "mesmo pacote ou mudar?" ("${quote}")`);
+  }
+  // Fora das mensagens do acompanhamento (ex.: escreveu depois das boas-vindas): a equipa responde.
+  if (isThanks) return wait(st, 'agradeceu: nao e preciso responder');
+  return handoff(st, `tem o acesso activo e escreveu "${quote}"`);
 }
 
 // ---- Regua de follow-up (Fluxo 6) ---------------------------------------------
@@ -1075,7 +1174,9 @@ export async function generateLeizProStageFollowup(opts: { workspaceId: string; 
   const anyRead = works ? await prisma.message.findFirst({ where: { contactId: opts.contactId, direction: 'OUTBOUND', status: 'READ' }, select: { id: true } }) : null;
   const inbound = await prisma.message.count({ where: { contactId: opts.contactId, direction: 'INBOUND', isInternal: false } });
   const { fuDue } = await import('./fuTiming');
-  const due = fuDue({
+  const stage0 = fuStageOf(st);
+  const payDay = stage0 === 'pay' && (st.fu?.n ?? 0) === 0 && st.payFollow?.day ? new Date(st.payFollow.day) : null;
+  const due = payDay ? { at: payDay, kind: 'fu' as const, why: 'dia que disse que pagava (guia v32)' } : fuDue({
     sent: st.fu?.n ?? 0,
     last: {
       status: (works ? lastOut.status : (lastOut.status === 'SENT' ? 'DELIVERED' : lastOut.status)) as any,

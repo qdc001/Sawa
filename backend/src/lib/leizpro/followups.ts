@@ -12,16 +12,149 @@
 //     no Premio Embaixador, 3 por etapa, a hora conforme os tiques do WhatsApp
 //     (fuTiming.ts), e a Reactivacao 2 a 3 semanas depois do 3.o. A etapa
 //     "Follow-up de pagamento" muda quando o 1.o de pagamento e enviado.
+//  4. Acesso activo (guia v34, Fluxo 7): quando a equipa manda as boas-vindas
+//     ("O teu acesso ja esta activo ... ate [DATA DE FIM]"), le as datas e manda
+//     a mensagem a meio do acesso e as duas de renovacao.
 
 import prisma from '../prisma';
 import {
-  isLeizProWorkspace, loadState, reguaDue, generateLeizProFollowup, generateLeizProStageFollowup, fuStageOf, withContactLock, cleanupPendingReguaWithoutContext,
+  isLeizProWorkspace, loadState, reguaDue, accessTurn, loadTextsFor, generateLeizProFollowup, generateLeizProStageFollowup, fuStageOf, withContactLock, cleanupPendingReguaWithoutContext,
 } from './engine';
 import { decisionSlot, parseTimeChoice, slotLabel } from './schedule';
 import { moveToStage, syncStage, syncReguaStage, syncPayStage } from './pipeline';
 import { syncReguaTasks, syncPayTask } from './reguaTasks';
 
+import { WELCOME_RE, parseWelcome, accessDue, accessStale } from './access';
+
 let running = false;
+
+async function dispatch(io: any, workspaceId: string, suggestion: any): Promise<void> {
+  if (io) io.to(`workspace:${workspaceId}`).emit('aiSales:suggestion', suggestion);
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { aiSalesMode: true } });
+  if (ws?.aiSalesMode === 'auto') {
+    const { autoDispatchSuggestion } = await import('../autoDispatchSalesSuggestion');
+    await autoDispatchSuggestion(suggestion.id, io);
+  }
+}
+
+// 4a. Boas-vindas da equipa -> acesso activo (datas de inicio e fim).
+async function startAccessFromWelcome(): Promise<void> {
+  const since = new Date(Date.now() - 3 * 86_400_000);
+  const msgs = await prisma.message.findMany({
+    where: {
+      direction: 'OUTBOUND', isInternal: false, createdAt: { gte: since },
+      OR: [{ content: { contains: 'está activo', mode: 'insensitive' } }, { content: { contains: 'esta activo', mode: 'insensitive' } },
+        { content: { contains: 'está ativo', mode: 'insensitive' } }, { content: { contains: 'esta ativo', mode: 'insensitive' } }],
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, contactId: true, content: true, createdAt: true, contact: { select: { workspaceId: true } } },
+    take: 500,
+  });
+  const seen = new Set<string>();
+  for (const m of msgs) {
+    if (!m.contactId || seen.has(m.contactId) || !WELCOME_RE.test(m.content || '')) continue;
+    seen.add(m.contactId);
+    const workspaceId = m.contact?.workspaceId;
+    if (!workspaceId || !(await isLeizProWorkspace(workspaceId))) continue;
+    const done = await prisma.aiSalesSuggestion.findFirst({
+      where: { contactId: m.contactId, actionPayload: { path: ['welcomeMsgId'], equals: m.id } }, select: { id: true },
+    });
+    if (done) continue;
+    const st = await loadState(workspaceId, m.contactId);
+    const access = parseWelcome(m.content || '', m.createdAt, st.snMonths, st.examSubjects?.length ? st.examSubjects.join(' e ') : null);
+    const next = access
+      ? { ...st, step: 'active' as const, access, lastKey: null, lastQuestion: null, retries: 0, fu: null, regua: null, payFollow: null }
+      : st;
+    const lead = await prisma.lead.findFirst({ where: { contactId: m.contactId }, orderBy: { createdAt: 'desc' }, select: { id: true } });
+    await prisma.aiSalesSuggestion.create({
+      data: {
+        workspaceId, contactId: m.contactId, leadId: lead?.id || null,
+        parts: [] as any, action: 'wait', productFileIds: [] as any,
+        actionPayload: { leizpro: next, welcomeMsgId: m.id } as any,
+        reasoning: access
+          ? `Boas-vindas enviadas pela equipa: acesso de ${new Date(access.start).toLocaleDateString('pt-PT', { timeZone: 'Africa/Maputo' })} a ${new Date(access.end).toLocaleDateString('pt-PT', { timeZone: 'Africa/Maputo' })}${access.subjects ? ` (${access.subjects})` : ''}. A Sherone manda a mensagem a meio do acesso e a da renovação.`
+          : 'Boas-vindas enviadas pela equipa, mas não consegui ler a data de fim ("até 24/12" ou "até 24 de dezembro") nem sei a duração do pacote: sem mensagens a meio do acesso e de renovação.',
+        principlesUsed: [] as any,
+        modelUsed: 'leizpro:acesso',
+        status: 'APPROVED',
+        decidedAt: new Date(),
+      },
+    });
+    if (access) await syncStage(workspaceId, m.contactId, next);
+  }
+}
+
+// 4b. A meio do acesso e renovacao.
+async function runAccessMessages(io: any, disabled: (ws: string, c: string) => Promise<boolean>): Promise<void> {
+  const since = new Date(Date.now() - 75 * 86_400_000);
+  const rows = await prisma.aiSalesSuggestion.findMany({
+    where: { modelUsed: { startsWith: 'leizpro:acesso' }, createdAt: { gte: since } },
+    distinct: ['contactId'],
+    orderBy: { createdAt: 'desc' },
+    select: { workspaceId: true, contactId: true, leadId: true },
+    take: 2000,
+  });
+  for (const r of rows) {
+    try {
+      if (!(await isLeizProWorkspace(r.workspaceId)) || (await disabled(r.workspaceId, r.contactId))) continue;
+      const st = await loadState(r.workspaceId, r.contactId);
+      if (st.step !== 'active' || !st.access) continue;
+      // O estudante escreveu e ainda nao lhe respondemos: a conversa segue normalmente.
+      const last = await prisma.message.findFirst({
+        where: { contactId: r.contactId, isInternal: false }, orderBy: { createdAt: 'desc' }, select: { direction: true },
+      });
+      if (last?.direction !== 'OUTBOUND') continue;
+      const replied = st.access.renewAt ? !!(await prisma.message.findFirst({
+        where: { contactId: r.contactId, direction: 'INBOUND', isInternal: false, createdAt: { gt: new Date(st.access.renewAt) } }, select: { id: true },
+      })) : false;
+      const due = accessDue(st.access, replied);
+      if (!due || due.at.getTime() > Date.now()) continue;
+      const pending = await prisma.aiSalesSuggestion.findFirst({
+        where: { contactId: r.contactId, modelUsed: { startsWith: 'leizpro' }, status: 'PENDING', action: { in: ['send_text', 'send_product'] } },
+        select: { id: true },
+      });
+      if (pending) continue;
+      const accessFor = `${due.key}:${st.access.end}`;
+      const exists = await prisma.aiSalesSuggestion.findFirst({
+        where: { contactId: r.contactId, actionPayload: { path: ['accessFor'], equals: accessFor } }, select: { id: true },
+      });
+      if (exists) continue;
+      await withContactLock(r.contactId, async () => {
+        await loadTextsFor(r.workspaceId);
+        const t = accessTurn(st, due.key);
+        // O dia passou (Klaru desligado, por exemplo): salta esta mensagem.
+        const stale = accessStale(due.key, due.at, st.access!);
+        const { hasPlaceholders } = await import('./engine');
+        if (stale || hasPlaceholders(t.parts)) {
+          await prisma.aiSalesSuggestion.create({
+            data: {
+              workspaceId: r.workspaceId, contactId: r.contactId, leadId: r.leadId || null,
+              parts: [] as any, action: 'wait', productFileIds: [] as any,
+              actionPayload: { leizpro: t.next, accessFor } as any,
+              reasoning: stale ? `Acesso activo: a mensagem "${due.key}" já passou do dia (não enviada).` : `Acesso activo: a mensagem "${due.key}" ficou com campos por preencher (disciplinas?): não enviada.`,
+              principlesUsed: [] as any, modelUsed: 'leizpro:acesso', status: 'APPROVED', decidedAt: new Date(),
+            },
+          });
+          return;
+        }
+        const suggestion = await prisma.aiSalesSuggestion.create({
+          data: {
+            workspaceId: r.workspaceId, contactId: r.contactId, leadId: r.leadId || null,
+            parts: t.parts as any, action: 'send_text', productFileIds: [] as any,
+            actionPayload: { leizpro: t.next, accessFor } as any,
+            reasoning: due.key === 'accessMid' ? 'Acesso activo: contacto a meio do acesso (Fluxo 7).'
+              : due.key === 'renew1' ? 'Acesso activo: renovação, 3 dias antes do fim (Fluxo 7).'
+              : 'Acesso activo: renovação, no último dia (não respondeu à anterior).',
+            principlesUsed: [] as any, modelUsed: 'leizpro:acesso-msg', status: 'PENDING',
+          },
+        });
+        await dispatch(io, r.workspaceId, suggestion);
+      });
+    } catch (e: any) {
+      console.error('[leizpro] acesso activo falhou para', r.contactId, e?.message || e);
+    }
+  }
+}
 
 // 1. Pacotes enviados pela equipa -> regua
 async function startReguaForManualPackages(): Promise<void> {
@@ -106,6 +239,7 @@ export async function runLeizProFollowups(io: any): Promise<void> {
   try {
     await startReguaForManualPackages().catch((e) => console.error('[leizpro] regua manual falhou:', e?.message || e));
     await cleanupPendingReguaWithoutContext().catch((e) => console.error('[leizpro] limpeza da regua falhou:', e?.message || e));
+    await startAccessFromWelcome().catch((e) => console.error('[leizpro] boas-vindas falhou:', e?.message || e));
 
     // Candidatos: contactos com sugestoes da Leiz Pro nos ultimos 25 dias (a
     // Reactivacao sai 16 dias depois do ultimo follow-up).
@@ -192,6 +326,14 @@ export async function runLeizProFollowups(io: any): Promise<void> {
         console.error('[leizpro] regua falhou para', r.contactId, e?.message || e);
       }
     }
+    const disabledCache = new Map<string, string[]>();
+    await runAccessMessages(io, async (ws, c) => {
+      if (!disabledCache.has(ws)) {
+        const w = await prisma.workspace.findUnique({ where: { id: ws }, select: { aiSalesDisabledConversationIds: true } });
+        disabledCache.set(ws, Array.isArray(w?.aiSalesDisabledConversationIds) ? w!.aiSalesDisabledConversationIds as string[] : []);
+      }
+      return disabledCache.get(ws)!.includes(c);
+    }).catch((e) => console.error('[leizpro] acesso activo falhou:', e?.message || e));
   } finally {
     running = false;
   }

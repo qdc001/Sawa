@@ -72,6 +72,7 @@ async function ensurePipeline(workspaceId: string) {
 // Etapa que corresponde ao estado da conversa (null = nao mexer).
 export function stageFor(st: LeizProState): StageKey | null {
   const step = (st.step === 'sn_choice' || st.step === 'sn_activate') ? (st.snReturn || st.step) : st.step;
+  if (st.step === 'active') return 'paid';
   if (st.pkg && (st.step === 'paying' || st.paidOnce)) return 'chosen';
   switch (step) {
     case 'start': case 'diagnosis': case 'connection': return 'diagnosis';
@@ -81,6 +82,7 @@ export function stageFor(st: LeizProState): StageKey | null {
     // Sherone o prepara (em modo supervisionado fica por aprovar).
     case 'pdf_sent': case 'account_help': case 'followup': return 'packages';
     case 'paying': return 'chosen';
+    case 'active': return 'paid';
     default: return null;
   }
 }
