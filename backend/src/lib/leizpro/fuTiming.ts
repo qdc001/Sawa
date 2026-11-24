@@ -100,6 +100,9 @@ export type FuInput = {
     readAt: Date | null;
   };
   receiptsOff: boolean;         // o estudante responde mas as nossas mensagens nunca ficam azuis
+  // Etapa 3.2 (guia v33): compasso proprio, mais espacado: 1.o um dia depois de
+  // ver, 2.o 3 dias depois do 1.o, 3.o 5 dias depois do 2.o (fecha em ~9 dias).
+  pace?: 'pay';
 };
 
 export type FuDue = { at: Date; kind: 'fu' | 'last' | 'reactivation'; why: string } | null;
@@ -116,6 +119,15 @@ export function fuDue(x: FuInput): FuDue {
 
   if (x.sent === 3) {
     return { at: nextSendTime(new Date(last.createdAt.getTime() + REACTIVATION_DAYS * DAY)), kind: 'reactivation', why: `reactivacao, ${REACTIVATION_DAYS} dias depois do ultimo follow-up` };
+  }
+
+  if (x.pace === 'pay') {
+    if (x.sent === 0) {
+      if (seenAt) return { at: nextSendTime(dayStart(seenAt, 1)), kind: 'fu', why: 'pagamento: 1.o follow-up 1 dia depois de ver os canais' };
+      return { at: nextSendTime(new Date(delivered.getTime() + DAY), windowOf(last.createdAt)), kind: 'fu', why: 'pagamento: nao viu (✓✓ cinzento), 1.o follow-up 24 horas depois' };
+    }
+    const gap = x.sent === 1 ? 3 : 5;
+    return { at: nextSendTime(dayStart(last.createdAt, gap)), kind: seenAt ? 'fu' : 'last', why: `pagamento: ${x.sent + 1}.o follow-up, ${gap} dias depois do anterior${seenAt ? '' : ' (continua sem ver: ultima tentativa)'}` };
   }
 
   if (x.sent === 0) {

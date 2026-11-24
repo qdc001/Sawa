@@ -1183,6 +1183,7 @@ export async function generateLeizProStageFollowup(opts: { workspaceId: string; 
       createdAt: lastOut.createdAt, deliveredAt: lastOut.deliveredAt, readAt: lastOut.readAt,
     },
     receiptsOff: !works || (!anyRead && inbound >= 2),
+    ...(stage0 === 'pay' ? { pace: 'pay' as const } : {}),
   });
   if (!due || due.at.getTime() > Date.now()) return null;
 

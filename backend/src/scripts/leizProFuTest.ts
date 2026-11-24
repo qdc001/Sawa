@@ -157,6 +157,25 @@ ok(fuStageOf({ ...INITIAL_STATE, step: 'diagnosis', lastKey: 'greeting', lastQue
   ok(h === 'terça, 24, 18', 'pagamento: "hoje" as 15h -> 18h', h);
 }
 
+// ---- Guia v33: compasso da Etapa 3.2 (pagamento) -----------------------------------
+{
+  const loc = (d: Date | null | undefined) => d ? d.toLocaleString('pt-PT', { timeZone: 'Africa/Maputo', day: '2-digit', month: '2-digit', hour: '2-digit' }) : 'null';
+  const sentAt = new Date('2026-11-24T08:00:00Z'); // 10h Maputo
+  const read = (at: Date) => ({ status: 'READ' as const, createdAt: at, deliveredAt: at, readAt: new Date(at.getTime() + 3600_000) });
+  const p1 = fuDue({ sent: 0, last: read(sentAt), receiptsOff: false, pace: 'pay' });
+  ok(loc(p1?.at) === '25/11, 12', 'pagamento: 1.o follow-up 1 dia depois de ver', loc(p1?.at));
+  const fu1At = new Date('2026-11-25T10:00:00Z');
+  const p2 = fuDue({ sent: 1, last: read(fu1At), receiptsOff: false, pace: 'pay' });
+  ok(loc(p2?.at) === '28/11, 12' && p2?.kind === 'fu', 'pagamento: 2.o follow-up 3 dias depois do 1.o', loc(p2?.at));
+  const fu2At = new Date('2026-11-28T10:00:00Z');
+  const p3 = fuDue({ sent: 2, last: read(fu2At), receiptsOff: false, pace: 'pay' });
+  ok(loc(p3?.at) === '03/12, 12', 'pagamento: 3.o follow-up 5 dias depois do 2.o (fecha em ~9 dias)', loc(p3?.at));
+  const p4 = fuDue({ sent: 3, last: read(new Date('2026-12-03T10:00:00Z')), receiptsOff: false, pace: 'pay' });
+  ok(p4?.kind === 'reactivation', 'pagamento: depois do 3.o, a Reactivacao', p4?.kind);
+  const other = fuDue({ sent: 1, last: read(fu1At), receiptsOff: false });
+  ok(loc(other?.at) === '26/11, 12', 'outras etapas: 2.o no dia seguinte (sem mudanca)', loc(other?.at));
+}
+
 // ---- Guia v34: acesso activo (boas-vindas da equipa) ------------------------------
 {
   const { parseWelcome, accessDue, accessStale } = require('../lib/leizpro/access');
