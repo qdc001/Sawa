@@ -23,7 +23,7 @@ import {
   T, PDF_MARK, SUPER_NERD_PRICES, EXTRA_SUBJECT_PRICE, PACKAGES, AVAILABLE_SUBJECTS, type TemplateKey,
 } from './guide';
 import { loadTexts, type Texts } from './texts';
-import { subjectListOnly, findSubjects } from './understand';
+import { subjectListOnly, findSubjects, NOT_YES } from './understand';
 import { understand, norm, LEIZPRO_MODEL, type Understanding, type Slot as AskSlot } from './understand';
 import { examSubjects, examOptions, findCourseIn } from './courses';
 import { syncStage } from './pipeline';
@@ -44,6 +44,7 @@ export type Step =
   | 'sn_choice'       // a escolher disciplinas/duracao do modo Super Nerd
   | 'sn_activate'     // "queres que te explique como activar?"
   | 'paying'          // recebeu os canais de pagamento
+  | 'ambassador'      // sem dinheiro: Premio Embaixador ("consegues fazer isso?")
   | 'handoff';
 
 export type LeizProState = {
@@ -65,6 +66,8 @@ export type LeizProState = {
   // Follow-up de pagamento: quando sai (1 dia depois dos canais) e se ja saiu.
   payFollow: { at: string; sent: boolean; skip?: boolean } | null; // skip: disse quando paga (sem follow-up)
   paidOnce: boolean;
+  // Follow-ups por etapa (guia v31): etapa e quantos ja foram (4 = reactivacao feita).
+  fu: { stage: FuStage; n: number } | null;
   lastKey: TemplateKey | null;
   lastQuestion: TemplateKey | null;
   retries: number;
@@ -72,7 +75,7 @@ export type LeizProState = {
 
 export const INITIAL_STATE: LeizProState = {
   step: 'start', name: null, university: null, course: null, difficulty: null, hardSubject: null, examSubjects: null, offered: null,
-  snCount: null, snMonths: null, snReturn: null, snReturnQ: null, pkg: null, regua: null, payFollow: null, paidOnce: false,
+  snCount: null, snMonths: null, snReturn: null, snReturnQ: null, pkg: null, regua: null, payFollow: null, paidOnce: false, fu: null,
   lastKey: null, lastQuestion: null, retries: 0,
 };
 
@@ -80,7 +83,7 @@ export const INITIAL_STATE: LeizProState = {
 const OBJECTION_KEYS: TemplateKey[] = [
   'isFree', 'whyAsk', 'expensive', 'paymentSafe', 'friendReferral', 'coversExam', 'willIPass', 'noUniversity',
   'weakPhone', 'shareAccount', 'payOtherPerson', 'lives', 'accessProblem', 'emailCode', 'forgotPassword',
-  'changeSubjects', 'linkProblem', 'presencial', 'howOnline', 'schedule', 'tooBasic', 'nonText', 'noMoney',
+  'changeSubjects', 'linkProblem', 'presencial', 'howOnline', 'schedule', 'tooBasic', 'nonText',
 ];
 
 // ---- Activacao --------------------------------------------------------------
@@ -122,7 +125,8 @@ function fill(parts: readonly string[], st: LeizProState, vars: Record<string, s
   return parts.map((p) => {
     let s = p;
     if (nome) s = s.replace(/\[NOME\]/g, nome);
-    else s = s.replace(/,\s*\[NOME\]/g, '').replace(/\s*\[NOME\]/g, '');
+    // "[NOME], muitos estudantes..." sem nome -> "Muitos estudantes..."
+    else s = s.replace(/^\[NOME\],\s*(\S)/, (_m, c: string) => c.toUpperCase()).replace(/,\s*\[NOME\]/g, '').replace(/\s*\[NOME\]/g, '');
     for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v);
     // "na Instituto Industrial" -> "no Instituto Industrial"
     s = s.replace(/\bna (Instituto|Centro|IFP|IICM|ETP|ISCTEM|ISCAM|ISCISA|ISUTC|ISDB|ISGN|ISCIM|ISEDEF|ISGECOF|instituto|centro)\b/g, 'no $1');
@@ -206,8 +210,9 @@ function withResume(d: Decision, st: LeizProState): Decision {
   return d;
 }
 
-function withSlot(st: LeizProState): LeizProState {
-  return { ...st, offered: proposeSlots() };
+// "Hoje nao": o proximo contacto fica para amanha.
+function withSlot(st: LeizProState, notToday = false): LeizProState {
+  return { ...st, offered: proposeSlots(new Date(), notToday) };
 }
 
 // ---- Pacotes e precos ---------------------------------------------------------
@@ -326,6 +331,76 @@ function accountCreated(st: LeizProState, reason: string): Decision {
   return say('accountCreated', s2, 'followup', reason, { comeca_por: comeca });
 }
 
+// ---- Sem dinheiro: Premio Embaixador (Fluxo 5, v31) -----------------------------
+// "Nao tenho dinheiro" -> o convite e a alternativa para nao ficar sem estudar:
+// "Consegues fazer isso?" -> sim: onde fica o botao + proximo contacto; nao:
+// "o que te impede?" -> resposta ao motivo (uma vez por motivo) -> se mesmo
+// assim nao conseguir, despedida calorosa com proximo contacto.
+const AMB_REASON_KEYS: TemplateKey[] = ['ambNoOne', 'ambShy', 'ambNoData', 'ambSlow'];
+const AMB_KEYS: TemplateKey[] = ['noMoney', 'fuAmb1', 'fuAmb2', 'fuAmb3', 'ambNo', 'fuAmbNo1', 'fuAmbNo2', 'fuAmbNo3', 'ambReady', ...AMB_REASON_KEYS];
+
+function dayOnly(st: LeizProState): string {
+  return (st.offered?.[0]?.label || 'amanhã').split(' às ')[0];
+}
+
+function noMoney(st: LeizProState, text: string): Decision {
+  // Ja recebeu a despedida do Premio Embaixador e volta a dizer que nao tem: a equipa.
+  if (st.step === 'ambassador') return ambassador(st, { intent: 'nao' } as Understanding, text, false);
+  if (st.lastKey === 'ambGiveUp') return handoff(st, 'volta a dizer que nao tem condicoes depois do Premio Embaixador: a equipa decide');
+  return say('noMoney', { ...st, snReturn: null }, 'ambassador', 'nao tem condicoes agora: Premio Embaixador como alternativa (Fluxo 5, v31)');
+}
+
+function ambReason(text: string): TemplateKey | null {
+  if (/\b(nao conheco ninguem|ninguem que conheco|nao conheco (nenhum|nenhuma)|ninguem (que )?(vai|vao|esta|estao) (fazer|a fazer)|nao tenho (amigos|colegas|ninguem)|sem (amigos|colegas)|(meus|os) (amigos|colegas) (ja )?(nao|entraram|passaram))\b/.test(text)) return 'ambNoOne';
+  if (/\b(vergonha|envergonhad\w*|timid\w*|nao gosto de (pedir|incomodar|mandar)|e chato (pedir|mandar)|tenho medo de (pedir|mandar))\b/.test(text)) return 'ambShy';
+  if (/\b(nao tenho (dados|saldo|megas|credito|internet|net)|sem (dados|saldo|megas|credito|internet|net)|(dados|saldo|megas|credito) (acabaram|acabou|esgotou))\b/.test(text)) return 'ambNoData';
+  if (/\b(nao (vao|vai) (entrar|criar|aceitar|querer)|ninguem vai (entrar|criar|aceitar|querer)|vai demorar|demora muito|leva muito tempo|nao acredito|e dificil (juntar|arranjar|conseguir) (5|cinco))\b/.test(text)) return 'ambSlow';
+  return null;
+}
+
+function ambassador(st: LeizProState, u: Understanding, text: string, isThanks: boolean): Decision {
+  // Motivos serios (saude, familia nao deixa, luto): uma pessoa da equipa responde.
+  if (/\b(hospital|internad\w*|doente|luto|faleceu|morreu|(pai|mae|pais|familia) nao (me )?deix\w*|nao me deix\w*|proibid\w*)\b/.test(text)) {
+    return handoff(st, `Premio Embaixador: motivo serio ("${text.slice(0, 80)}"): uma pessoa da equipa responde`);
+  }
+  const reason = ambReason(text);
+  const k = st.lastKey;
+  // "Nunca insistir mais do que uma vez no mesmo motivo": o mesmo motivo outra vez -> despedida.
+  if (reason && reason === k) return ambGiveUp(st, `repete o mesmo motivo (${reason})`);
+  if (reason) {
+    if (reason === 'ambNoData') return say('ambNoData', withSlot(st, true), 'ambassador', 'motivo: nao tem dados/saldo', { dia: dayOnly(withSlot(st, true)) });
+    if (reason === 'ambSlow') return say('ambSlow', withSlot(st), 'ambassador', 'motivo: acha que nao vao entrar / vai demorar');
+    return say(reason, st, 'ambassador', `motivo: ${reason === 'ambNoOne' ? 'nao conhece ninguem' : 'vergonha / nao gosta de pedir'}`);
+  }
+  const yes = (u.intent === 'sim' || /^(vou tentar|vou fazer|posso tentar|consigo sim|da para|claro|vou partilhar|ja partilhei|ja mandei|ya|yah|yes|bora|siga)\b/.test(text)) && !NOT_YES.test(text.replace(/^vou tentar/, ''));
+  const no = !yes && (u.intent === 'nao' || u.intent === 'sem_dinheiro' || u.intent === 'nao_sei' || /\b(nao (consigo|da|posso|vou|sei)|impossivel|dificil)\b/.test(text));
+  // Ofereceu a mensagem pronta ("Queres que te mande...?")
+  if ((k === 'ambShy' || k === 'fuAmbNo1') && yes) return say('ambReady', st, 'ambassador', 'quer a mensagem pronta para os colegas');
+  if (k === 'ambReady') {
+    if (no) return ambGiveUp(st, 'mesmo com a mensagem pronta nao consegue');
+    if (yes || isThanks) return wait({ ...st, step: 'followup' }, 'recebeu a mensagem pronta: vai partilhar');
+  }
+  if (isThanks && !yes) return wait(st, 'agradeceu: nao e preciso responder');
+  if (yes) {
+    if (k && AMB_REASON_KEYS.includes(k) && st.offered?.length && k !== 'ambNoOne' && k !== 'ambShy') {
+      return wait({ ...st, step: 'followup' }, 'vai partilhar o link (ja tem o proximo contacto marcado)');
+    }
+    return say('ambYes', withSlot(st), 'followup', 'consegue partilhar o link: onde fica o botao e proximo contacto');
+  }
+  if (no) {
+    if (k === 'noMoney' || k === 'fuAmb1') return say('ambNo', st, 'ambassador', 'diz que nao consegue: perguntar o que o impede');
+    return ambGiveUp(st, 'mesmo assim nao consegue');
+  }
+  if (isThanks) return wait(st, 'agradeceu: nao e preciso responder');
+  // Depois de "O que te impede?": um motivo que o guia nao tem -> a equipa responde.
+  return handoff(st, `Premio Embaixador: resposta que o guia nao cobre ("${text.slice(0, 80)}")`);
+}
+
+function ambGiveUp(st: LeizProState, why: string): Decision {
+  const s2 = withSlot(st, true);
+  return say('ambGiveUp', s2, 'followup', `${why}: despedida calorosa e proximo contacto (Premio Embaixador)`, { dia: dayOnly(s2) });
+}
+
 // ---- Situacoes comuns (Fluxo 5) -------------------------------------------------
 function objection(u: Understanding, st: LeizProState, text = ''): Decision | null {
   switch (u.intent) {
@@ -364,16 +439,7 @@ function objection(u: Understanding, st: LeizProState, text = ''): Decision | nu
     sem_texto: ['nonText', 'mandou audio/imagem em vez de escrever'],
     gratis: ['isFree', 'pergunta se e gratis / se tem taxas'],
   };
-  if (u.intent === 'sem_dinheiro') {
-    if (st.lastKey === 'noMoney') return handoff(st, 'volta a dizer que nao tem condicoes: marcar contacto com dia e hora');
-    const s2 = withSlot(st);
-    return {
-      action: 'send_text',
-      parts: [...fill(CUR.noMoney, s2), ...fill(CUR.socials, s2), `Falamos ${s2.offered![0].label} para ver como estás?`],
-      next: { ...s2, lastKey: 'noMoney' },
-      reason: 'nao tem condicoes agora: capitulo 1 gratis, redes e proximo contacto (Fluxo 5)',
-    };
-  }
+  if (u.intent === 'sem_dinheiro') return noMoney(st, text);
   // Depois de perguntar porque prefere o presencial: o motivo (o modelo le-o
   // muitas vezes como "prefere presencial") recebe "como e estudar online".
   const insists = /^(nao|n)\b|\b(quero mesmo|so presencial|mesmo presencial|nao quero online)\b/.test(text);
@@ -417,13 +483,20 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
   const text = norm(rawText).trim();
   // Nas vacinas e nas perguntas de sim/nao, "Sim, estou! Tudo o que quero e
   // entrar" ou "Yeah claro" sao um sim (o modelo lia-os como dados ou vago).
-  const yesNoSteps: Step[] = ['ask_online', 'ask_commitment', 'sn_activate', 'pdf_sent'];
+  const yesNoSteps: Step[] = ['ask_online', 'ask_commitment', 'sn_activate', 'pdf_sent', 'ambassador'];
   let u = u0;
   // So corrige leituras vagas do modelo; "quero o modo super nerd" continua Super Nerd.
   if (yesNoSteps.includes(stIn.step) && (u0.intentSource !== 'rule' || ['sim', 'da_dados', 'outro'].includes(u0.intent))
-      && /^(sim|siim|claro|com certeza|estou|tou|yes|yeah|yah|pos sim|pois sim|quero|sem duvida|exacto|exato|obvio|consigo)\b/.test(text.replace(/^(eu|ah|oh|bom|ok)\s+/, ''))
-      && !/\bnao\b/.test(text)) {
+      && /^(si+m+|xim|claro|com certeza|estou|tou|yes|yeah|yah|pos sim|pois sim|quero|sem duvida|exacto|exato|obvio|consigo)\b/.test(text.replace(/^(eu|ah|oh|bom|ok)\s+/, ''))
+      // "Estou falido", "tou ocupado", "estou sem dinheiro": nao e um sim.
+      && !NOT_YES.test(text)) {
     u = { ...u0, intent: 'sim' };
+  }
+  // O modelo le "Hahahaha", "Responde!!!", "Se tiver tempo" como sim. Nas vacinas
+  // um sim faz avancar, por isso so vale sem sinais contrarios.
+  if (['ask_online', 'ask_commitment'].includes(stIn.step) && u.intent === 'sim'
+      && (NOT_YES.test(text) || /^(k|h|a|e|ha|he|hi|ka|rs|lol|kk)+$/.test(text.replace(/[^a-z]/g, '')))) {
+    u = { ...u, intent: /\b(nao|duvida|duvidas|se (tiver|der|calhar|puder)|indecis\w*|talvez)\b/.test(text) ? 'nao' : 'outro' };
   }
   const st = merge(stIn, u);
   { const only = subjectListOnly(rawText); if (only.length) st.examSubjects = [...new Set([...(st.examSubjects || []), ...only])]; }
@@ -437,15 +510,36 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
   const THANKS = new Set(['ok', 'okay', 'okk', 'obrigado', 'obrigada', 'obg', 'ta', 'esta', 'bem', 'combinado', 'beleza', 'blz',
     'certo', 'perfeito', 'fixe', 'sim', 'muito', 'entendido', 'percebido', 'entendi', 'tudo', 'valeu', 'tranquilo',
     'ate', 'la', 'amanha', 'logo', 'mais', 'inshallah', 'insha', 'incha', 'inch', 'allah', 'ja', 'agradeco', 'pela', 'informacao',
-    'e', 'aguardo', 'pronto', 'pronta', 'vou', 'ver', 'abrir', 'tentar', 'sem', 'problema', 'problemas', 'ficarei', 'fico', 'ligada', 'ligado', 'atenta', 'atento', 'aguardando']);
+    'e', 'aguardo', 'pronto', 'pronta', 'vou', 'ver', 'abrir', 'tentar', 'sem', 'problema', 'problemas', 'ficarei', 'fico', 'ligada', 'ligado', 'atenta', 'atento', 'aguardando', 'recebido', 'recebida', 'recebi', 'notado', 'anotado', 'stress', 'stresse']);
   const words = text.replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean);
   const isThanks = (words.length > 0 && words.length <= 9 && words.every((w) => THANKS.has(w)))
     || (words.length === 0 && /[👍🙏✅]/u.test(rawText));
 
-  if (u.intent === 'vazio' && st.step !== 'start') return wait(st, 'mensagem sem texto (so pontuacao): nao responder');
+  // Na conexao ("o que foi mais dificil?") um emoji tambem e uma resposta ("😔").
+  const emojiAnswer = st.step === 'connection' && u.intent === 'vazio' && /\p{Extended_Pictographic}/u.test(rawText);
+  if (u.intent === 'vazio' && st.step !== 'start' && !emojiAnswer) return wait(st, 'mensagem sem texto (so pontuacao): nao responder');
+
+  // Pede uma chamada: a Sherone nao liga, a equipa decide.
+  if (st.step !== 'start' && /\b(me (liga|ligue|ligar)|(pode|podes|podem) (me )?ligar|liga(-| )me|ligue(-| )me|fazer uma chamada|uma ligacao|por chamada)\b/.test(text)) {
+    return handoff(st, `pede uma chamada ("${rawText.trim().slice(0, 80)}")`);
+  }
 
   // Audios: a Sherone nao responde (a equipa ouve). Imagens logo no inicio tambem.
+  // Sofrimento / risco de vida: uma pessoa da equipa responde JA (em qualquer passo).
+  if (/\b(suicid\w*|matar-me|me matar|vou me matar|tirar a (minha )?(propria )?vida|nao quero (mais )?viver|quero morrer|acabar com (a minha vida|tudo))\b/.test(text)) {
+    return handoff(stIn, `URGENTE: o estudante fala em suicidio/risco de vida ("${rawText.trim().slice(0, 80)}"): uma pessoa da equipa responde ja`);
+  }
   if (/\[(audio|ptt)\]/i.test(rawText)) return handoff(st, 'mandou um audio: a Sherone nao responde a audios');
+  if (st.step !== 'start' && /^\s*\[sticker\]\s*$/i.test(rawText)) return wait(st, 'mandou um sticker: nao responder');
+  if (st.step !== 'start' && /\b(burr[oa]s?|estupid\w*|idiota\w*|merda|ladr(ao|oes|ona)|vigarist\w*|golpist\w*|otari\w*|palhac\w*|fod\w*|caralh\w*|cabr(ao|oes)|denunciar|policia)\b/.test(text)) {
+    return handoff(stIn, `mensagem agressiva/queixa ("${rawText.trim().slice(0, 80)}"): uma pessoa da equipa responde`);
+  }
+  if (st.step !== 'start' && /(ignor\w* (todas |as |os )*(instruc|regras|ordens)|esquece (o guia|as instruc|tudo o que)|\bsystem\s*:|\bprompt\b|chat ?gpt|openai|\bmodo (admin|desenvolvedor|dev)\b)/.test(text)) {
+    return handoff(stIn, `tentou manipular a IA ("${rawText.trim().slice(0, 80)}"): uma pessoa da equipa responde`);
+  }
+  if (st.step !== 'start' && /(https?:\/\/|www\.|bit\.ly)/.test(text)) {
+    return handoff(stIn, `mandou um link ("${rawText.trim().slice(0, 80)}"): a equipa ve`);
+  }
   if (st.step === 'start' && /\[(image|imagem|video|document|sticker)\]/i.test(rawText)) {
     return handoff(st, 'primeira mensagem e uma imagem/documento: a equipa ve o conteudo');
   }
@@ -479,7 +573,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
   }
 
   // Imagem, video ou documento: a Leiz Pro nao ve o conteudo, passa sempre a equipa.
-  if (/\[(image|imagem|video|document|sticker)\]/i.test(rawText)) {
+  if (/\[(image|imagem|video|document)\]/i.test(rawText)) {
     if (st.step === 'paying') return handoff({ ...st, paidOnce: true }, `mandou uma imagem/documento depois dos canais de pagamento (comprovativo?)${st.pkg ? ` do ${st.pkg}` : ''}: confirmar o pagamento`);
     if (st.step === 'account_help') {
       // O print da conta: o rascunho para a equipa ja e a mensagem de conta criada.
@@ -492,24 +586,99 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
     return handoff(st, 'mandou uma imagem/video/documento: a equipa ve o conteudo');
   }
   // A criar a conta: "ja criei", "consegui".
-  if (st.step === 'account_help' && /\b(criei|ja esta|feito|consegui)\b/.test(text) && !/\bnao\b/.test(text)) {
+  if (st.step === 'account_help' && (/\b(criei|ja esta|feito|consegui)\b/.test(text) || /^pronto\W*$/.test(text)) && !/\bnao\b/.test(text)) {
     return accountCreated(st, 'conseguiu criar a conta (Passo 1.5.5)');
+  }
+  // "Ja vou criar", "vou fazer agora": espera o print.
+  if (st.step === 'account_help' && /\b(vou (criar|fazer|tentar|abrir|ver)|ja vou|vou ja|daqui a pouco|agora mesmo|ja (crio|faco))\b/.test(text) && !/\bnao\b/.test(text)) {
+    return wait(st, 'vai criar a conta agora: esperar pelo print');
+  }
+
+  // A pagar e diz que vai pagar ja ("vou fazer agora", "ja vou mandar"): espera o comprovativo.
+  if (st.step === 'paying' && u.intent !== 'ja_pagou' && u.intent !== 'sem_dinheiro'
+      && /\b(vou (fazer|pagar|transferir|mandar|enviar)|ja (vou|faco|mando|transfiro|pago)|vou ja|daqui a pouco|ja ja|num instante|em breve)\b/.test(text)
+      && !/\b(nao|amanha|semana|mes|depois|mais tarde|sexta|segunda|terca|quarta|quinta|sabado|domingo|quando receber|paguei|mandei|enviei|transferi|fiz)\b/.test(text)) {
+    return wait(st, 'vai pagar agora: espera o comprovativo');
+  }
+
+  // Reactivacao ("Queres que te envie uma sugestao de rotina?"): a equipa responde.
+  if (st.lastKey === 'reactivation') {
+    if (isThanks && !/\bsim\b/.test(text)) return wait(st, 'agradeceu a reactivacao: nao e preciso responder');
+    if (u.intent === 'nao' && !NOT_YES.test(text.replace(/^nao\b/, ''))) return wait(st, 'nao quer a sugestao de rotina (reactivacao)');
+    return handoff(st, `respondeu a reactivacao ("${rawText.trim().slice(0, 80)}"): enviar a sugestao de rotina / retomar a conversa`);
   }
 
   // A pagar e diz quando consegue ("so no fim do mes", "amanha", "ainda nao tenho"):
   // resposta do guia e a data vai para a equipa; sem follow-up de pagamento.
+  // Sem dinheiro e sem data ("nao tenho dinheiro"): Premio Embaixador.
+  const payDate = /\b(amanha|depois de amanha|semana|mes|fim do mes|logo|mais tarde|sexta|segunda|terca|quarta|quinta|sabado|domingo|quando receber|vou pagar|meu pai|minha mae|meus pais)\b/.test(text);
+  if (st.step === 'paying' && u.intent === 'sem_dinheiro' && !payDate) return noMoney(st, text);
   if (st.step === 'paying' && u.intent !== 'ja_pagou' && u.intent !== 'nao_abriu'
-      && (u.intent === 'sem_dinheiro' || /\b(amanha|depois de amanha|semana|mes|fim do mes|logo|mais tarde|ainda nao|sexta|segunda|terca|quarta|quinta|sabado|domingo|quando receber|vou pagar)\b/.test(text))) {
+      && (u.intent === 'sem_dinheiro' || payDate || /\bainda nao\b/.test(text))) {
     const d = say('payLater', { ...st, payFollow: { at: new Date().toISOString(), sent: true, skip: true } }, 'paying', 'diz quando consegue pagar ("JA DISSE QUANDO CONSIGO PAGAR")');
     d.notify = `diz quando consegue pagar${st.pkg ? ` o ${st.pkg}` : ''}: "${rawText.trim().slice(0, 100)}" (registar a data)`;
     return d;
   }
 
-  const obj = objection(u, st, text);
+  // "Quando podemos voltar a falar?" -> qualquer data/resposta vai para a equipa.
+  if (st.step === 'followup' && st.lastKey === 'reguaNotNow' && !isThanks) {
+    return handoff(st, `disse quando pode voltar a falar ("${rawText.trim().slice(0, 80)}"): registar a data e voltar a contactar`);
+  }
+  if (st.step === 'paying' && /@/.test(rawText)) {
+    return handoff(st, `mandou o e-mail da conta (${rawText.trim().slice(0, 80)}): validar o pagamento e activar`);
+  }
+  // "Conseguiste fazer o pagamento?" -> "Sim" / "Ja": a equipa confirma.
+  if (st.step === 'paying' && st.lastKey === 'payFollowup' && (u.intent === 'sim' || /^(ja|sim ja|ja sim|consegui|sim consegui)\b/.test(text)) && !NOT_YES.test(text)) {
+    return handoff({ ...st, paidOnce: true }, `diz que ja pagou${st.pkg ? ` o ${st.pkg}` : ''} (resposta ao follow-up): confirmar o pagamento e activar o acesso`);
+  }
+  // Na conexao qualquer resposta serve ("falta de explicador", "nao percebo nada de quimica").
+  const connAnswer = st.step === 'connection' && !/\?/.test(rawText)
+    && ['horario_apoio', 'duvida', 'outro', 'nao_sei', 'muito_basico', 'telemovel_fraco'].includes(u.intent);
+  // "Explica" a "queres que explique como activar?" e um sim.
+  if (st.step === 'sn_activate' && /^(sim,? )?(explica|explique|podes explicar|pode explicar)\b/.test(text) && st.snCount && st.snMonths) {
+    return choosePackage(st, st.snCount, st.snMonths, 'quer activar ("explica")');
+  }
+
+  // Premio Embaixador: "consegues fazer isso?" / "o que te impede?"
+  if (st.step === 'ambassador' && (ambReason(text) || isThanks
+      || ['sim', 'nao', 'sem_dinheiro', 'outro', 'nao_sei', 'telemovel_fraco', 'da_dados', 'saudacao', 'acha_caro', 'indicar_amigo', 'partilhar_conta'].includes(u.intent))) {
+    return ambassador(st, u, text, isThanks);
+  }
+
+  // Respostas aos follow-ups por etapa (guia v31).
+  // "Preferes estudar pelo telemovel ou pelo computador?" -> qualquer um e um sim ao online.
+  if (st.step === 'ask_online' && st.lastKey === 'fuOnline2' && /\b(telem\w*|telefone|celular|cel|smartphone|computador|pc|portatil|laptop|tablet|os dois|ambos)\b/.test(text) && !/\bnao tenho\b/.test(text)) {
+    return say('vaccineCommitment', st, 'ask_commitment', 'respondeu ao follow-up do online (telemovel/computador): vacina do compromisso (Passo 1.5.2)');
+  }
+  // "Em que passo ficaste: no site, no codigo do e-mail ou na escolha das disciplinas?"
+  if (st.step === 'account_help' && st.lastKey === 'fuAccount1' && !/\?/.test(rawText)) {
+    if (/\bcodigo|e-?mail|gmail|senha|palavra/.test(text)) return say('emailCode', st, 'account_help', 'ficou no codigo do e-mail (follow-up da conta)');
+    if (/\b(site|link|pagina|abrir|abre|entrar)\b/.test(text)) return say('linkProblem', st, 'account_help', 'ficou no site (follow-up da conta)');
+    if (/\bdisciplina/.test(text)) return handoff(st, 'ficou na escolha das disciplinas (follow-up da conta): a equipa ajuda');
+  }
+  // "Ainda estas a preparar o exame? Diz-me so o curso" -> "Ainda sim": pede o curso.
+  if (st.step === 'diagnosis' && st.lastKey && /^fuCourse/.test(st.lastKey) && /^(ainda )?(sim|estou|claro|ok)( ainda| sim)?\W*$/.test(text)) {
+    return diagnosisQuestion({ ...st, course: stIn.course }, 'respondeu ao follow-up do curso sem dizer o curso');
+  }
+  // "Queres fazer agora, comigo aqui?" -> passo a passo outra vez.
+  if (st.step === 'account_help' && (st.lastKey === 'fuAccount2' || st.lastKey === 'fuAccount3') && (u.intent === 'sim' || u.intent === 'criar_conta')) {
+    return say('accountHelp', st, 'account_help', 'quer criar a conta agora (follow-up da conta): passo a passo (Passo 1.5.4)');
+  }
+  // Follow-ups do pacote (2.1.1): "1 mes ou 2 meses?" / "com qual dos pacotes?"
+  if (st.step === 'pdf_sent' && st.lastKey && ['fuPkg1', 'fuPkg2', 'fuPkg3'].includes(st.lastKey)) {
+    if (u.snMonths && !u.pkg) {
+      const count = st.snCount || examCount(st);
+      if (count) return choosePackage(st, count, u.snMonths, `respondeu ao follow-up do pacote (${u.snMonths} ${u.snMonths === 1 ? 'mes' : 'meses'})`);
+      return superNerd(st, 'respondeu ao follow-up do pacote com a duracao');
+    }
+    if (u.intent === 'sim' && !u.pkg) return say('askPackage', st, 'pdf_sent', 'respondeu ao follow-up do pacote: com qual vai ficar');
+  }
+
+  const obj = connAnswer ? null : objection(u, st, text);
   if (obj) return obj;
 
   // "Nao percebi": repete a ultima pergunta (uma vez).
-  if (u.intent === 'nao_percebi') {
+  if (u.intent === 'nao_percebi' && !connAnswer) {
     const q = lastQuestionText(st);
     if (st.retries >= 1 || !q) return handoff(st, 'nao percebeu a pergunta, mesmo depois de a repetir');
     if (st.lastQuestion === 'askCourse') {
@@ -543,9 +712,14 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
 
   switch (st.step) {
     case 'diagnosis': {
-      const progressed = gotData && (st.name !== stIn.name || st.university !== stIn.university || st.course !== stIn.course);
+      // "O meu nome e Felizberto, ainda nao sei a universidade": o nome conta (intencao nao_sei).
+      const progressed = (gotData || u.intent === 'nao_sei') && (st.name !== stIn.name || st.university !== stIn.university || st.course !== stIn.course);
+      // "Claro" / "sim" / "ok" a "posso saber o teu nome?": pede so o que falta (uma vez).
+      if (!progressed && (u.intent === 'sim' || isThanks) && !st.retries) {
+        return diagnosisQuestion({ ...st, retries: 1 }, `respondeu "${rawText.trim().slice(0, 30)}" sem os dados: pede o que falta`);
+      }
       if (!progressed) return repeatOrHandoff(st, `resposta nao trouxe o que foi perguntado (intencao ${u.intent})`);
-      return diagnosisNext(st, 'dados recebidos', !stIn.name && !!st.name);
+      return diagnosisNext({ ...st, retries: 0 }, 'dados recebidos', !stIn.name && !!st.name);
     }
 
     case 'connection': {
@@ -572,7 +746,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
 
     case 'ask_commitment':
       if (u.intent === 'sim') return sendPackages(st, 'comprometido: envio dos pacotes (Passo 1.5.3)');
-      if (u.intent === 'nao') return say('hesitant', withSlot(st), 'pdf_sent', 'resposta hesitante ao compromisso: capitulo 1 sem conta e proximo contacto');
+      if (u.intent === 'nao') return say('hesitant', withSlot(st, /\bhoje\b/.test(text)), 'pdf_sent', 'resposta hesitante ao compromisso: capitulo 1 sem conta e proximo contacto');
       return repeatOrHandoff(st, `resposta vaga ao compromisso (intencao ${u.intent})`);
 
     case 'pdf_sent': {
@@ -582,7 +756,12 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
       }
       // "Posso falar contigo amanha as 18h para me dizeres com qual pacote vais ficar?"
       if (st.lastKey === 'packagesPdf' && st.regua) {
-        const tc = parseTimeChoice(rawText, st.offered);
+        let tc = parseTimeChoice(rawText, st.offered);
+        if (tc.kind === 'day_only' && !/\bnao\b/.test(text)) {
+          const h = new Date(new Date(st.regua.startAt).getTime() + 2 * 3600_000).getUTCHours(); // hora de Maputo
+          const t2 = parseTimeChoice(`${rawText} as ${h}h`, st.offered);
+          if (t2.kind === 'slot' || t2.kind === 'out_of_hours') tc = { kind: 'slot', at: t2.at };
+        }
         if (tc.kind === 'slot' && tc.at.toISOString() !== st.regua.startAt) {
           const label = slotLabel(tc.at);
           return wait(st, `combinou outro dia/hora para dizer o pacote (${label}): a regua conta a partir dai`,
@@ -593,11 +772,13 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
       // A meio da regua (ou depois da despedida): "sim, ja decidi" -> qual pacote?
       if (st.lastKey && ['reguaContact1', 'reguaContact2', 'reguaFarewell', 'askPackage'].includes(st.lastKey)) {
         if (u.intent === 'sim' && st.lastKey !== 'askPackage') return say('askPackage', st, 'pdf_sent', 'respondeu a regua: com qual dos pacotes vai ficar');
-        if (u.intent === 'nao' || u.intent === 'sem_dinheiro') return say('reguaNotNow', st, 'followup', '"agora nao" na regua: agradecer e perguntar quando voltar a falar (Fluxo 6)');
+        if (u.intent === 'sem_dinheiro') return noMoney(st, text);
+        if (u.intent === 'nao') return say('reguaNotNow', st, 'followup', '"agora nao" na regua: agradecer e perguntar quando voltar a falar (Fluxo 6)');
         if (isThanks) return wait(st, 'agradeceu: nao e preciso responder');
       }
       if (u.intent === 'sim') return say('accountHelp', st, 'account_help', 'vai criar a conta: passo a passo (Passo 1.5.4)');
-      if (u.intent === 'nao' || u.intent === 'sem_dinheiro') return say('notNow', withSlot(st), 'followup', 'agora nao: capitulo 1 gratis e proximo contacto');
+      if (u.intent === 'sem_dinheiro') return noMoney(st, text);
+      if (u.intent === 'nao') return say('notNow', withSlot(st, /\bhoje\b/.test(text)), 'followup', 'agora nao: capitulo 1 gratis e proximo contacto');
       if (u.intent === 'gostou') return say('liked', st, 'pdf_sent', 'gostou: com qual dos pacotes vai ficar (Passo 2.1.1)');
       if (isThanks) return wait(st, 'agradeceu: nao e preciso responder');
       return handoff(st, `resposta depois dos pacotes (intencao ${u.intent}): a equipa acompanha`);
@@ -628,6 +809,9 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
     case 'sn_choice':
       return superNerd(st, 'resposta ao modo Super Nerd');
 
+    case 'ambassador':
+      return ambassador(st, u, text, isThanks);
+
     case 'handoff':
       break;
   }
@@ -637,7 +821,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
 
 // ---- Estado -----------------------------------------------------------------
 const KNOWN_STEPS: Step[] = ['start', 'diagnosis', 'connection', 'ask_online', 'ask_commitment', 'pdf_sent',
-  'account_help', 'followup', 'sn_choice', 'sn_activate', 'paying', 'handoff'];
+  'account_help', 'followup', 'sn_choice', 'sn_activate', 'paying', 'ambassador', 'handoff'];
 
 export async function loadState(workspaceId: string, contactId: string): Promise<LeizProState> {
   const reset = await prisma.message.findFirst({
@@ -739,6 +923,7 @@ function expectingFor(st: LeizProState): string {
     case 'sn_choice': return 'quantas disciplinas e por quanto tempo (1 ou 2 meses) quer o modo Super Nerd';
     case 'sn_activate': return 'se quer que expliquem como activar o modo Super Nerd (sim/nao)';
     case 'paying': return 'o comprovativo do pagamento (quem confirma e a equipa)';
+    case 'ambassador': return 'se consegue partilhar o link de convite com 5 colegas (sim/nao) ou o motivo de nao conseguir';
     default: return 'nada';
   }
 }
@@ -756,6 +941,8 @@ export async function runTurn(state: LeizProState, text: string, workspaceId?: s
   if (d.next.step !== 'pdf_sent') d.next = { ...d.next, regua: null };
   // O follow-up de pagamento so existe enquanto ele esta a pagar.
   if (d.next.step !== 'paying') d.next = { ...d.next, payFollow: null };
+  // Respondeu: os follow-ups da etapa recomecam do zero (na etapa onde ficar).
+  d.next = { ...d.next, fu: null };
   return { u, d };
 }
 
@@ -768,6 +955,159 @@ const REGUA_KEYS: TemplateKey[] = ['reguaContact1', 'reguaContact2', 'reguaFarew
 export function reguaDue(st: LeizProState): Date | null {
   if (!st.regua || st.step !== 'pdf_sent' || st.regua.sent >= REGUA_DAYS.length) return null;
   return new Date(new Date(st.regua.startAt).getTime() + REGUA_DAYS[st.regua.sent] * 86_400_000);
+}
+
+// ---- Follow-ups por etapa (guia v31) --------------------------------------------
+// Cada etapa tem 3 follow-ups quando o estudante deixa de responder; a hora sai
+// dos tiques do WhatsApp (fuTiming.ts). Depois do 3.o, a Reactivacao. Se ele
+// responder, runTurn limpa `fu` e a conversa continua na etapa onde parou.
+export type FuStage = 'course' | 'connection' | 'online' | 'commit' | 'account' | 'package' | 'pay' | 'amb' | 'ambNo';
+export const FU_KEYS: Record<FuStage, [TemplateKey, TemplateKey, TemplateKey]> = {
+  course: ['fuCourse1', 'fuCourse2', 'fuCourse3'],
+  connection: ['fuConn1', 'fuConn2', 'fuConn3'],
+  online: ['fuOnline1', 'fuOnline2', 'fuOnline3'],
+  commit: ['fuCommit1', 'fuCommit2', 'fuCommit3'],
+  account: ['fuAccount1', 'fuAccount2', 'fuAccount3'],
+  package: ['fuPkg1', 'fuPkg2', 'fuPkg3'],
+  pay: ['payFollowup', 'fuPay2', 'fuPay3'],
+  amb: ['fuAmb1', 'fuAmb2', 'fuAmb3'],
+  ambNo: ['fuAmbNo1', 'fuAmbNo2', 'fuAmbNo3'],
+};
+const FU_LABEL: Record<FuStage, string> = {
+  course: 'Etapa 1.3 (curso)', connection: 'Etapa 1.4 (dificuldade)', online: 'Etapa 1.5.1 (online)',
+  commit: 'Etapa 1.5.2 (compromisso)', account: 'Etapa 1.5.4 (criar a conta)', package: 'Etapa 2.1.1 (escolher o pacote)',
+  pay: 'Etapa 3.2 (pagamento)', amb: 'Premio Embaixador ("consegues fazer isso?")', ambNo: 'Premio Embaixador ("o que te impede?")',
+};
+
+function examCount(st: LeizProState): number | null {
+  const exam = examSubjects(st.university, st.course) || (st.examSubjects?.length ? st.examSubjects : null);
+  return exam?.length || null;
+}
+
+// Etapa de follow-up em que o estudante esta (null = sem follow-up por etapa).
+export function fuStageOf(st: LeizProState): FuStage | null {
+  if (st.fu?.stage) return st.fu.stage;
+  switch (st.step) {
+    case 'diagnosis': return st.name && st.university && !st.course ? 'course' : null;
+    case 'connection': return 'connection';
+    case 'ask_online': return 'online';
+    case 'ask_commitment': return 'commit';
+    case 'account_help': return 'account';
+    // Depois dos pacotes e a regua (Fluxo 6); "com qual dos pacotes?" fora da regua e a etapa 2.1.1.
+    case 'pdf_sent': return st.lastQuestion && ['liked', 'askPackage'].includes(st.lastQuestion) && !(st.regua && st.regua.sent < REGUA_DAYS.length) ? 'package' : null;
+    case 'paying': return st.payFollow?.skip ? null : 'pay';
+    case 'ambassador': return st.lastQuestion === 'noMoney' ? 'amb' : st.lastQuestion === 'ambNo' ? 'ambNo' : null;
+    default: return null;
+  }
+}
+
+// "Bom dia" do guia conforme a hora de envio (os envios sao das 12h as 20h).
+function greetingFor(parts: string[], at: Date): string[] {
+  const h = new Date(at.getTime() + 2 * 3600_000).getUTCHours();
+  const g = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+  return parts.map((p, i) => (i === 0 ? p.replace(/^Bom dia\b/, g) : p));
+}
+
+function fuVars(st: LeizProState): Record<string, string> {
+  const n = st.snCount || examCount(st);
+  return {
+    ...vars(st),
+    universidade: st.university || 'universidade',
+    curso: st.course ? courseName(st.course) : 'o teu curso',
+    n_disciplinas: n ? (n === 1 ? '1 disciplina' : `${n} disciplinas`) : 'as tuas disciplinas',
+    pacote: st.pkg || 'pacote',
+  };
+}
+
+// Texto e estado do proximo follow-up da etapa (sem base de dados; os testes usam-no).
+export function fuTurn(st: LeizProState, kind: 'fu' | 'last' | 'reactivation', at = new Date(), texts?: Texts):
+  { key: TemplateKey; parts: string[]; next: LeizProState; fuVars: Record<string, string> } | null {
+  if (texts) CUR = texts;
+  const stage = fuStageOf(st);
+  if (!stage) return null;
+  const n = st.fu?.n ?? 0;
+  if (n >= 4) return null;
+  const key: TemplateKey = kind === 'reactivation' ? 'reactivation' : kind === 'last' ? FU_KEYS[stage][2] : FU_KEYS[stage][Math.min(n, 2)];
+  const sent = kind === 'reactivation' ? 4 : kind === 'last' ? 3 : n + 1;
+  const v = fuVars(st);
+  const parts = greetingFor(fill(CUR[key], st, v), at);
+  const next: LeizProState = {
+    ...st, fu: { stage, n: sent }, lastKey: key, lastQuestion: key, retries: 0,
+    ...(stage === 'pay' && st.payFollow ? { payFollow: { ...st.payFollow, sent: true } } : {}),
+  };
+  return { key, parts, next, fuVars: v };
+}
+
+// So se usa quando os tiques chegam ao Klaru: sem eles (webhook sem estados)
+// tratamos "enviado" como entregue e "visto" ao fim de 24 horas.
+let ticksCache: { at: number; ws: Map<string, boolean> } = { at: 0, ws: new Map() };
+async function ticksWork(workspaceId: string): Promise<boolean> {
+  if (Date.now() - ticksCache.at > 10 * 60_000) ticksCache = { at: Date.now(), ws: new Map() };
+  if (ticksCache.ws.has(workspaceId)) return ticksCache.ws.get(workspaceId)!;
+  const hit = await prisma.message.findFirst({
+    where: { direction: 'OUTBOUND', status: { in: ['DELIVERED', 'READ'] }, createdAt: { gte: new Date(Date.now() - 3 * 86_400_000) }, contact: { workspaceId } },
+    select: { id: true },
+  });
+  ticksCache.ws.set(workspaceId, !!hit);
+  return !!hit;
+}
+
+// Gera o follow-up da etapa quando chega a hora (chamado pelo agendador).
+// Em modo supervisionado fica PENDING (sugestao para aprovar).
+export async function generateLeizProStageFollowup(opts: { workspaceId: string; contactId: string; leadId?: string | null }) {
+  const st = await loadState(opts.workspaceId, opts.contactId);
+  if (st.step === 'handoff' || !fuStageOf(st)) return null;
+  const lastOut = await prisma.message.findFirst({
+    where: { contactId: opts.contactId, direction: 'OUTBOUND', isInternal: false },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, status: true, createdAt: true, deliveredAt: true, readAt: true },
+  });
+  if (!lastOut) return null;
+  // A ultima mensagem foi escrita pela equipa: ela e que acompanha.
+  if (await teamTookOver(opts.contactId)) return null;
+  const followupKey = `etapa:${lastOut.id}`;
+  const exists = await prisma.aiSalesSuggestion.findFirst({
+    where: { contactId: opts.contactId, actionPayload: { path: ['followupKey'], equals: followupKey } }, select: { id: true },
+  });
+  if (exists) return null; // ja gerado (ou descartado pela equipa: parar)
+
+  const works = await ticksWork(opts.workspaceId);
+  const anyRead = works ? await prisma.message.findFirst({ where: { contactId: opts.contactId, direction: 'OUTBOUND', status: 'READ' }, select: { id: true } }) : null;
+  const inbound = await prisma.message.count({ where: { contactId: opts.contactId, direction: 'INBOUND', isInternal: false } });
+  const { fuDue } = await import('./fuTiming');
+  const due = fuDue({
+    sent: st.fu?.n ?? 0,
+    last: {
+      status: (works ? lastOut.status : (lastOut.status === 'SENT' ? 'DELIVERED' : lastOut.status)) as any,
+      createdAt: lastOut.createdAt, deliveredAt: lastOut.deliveredAt, readAt: lastOut.readAt,
+    },
+    receiptsOff: !works || (!anyRead && inbound >= 2),
+  });
+  if (!due || due.at.getTime() > Date.now()) return null;
+
+  CUR = await loadTexts(opts.workspaceId);
+  const t = fuTurn(st, due.kind, new Date());
+  if (!t || hasPlaceholders(t.parts)) return null;
+  const stage = fuStageOf(st)!;
+  const suggestion = await prisma.aiSalesSuggestion.create({
+    data: {
+      workspaceId: opts.workspaceId,
+      contactId: opts.contactId,
+      leadId: opts.leadId || null,
+      parts: t.parts as any,
+      action: 'send_text',
+      productFileIds: [] as any,
+      actionPayload: { leizpro: t.next, followupKey, fuKey: t.key, fuVars: t.fuVars, fuAt: new Date().toISOString() } as any,
+      reasoning: due.kind === 'reactivation'
+        ? `Reactivacao: 3 follow-ups sem resposta na ${FU_LABEL[stage]}; ${due.why}.`
+        : `Follow-up por etapa, ${FU_LABEL[stage]}: ${t.next.fu!.n} de 3 (${due.why}).`,
+      principlesUsed: [] as any,
+      modelUsed: stage === 'pay' ? 'leizpro:pagamento' : 'leizpro:etapa',
+      status: 'PENDING',
+    },
+  });
+  await syncStage(opts.workspaceId, opts.contactId, t.next);
+  return suggestion;
 }
 
 // "Licenciatura em lingua francesa" -> "Lingua francesa"
@@ -816,7 +1156,7 @@ export function reguaTurn(st: LeizProState, texts?: Texts): { parts: string[]; n
 // follow-ups (regua e pagamento) que ainda estao por aprovar no Inbox.
 export async function refreshPendingFollowups(workspaceId: string): Promise<number> {
   const rows = await prisma.aiSalesSuggestion.findMany({
-    where: { workspaceId, status: 'PENDING', modelUsed: { in: ['leizpro:regua', 'leizpro:pagamento'] } },
+    where: { workspaceId, status: 'PENDING', modelUsed: { in: ['leizpro:regua', 'leizpro:pagamento', 'leizpro:etapa'] } },
     select: { id: true, modelUsed: true, actionPayload: true },
     take: 500,
   });
@@ -832,49 +1172,15 @@ export async function refreshPendingFollowups(workspaceId: string): Promise<numb
       const prev: LeizProState = { ...INITIAL_STATE, ...next, regua: { ...next.regua, sent: next.regua.sent - 1 } };
       parts = reguaTurn(prev).parts;
     } else {
-      parts = fill(CUR.payFollowup, next, { ...vars(next), pacote: next.pkg || 'pacote' });
+      const p = r.actionPayload as any;
+      const key = (p?.fuKey && p.fuKey in T ? p.fuKey : 'payFollowup') as TemplateKey;
+      parts = greetingFor(fill(CUR[key], next, p?.fuVars || { ...vars(next), pacote: next.pkg || 'pacote' }), p?.fuAt ? new Date(p.fuAt) : new Date());
     }
     if (hasPlaceholders(parts)) continue;
     await prisma.aiSalesSuggestion.update({ where: { id: r.id }, data: { parts: parts as any } });
     n += 1;
   }
   return n;
-}
-
-// Follow-up de pagamento (1 dia depois dos canais, uma vez). lastOutAt: a
-// ultima mensagem nossa, para quem escolheu o pacote antes desta funcao existir.
-export async function generateLeizProPayFollowup(opts: { workspaceId: string; contactId: string; leadId?: string | null; lastOutAt: Date }) {
-  const st = await loadState(opts.workspaceId, opts.contactId);
-  if (st.step !== 'paying' || st.payFollow?.sent) return null;
-  const at = st.payFollow?.at ? new Date(st.payFollow.at) : new Date(opts.lastOutAt.getTime() + 86_400_000);
-  if (at.getTime() > Date.now()) return null;
-  const followupKey = `pay:${st.pkg || ''}:${at.toISOString().slice(0, 10)}`;
-  const exists = await prisma.aiSalesSuggestion.findFirst({
-    where: { contactId: opts.contactId, actionPayload: { path: ['followupKey'], equals: followupKey } },
-    select: { id: true },
-  });
-  if (exists) return null;
-  CUR = await loadTexts(opts.workspaceId);
-  const parts = fill(CUR.payFollowup, st, { ...vars(st), pacote: st.pkg || 'pacote' });
-  if (hasPlaceholders(parts)) return null;
-  const next: LeizProState = { ...st, payFollow: { at: at.toISOString(), sent: true }, lastKey: 'payFollowup', lastQuestion: 'payFollowup', retries: 0 };
-  const suggestion = await prisma.aiSalesSuggestion.create({
-    data: {
-      workspaceId: opts.workspaceId,
-      contactId: opts.contactId,
-      leadId: opts.leadId || null,
-      parts: parts as any,
-      action: 'send_text',
-      productFileIds: [] as any,
-      actionPayload: { leizpro: next, followupKey } as any,
-      reasoning: `Follow-up de pagamento: escolheu o ${st.pkg || 'pacote'} e passou 1 dia sem comprovativo nem resposta.`,
-      principlesUsed: [] as any,
-      modelUsed: 'leizpro:pagamento',
-      status: 'PENDING',
-    },
-  });
-  await syncStage(opts.workspaceId, opts.contactId, next);
-  return suggestion;
 }
 
 // Aviso (uma vez por regua): nao fez o follow-up por falta de curso/disciplinas.

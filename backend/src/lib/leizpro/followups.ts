@@ -8,13 +8,14 @@
 //     contacto da regua quando chega a hora (dia combinado, +3 dias, despedida
 //     aos 9 dias). Em modo supervisionado fica como sugestao para aprovar; em
 //     modo automatico e enviado logo.
-//  3. Escolheu o pacote e passou 1 dia sem comprovativo nem resposta: gera o
-//     follow-up de pagamento (uma vez); a etapa "Follow-up de pagamento" muda
-//     quando e enviado.
+//  3. Follow-ups por etapa (guia v31): da pergunta do curso ao comprovativo e
+//     no Premio Embaixador, 3 por etapa, a hora conforme os tiques do WhatsApp
+//     (fuTiming.ts), e a Reactivacao 2 a 3 semanas depois do 3.o. A etapa
+//     "Follow-up de pagamento" muda quando o 1.o de pagamento e enviado.
 
 import prisma from '../prisma';
 import {
-  isLeizProWorkspace, loadState, reguaDue, generateLeizProFollowup, generateLeizProPayFollowup, withContactLock, cleanupPendingReguaWithoutContext,
+  isLeizProWorkspace, loadState, reguaDue, generateLeizProFollowup, generateLeizProStageFollowup, fuStageOf, withContactLock, cleanupPendingReguaWithoutContext,
 } from './engine';
 import { decisionSlot, parseTimeChoice, slotLabel } from './schedule';
 import { moveToStage, syncStage, syncReguaStage, syncPayStage } from './pipeline';
@@ -106,8 +107,9 @@ export async function runLeizProFollowups(io: any): Promise<void> {
     await startReguaForManualPackages().catch((e) => console.error('[leizpro] regua manual falhou:', e?.message || e));
     await cleanupPendingReguaWithoutContext().catch((e) => console.error('[leizpro] limpeza da regua falhou:', e?.message || e));
 
-    const since = new Date(Date.now() - 15 * 86_400_000);
-    // Candidatos: contactos com sugestoes da Leiz Pro nos ultimos 15 dias.
+    // Candidatos: contactos com sugestoes da Leiz Pro nos ultimos 25 dias (a
+    // Reactivacao sai 16 dias depois do ultimo follow-up).
+    const since = new Date(Date.now() - 25 * 86_400_000);
     const rows = await prisma.aiSalesSuggestion.findMany({
       where: { modelUsed: { startsWith: 'leizpro' }, createdAt: { gte: since } },
       distinct: ['contactId'],
@@ -141,18 +143,19 @@ export async function runLeizProFollowups(io: any): Promise<void> {
         // O estudante escreveu e ainda nao lhe respondemos: nao e follow-up.
         if (last?.direction !== 'OUTBOUND') continue;
 
-        // 3. Escolheu o pacote e passou 1 dia sem comprovativo nem resposta:
-        //    follow-up de pagamento (uma vez). A etapa muda quando e enviado.
         if (st.step === 'paying') {
           await syncPayStage(r.workspaceId, r.contactId, st);
           await syncPayTask(r.workspaceId, r.contactId, st);
-          const pendingPay = await prisma.aiSalesSuggestion.findFirst({
+        }
+        // 3. Follow-ups por etapa (inclui o pagamento e o Premio Embaixador).
+        if (fuStageOf(st)) {
+          const pendingFu = await prisma.aiSalesSuggestion.findFirst({
             where: { contactId: r.contactId, modelUsed: { startsWith: 'leizpro' }, status: 'PENDING', action: { in: ['send_text', 'send_product'] } },
             select: { id: true },
           });
-          if (!pendingPay) {
+          if (!pendingFu) {
             await withContactLock(r.contactId, async () => {
-              const suggestion = await generateLeizProPayFollowup({ workspaceId: r.workspaceId, contactId: r.contactId, leadId: r.leadId, lastOutAt: last.createdAt });
+              const suggestion = await generateLeizProStageFollowup({ workspaceId: r.workspaceId, contactId: r.contactId, leadId: r.leadId });
               if (!suggestion) return;
               if (io) io.to(`workspace:${r.workspaceId}`).emit('aiSales:suggestion', suggestion);
               const ws = await prisma.workspace.findUnique({ where: { id: r.workspaceId }, select: { aiSalesMode: true } });

@@ -1,5 +1,6 @@
 // Textos da Leiz Pro (a assistente apresenta-se como Sherone), tirados do
-// "Guia de Atendimento da Zona Nerd" (v26).
+// "Guia de Atendimento da Zona Nerd" (v31: follow-ups por etapa e Premio
+// Embaixador para quem nao tem dinheiro).
 //
 // v26: o capitulo 1 de todas as disciplinas e gratis; do capitulo 2 em diante
 // e o modo Super Nerd, vendido em 4 pacotes (PDF "Pacotes de Acesso Completo").
@@ -138,7 +139,7 @@ export const T = {
   accountCreated: [
     'Já está, [NOME]! 🎉 A tua conta está criada.',
     '{comeca_por} Vê o vídeo e depois faz as perguntas.',
-    'Uma coisa: no ecrã "Convidar" tens o teu link. Se 5 amigos entrarem por ele e fizerem o diagnóstico, ganhas 7 dias do modo Super Nerd. 🎁\n\nQuem são 2 ou 3 colegas que também vão fazer exame? Toca em partilhar e manda-lhes já.',
+    'Uma coisa: no ecrã "Convidar" tens o teu link. Se 5 amigos criarem conta por ele, ganhas 7 dias do modo Super Nerd. 🎁\n\nQuem são 2 ou 3 colegas que também vão fazer exame? Toca em partilhar e manda-lhes já.',
     'Falamos {opcao1} para me contares como correu o capítulo 1? 😊',
   ],
   // Passo 2.1.1 (experimentou e gostou)
@@ -159,16 +160,55 @@ export const T = {
   reguaContact1: [
     'Olá, [NOME]! 😊\n\nPara quem vai fazer {curso}, uma das opções de preparação é o {pacote}, que inclui {disciplinas}, com duração de {duracao}. É uma forma de organizar o estudo e avançar gradualmente pelos conteúdos. Em {disciplina}, por exemplo, já podes chegar ao capítulo 3.\n\nLembrei-me de ti. Já decidiste com qual pacote vais ficar?',
   ],
-  // Follow-up de pagamento: 1 dia depois dos canais de pagamento, sem
-  // comprovativo nem resposta. {pacote}: ex. "Pacote B (390 MZN)".
+  // Etapa 3.2, 1.o follow-up (recebeu os canais e nao mandou o comprovativo).
   payFollowup: [
-    'Olá, [NOME]! 😊\n\nOntem escolheste o {pacote}. Conseguiste fazer o pagamento?\n\nSe já pagaste, manda-me aqui a foto do comprovativo, que a equipa activa o teu acesso. Se ficou alguma dúvida no pagamento, diz-me que eu ajudo.',
+    'Olá, [NOME]! 😊 Conseguiste fazer o pagamento? Se tiveres alguma dificuldade com o M-Pesa ou o e-Mola, diz-me.',
+  ],
+  fuPay2: [
+    'Bom dia, [NOME]! Assim que mandares o comprovativo, activamos o teu acesso no mesmo dia. Consegues hoje?',
+  ],
+  fuPay3: [
+    'Olá, [NOME]. Quando fizeres o pagamento, manda o comprovativo por aqui e eu activo logo. 😊 Até lá, o capítulo 1 continua grátis.',
   ],
   // "JA DISSE QUANDO CONSIGO PAGAR" (Fluxo 5): a data vai para a equipa.
   payLater: [
     'Combinado, [NOME]! 😊 Sem problema nenhum.',
-    `Até lá, continuas a estudar o capítulo 1 de todas as disciplinas, grátis, em ${SITE}.`,
-    'Quando fizeres o pagamento, manda-me aqui o comprovativo. 😊',
+    'Até lá, continuas a estudar o capítulo 1 de todas as disciplinas, grátis. E acompanha também as nossas redes:\n📘 Facebook: facebook.com/share/19ruvHyDHy\n📸 Instagram: @absalaolavimon\n🎵 TikTok: Absalao Mate | Zona Nerd',
+    'Nesse dia falo contigo para ver como estás. Pode ser? 😊',
+  ],
+
+  // ---- Follow-ups por etapa (guia v31) -----------------------------------------
+  // O agendador escolhe a hora pelos tiques do WhatsApp (fuTiming.ts). O 3.o
+  // fecha a etapa; depois vem a Reactivacao.
+  // Etapa 1.3: nao disse o curso
+  fuCourse1: ['Olá, [NOME]! 😊 Para te orientar bem, só me falta saber: que curso queres fazer na {universidade}?'],
+  fuCourse2: ['Bom dia, [NOME]! Ainda estás a preparar o exame da {universidade}? Diz-me só o curso, que eu digo-te por onde começar.'],
+  fuCourse3: ['Olá, [NOME]. Vou deixar-te à vontade. 😊 Quando quiseres retomar, diz-me o curso e continuamos daí.'],
+  // Etapa 1.4: nao respondeu sobre a dificuldade
+  fuConn1: ['Olá, [NOME]! 😊 Responde só com uma palavra: o mais difícil para ti é a matéria, os exercícios ou a falta de tempo?'],
+  fuConn2: ['Bom dia, [NOME]! Para {curso}, qual é a disciplina que te custa mais?'],
+  fuConn3: ['Olá, [NOME]. Fico por aqui para não te incomodar. 😊 Quando quiseres, diz-me qual é a disciplina mais difícil e começamos por aí.'],
+  // Etapa 1.5.1: nao respondeu a vacina do online
+  fuOnline1: ['Olá, [NOME]! 😊 Ficou alguma dúvida sobre estudar online? Diz-me só se estás à vontade com o telemóvel, que eu mostro-te por onde começar.'],
+  fuOnline2: ['Bom dia, [NOME]! Uma pergunta rápida: preferes estudar pelo telemóvel ou pelo computador?'],
+  fuOnline3: [`Olá, [NOME]. Vou deixar-te à vontade. 😊 O capítulo 1 de todas as disciplinas é grátis em ${SITE}, se quiseres ver como é.`],
+  // Etapa 1.5.2: nao respondeu ao compromisso
+  fuCommit1: ['Olá, [NOME]! 😊 Responde só com "sim" ou "não": estás pronto(a) para dar o teu melhor na preparação?'],
+  fuCommit2: ['Bom dia, [NOME]! Quem se compromete agora chega ao exame com outra segurança. Posso contar contigo?'],
+  fuCommit3: ['Olá, [NOME]. Respeito o teu tempo. 😊 Quando estiveres pronto(a), diz-me "sim" e continuamos.'],
+  // Etapa 1.5.4: nao criou a conta
+  fuAccount1: ['Olá, [NOME]! 😊 Em que passo ficaste: no site, no código do e-mail ou na escolha das disciplinas? Ajudo-te já.'],
+  fuAccount2: ['Bom dia, [NOME]! Criar a conta demora uns 3 minutos. Queres fazer agora, comigo aqui?'],
+  fuAccount3: ['Olá, [NOME]. Fico por aqui. 😊 Quando quiseres criar a conta, é só dizeres e fazemos juntos.'],
+  // Etapa 2.1.1: experimentou mas nao escolheu o pacote. {n_disciplinas}: "2 disciplinas".
+  fuPkg1: ['Olá, [NOME]! 😊 Ficou alguma dúvida sobre os pacotes? Para {n_disciplinas}, o que faz mais sentido para ti: 1 mês ou 2 meses?'],
+  fuPkg2: ['Bom dia, [NOME]! Hoje é um bom dia para avançares para o capítulo 2. Com qual dos pacotes vais ficar?'],
+  fuPkg3: ['Olá, [NOME]. Se agora não for o momento, diz-me só "agora não", sem problema. 😊 Assim não te incomodo.'],
+  // Reactivacao (2 a 3 semanas depois do 3.o follow-up sem resposta)
+  reactivation: [
+    'Olá, [NOME].\n\nComo está a preparação para o exame? 📚',
+    'Se precisares de ajuda a decidir por onde começar, posso enviar-te uma pequena sugestão de rotina baseada no tempo que ainda tens até ao exame.',
+    'É grátis e sem compromisso. Queres que te envie?',
   ],
   // Contacto 2 (3 dias depois): dar espaco para um "nao"
   reguaContact2: [
@@ -227,7 +267,7 @@ export const T = {
   friendReferral: [
     'Óptima notícia, [NOME]! 😊',
     'No ecrã "Convidar", toca em partilhar: o teu colega recebe o teu link e cria a conta por ele.',
-    'Quando 5 amigos entrarem pelo teu link e fizerem o diagnóstico, ganhas 7 dias do modo Super Nerd.\n\nConsegues enviar-lhe já?',
+    'Quando 5 amigos criarem conta pelo teu link, ganhas 7 dias do modo Super Nerd.\n\nConsegues enviar-lhe já?',
   ],
   coversExam: [
     'Boa pergunta, [NOME]. 🎯',
@@ -250,7 +290,7 @@ export const T = {
   shareAccount: [
     'A conta é individual, [NOME]. Se partilharem, o sistema pode bloquear.',
     'Mas não precisas: no ecrã "Convidar", toca em partilhar e envia o teu link ao teu amigo. Ele cria a conta dele por esse link.',
-    'Quando 5 amigos entrarem pelo teu link e fizerem o diagnóstico, ganhas 7 dias do modo Super Nerd.\n\nFica melhor para ti e para ele. Consegues enviar-lhe já?',
+    'Quando 5 amigos criarem conta pelo teu link, ganhas 7 dias do modo Super Nerd.\n\nFica melhor para ti e para ele. Consegues enviar-lhe já?',
   ],
   payOtherPerson: [
     'Sim, podes. 😊',
@@ -311,13 +351,56 @@ export const T = {
     'O percurso começa pela base de propósito e vai subindo até às questões mais difíceis, que ficam nos capítulos seguintes, no modo Super Nerd.',
     'Faz as perguntas tipo exame do capítulo 1: elas mostram o teu nível real. 🎯 Diz-me depois quantas acertas.',
   ],
+  // "NAO TENHO CONDICOES AGORA" (v31): o Premio Embaixador e a alternativa
+  // para nao ficar sem estudar.
   noMoney: [
-    'Entendo, [NOME], e agradeço por me contares. 😊',
-    'Começa pelo capítulo 1 de todas as disciplinas, que é grátis, e vê se o método resulta contigo.',
-    'Quando puderes: 2 meses sai mais barato por mês, não renova sozinho e, se 5 amigos entrarem pelo teu link, ganhas 7 dias do modo Super Nerd.',
+    'Entendo, [NOME], e obrigado por seres sincero(a). 😊',
+    'Para não ficares sem estudar, a alternativa que temos é esta: na plataforma, no ecrã "Convidar", partilha o teu link com colegas que também vão fazer exame. Quando 5 deles criarem conta pelo teu link, ganhas 7 dias de acesso completo, grátis.',
+    'E o capítulo 1 de todas as disciplinas continua grátis para ti.',
+    'Consegues fazer isso?',
   ],
-  socials: [
-    'Para mais dicas, segue também as nossas redes:\nFacebook: https://www.facebook.com/share/19ruvHyDHy/\nInstagram: https://www.instagram.com/absalaolavimon?mdxt=MWo0MTB5dG1xbGpzNQ==\nTikTok: Absalao Mate | Zona Nerd',
+  fuAmb1: ['[NOME], muitos estudantes conseguem os 5 colegas só a pôr o link no estado do WhatsApp e nos grupos da turma. 😊 Consegues fazer o mesmo hoje?'],
+  fuAmb2: ['[NOME], se agora não for o momento para isto, podes me dizer sem problema. Prefiro saber, para não te estar a incomodar. 😊'],
+  fuAmb3: ['[NOME], não te vou insistir mais com isto. 😊 O teu link continua no ecrã "Convidar" e o capítulo 1 continua grátis. Quando quiseres retomar, é só me dizeres aqui.'],
+  // Disse que consegue
+  ambYes: [
+    'Boa, [NOME]! 💪 Abre a plataforma e toca em "Convidar" (também há um botão de partilhar no topo do Início e do Perfil). Depois toca em partilhar e envia aos teus colegas e aos teus grupos do WhatsApp.',
+    'Quando os 5 criarem conta pelo teu link, os 7 dias abrem sozinhos. Falamos {opcao1} para ver quantos já entraram?',
+  ],
+  // Disse que nao consegue
+  ambNo: [
+    'Oh, [NOME]. 😕 Neste momento, esta é a única forma que tenho de te ajudar.',
+    'O que te impede de fazer isso?',
+  ],
+  fuAmbNo1: ['Olá, [NOME]! Se for por não conheceres ninguém que vai fazer exame, podes pôr o link no teu estado do WhatsApp ou nos grupos onde estás. Queres que te mande uma mensagem pronta para enviares?'],
+  fuAmbNo2: ['[NOME], se partilhar o link não der para ti agora, diz-me sem problema. Assim sei como te posso ajudar daqui para a frente. 😊'],
+  fuAmbNo3: ['[NOME], não te vou insistir mais com isto. 😊 O capítulo 1 continua grátis para ti. Quando a situação mudar, é só me dizeres aqui.'],
+  // Motivos
+  ambNoOne: [
+    'Não precisa de ser só da tua turma, [NOME]. Pode ser amigos, primos, vizinhos ou alguém do teu bairro que também vai fazer exame este ano.',
+    'Podes pôr o link no teu estado do WhatsApp e nos grupos onde estás. Consegues tentar hoje?',
+  ],
+  ambShy: [
+    'Entendo, [NOME]. Mas não estás a pedir favor: estás a partilhar uma plataforma onde eles também estudam o capítulo 1 grátis. Estás a ajudá-los também. 😊',
+    'Queres que te mande uma mensagem pronta para enviares aos teus colegas?',
+  ],
+  // Mensagem pronta (a equipa nao tem o link de cada estudante: ele junta o dele)
+  ambReady: [
+    'Aqui está, [NOME]. 😊 Copia esta mensagem e, no fim, cola o teu link do ecrã "Convidar" (ou envia-a pelo botão de partilhar, que já leva o teu link):',
+    'Olá! Estou a preparar o exame de admissão na Zona Nerd. Tem vídeos, resumos e perguntas tipo exame, e o capítulo 1 de todas as disciplinas é grátis. Cria a tua conta por este link:',
+  ],
+  ambNoData: [
+    'Partilhar o link gasta muito pouco, [NOME]. Podes fazer quando tiveres Wi-Fi ou um pouco de dados, e enviar para vários colegas de uma vez.',
+    'Consegues fazer isso até {dia}?',
+  ],
+  ambSlow: [
+    'Não precisas dos 5 de uma vez, [NOME]. Cada colega que cria conta pelo teu link já conta, e enquanto isso continuas a estudar o capítulo 1.',
+    'Começa hoje com 2 ou 3 colegas. Falamos {opcao1} para ver quantos já entraram?',
+  ],
+  // Se mesmo assim nao conseguir: despedida calorosa e proximo contacto
+  ambGiveUp: [
+    'Está bem, [NOME], sem pressão. 😊 Continua a estudar o capítulo 1, que é grátis.',
+    'Se a situação mudar ou conseguires os colegas, é só me dizeres aqui. Falo contigo {dia} para saber como vai o estudo, pode ser?',
   ],
   // "E gratis?", "tem taxas?", "afinal nao e mahala?"
   isFree: [

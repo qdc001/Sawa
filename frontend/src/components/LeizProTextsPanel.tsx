@@ -194,7 +194,8 @@ export default function LeizProTextsPanel({ items: initial, onSaved }: { items: 
       if (!map.has(it.group)) map.set(it.group, []);
       map.get(it.group)!.push(it);
     }
-    return [...map.entries()];
+    // Grupos numerados ("3b. Régua", "3c. Follow-ups"): pela ordem do número.
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'pt', { numeric: true }));
   }, [items]);
 
   const partsOf = (it: LeizProTextItem) => drafts[it.key] ?? it.parts;

@@ -32,7 +32,7 @@ export function slotLabel(at: Date, now = new Date()): string {
 
 // Duas propostas: a hora livre mais proxima hoje (pelo menos 1h a frente) e
 // amanha a mesma hora; se hoje ja nao da, amanha as 9h e as 18h.
-export function proposeSlots(now = new Date()): [Slot, Slot] {
+export function proposeSlots(now = new Date(), notToday = false): [Slot, Slot] {
   const n = toLocal(now);
   let h = n.getUTCHours() + (n.getUTCMinutes() > 0 ? 2 : 1);
   const lastStart = CALL_HOURS.to - 1; // ultima chamada comeca as 19h
@@ -40,7 +40,7 @@ export function proposeSlots(now = new Date()): [Slot, Slot] {
   let first: Date;
   let second: Date;
   if (h < CALL_HOURS.from) h = CALL_HOURS.from;
-  if (h <= lastStart) {
+  if (h <= lastStart && !notToday) {
     first = fromLocal(y, m, d, h);
     second = fromLocal(y, m, d + 1, Math.min(Math.max(h, 9), 18));
   } else {

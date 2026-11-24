@@ -70,17 +70,17 @@ const RULES: Array<[Intent, RegExp]> = [
   ['como_funciona', /\b(como (e|funciona) (estudar |o estudo |as aulas )?online|como (e que )?funciona( a zona nerd| isso| isto| a plataforma| as aulas)?\W*$)/],
   // "Ja paguei mas nao abriu" (Passo 4.3): passa para a equipa verificar.
   ['nao_abriu', /\b(paguei|pagamento|comprovativo)\b.*\b(nao (abriu|activou|ativou|abre|recebi|chegou)|ainda nao|nada)\b/],
-  ['ja_pagou', /\b(ja (paguei|transferi|fiz o pagamento|enviei o dinheiro|mandei o dinheiro)|comprovativo)\b/],
+  ['ja_pagou', /\b(ja (paguei|transferi|fiz o pagamento|enviei o dinheiro|mandei o dinheiro)|comprovativo)\b|(?<!nao |nao ainda |ainda nao )\b(paguei|transferi|fiz a transferencia|fiz o pagamento)\b|^(pronto,? )?(ja,? )?mandei\b/],
   ['pagar_outra_pessoa', /\b(m-?pesa|e-?mola|numero|conta) d[eoa]s? (outra pessoa|outro|meu (pai|irmao|tio)|minha (mae|irma|tia))\b/],
   // "nao percebi" nao e um "nao": e pedir para explicar a pergunta.
-  ['nao_percebi', /\b(nao (percebi|entendi|compreendi|percebo|entendo)|como assim|explica( melhor)?|o que (queres|quer) dizer)\b/],
+  ['nao_percebi', /\b(nao (percebi|entendi|compreendi)|nao (percebo|entendo)(?! (nada |muito |bem )?(de|da|do|dos|das|em|a materia|quimica|fisica|matematica|biologia)\b)|como assim|explica( melhor)?|o que (queres|quer) dizer)\b/],
   ['problema_link', /\b(link|site|pagina)\b.*\b(nao (abre|abri|abriu|abrem|carrega|carregou|funciona|funcionou|entra)|indisponivel|sem internet|erro)\b|\b(nao (abre|abri|abriu)|indisponivel)\b/],
   // Codigo do e-mail / e-mail com problema (v26: tem resposta no guia)
   ['problema_codigo', /\b(codigo|e-?mail)\b/],
   ['problema_acesso', /\b(criar (a )?conta|pede conta|nao consigo (entrar|aceder|acessar|criar)|volta ao inicio|nao entra)\b/],
   ['instalar_app', /\b(instal|apk|play ?store|baixar a app|descarregar a app|onde (baixo|tiro) a app)/],
   ['vidas', /\bvidas?\b/],
-  ['sem_dinheiro', /\b(nao tenho (dinheiro|condic|esse valor|o valor|como pagar|massa)|sem condic|sem dinheiro|(mes|semana) que vem|proximo mes|fim do mes|meu pai|minha mae|meus pais|nao posso pagar)\b/],
+  ['sem_dinheiro', /\b(falid[oa]|(estou|tou|to) (lis[oa]|tes[oa]|a zero|duro|dura|apertad[oa]|sem (dinheiro|massa|guita|nada))|sem massa|sem guita|nao tenho nada|nao tenho (dinheiro|condic\w*|esse valor|o valor|como pagar|massa)|sem condic\w*|sem dinheiro|mal de bolso|bolso (vazio|furado|seco)|(estou|tou|to) sem (cash|kumbu|bolso)|(mes|semana) que vem|proximo mes|fim do mes|meu pai|minha mae|meus pais|nao posso pagar)\b/],
   ['acha_caro', /\b(caro|caros|muito dinheiro|desconto|mais barato)\b/],
   // "Isto e burla?" NAO pode receber a resposta do "pagamento e seguro?" (comecava por "E sim").
   ['desconfianca', /\b(burla|burlador|burladores|burlar|esquema|golpe|golpista|fraude|mentira|enganar|roubo|ladr)/],
@@ -98,7 +98,7 @@ const RULES: Array<[Intent, RegExp]> = [
   ['muito_basico', /\b(muito basico|ja sei (tudo|isso)|facil demais)\b/],
   ['quer_pagar', /\b(como (faco para |posso |devo )?(pagar|activar|ativar)|quero (activar|ativar)|vou pagar|onde pago|numero (do|de|para) (m-?pesa|e-?mola)|pagar agora)\b/],
   // "Quero o pacote D", "vou ficar com o B", "fico com o A"
-  ['escolhe_pacote', /\bpacote\s*[abcd]\b|^(o|quero o|fico com o|vou ficar com o|escolho o|vou querer o|pode ser o)\s*[abcd]\W*$/],
+  ['escolhe_pacote', /\bpacote\s*[abcd]\b|^(o|quero o|fico com o|vou ficar com o|escolho o|escolhi o|prefiro o|vou com o|vou no|fico no|vou querer o|pode ser o)\s*[abcd]\W*$/],
   ['super_nerd', /\b(super ?nerd|premium|plano pago|pacote|pacotes|mensalidade)\b/],
   // ("garantir um 15 valores" e uma nota, nao o preco: so "os valores"/"o valor")
   ['pergunta_preco', /\b(quanto (custa|e|fica|sai|pago)|preco|precos|(os|quais (sao )?os|saber os|ver os) valores|o valor (e|do|da|de|a pagar)|qual (e )?o valor|a mensalidade)\b/],
@@ -107,8 +107,10 @@ const RULES: Array<[Intent, RegExp]> = [
   ['duvida', /^(tem|ha|existe|existem|quantos|quantas|quais|qual|como|o que|e possivel|da para|posso)\b.*\?\s*$/],
 ];
 
-const YES = /^(sim|s|siim|claro|estou|sim estou|com certeza|ok|okay|pode ser|bora|yes|isso|consigo|posso|pode|manda|quero|aceito|combinado|certo|tou|to|estou pronto|estou pronta|sim sim)\b/;
-const NO = /^(nao|n|ainda nao|agora nao|talvez|depende|vou tentar|vou pensar|mais ou menos|nem por isso|acho que nao)\b/;
+const YES = /^(si+m+|xim|s|claro|estou|sim estou|com certeza|ok|okay|pode ser|bora|yes|isso|consigo|posso|pode|manda|quero|aceito|combinado|certo|tou|to|estou pronto|estou pronta|sim sim|esta bem|ta bem|beleza|fixe|perfeito|entendido|percebi|percebido)\b/;
+// "Estou ocupado", "tou cansado", "estou sem condicoes": comecam como um sim ("estou") mas nao sao.
+export const NOT_YES = /\b(nao|nem|falid\w*|lis[oa]|tes[oa]|dinheiro|massa|condic\w*|ocupad\w*|doente|cansad\w*|dificil|depois|mais tarde|zero|duro|apertad\w*|sem tempo|sem (dinheiro|massa|condic\w*)|fora|viajar|a trabalhar|no trabalho|na escola|nas aulas|em aula\w*|na aula|a estudar|na rua|a conduzir|a pensar|a ver|a decidir|a analisar|indecis\w*|ligar|liga|ligue|chamada|hospital|internad\w*|luto|faleceu|morreu|funeral|acidente|desist\w*|cancelar|parar|desmotivad\w*|desanimad\w*|(na|em|com|tenho|ainda tenho) (duvida|duvidas)|se (tiver|der|calhar|puder)|foto\w*|respond\w*|(estou|tou|to) mal|mal de bolso|bolso|stress\w*)\b/;
+const NO = /^(nao|n|ainda nao|agora nao|talvez|depende|vou tentar|vou pensar|vou ver|vou analisar|deixa(-me)? ver|deixa me ver|mais ou menos|nem por isso|acho que nao)\b/;
 
 function ruleIntent(text: string): Intent | null {
   const t = norm(text).trim();
@@ -119,7 +121,7 @@ function ruleIntent(text: string): Intent | null {
   const short = t.replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
   if (short && short.split(' ').length <= 6) {
     if (NO.test(short)) return 'nao';
-    if (YES.test(short)) return 'sim';
+    if (YES.test(short) && !(/\?/.test(t) && short.split(' ').length > 2)) return NOT_YES.test(short) ? 'nao' : 'sim';
   }
   return null;
 }
@@ -304,7 +306,8 @@ function findSnCount(text: string, namedSubjects: number): number | null {
 // "Quero o pacote D", "o B", "fico com o pacote a"
 function findPkg(text: string): 'A' | 'B' | 'C' | 'D' | null {
   const t = norm(text).trim();
-  const m = t.match(/\bpacote\s*([abcd])\b/) || t.match(/^(?:o|quero o|fico com o|vou ficar com o|escolho o|vou querer o|pode ser o)\s*([abcd])\W*$/);
+  const m = t.match(/\bpacote\s*([abcd])\b/) || t.match(/^(?:o|quero o|fico com o|vou ficar com o|escolho o|escolhi o|prefiro o|vou com o|vou no|fico no|vou querer o|pode ser o)\s*([abcd])(?:\s+(?:mana|mano|por favor|pf|chefe|sff))?\W*$/)
+    || t.match(/^([bcd])\W*$/);
   return m ? (m[1].toUpperCase() as 'A' | 'B' | 'C' | 'D') : null;
 }
 
@@ -450,7 +453,9 @@ export async function understand(text: string, expecting: string, slot: Slot = n
     if (!out.university) out.university = presentIn(modelJson.universidade, text);
     const course = presentIn(modelJson.curso, text);
     // O curso nao pode ser a universidade, o nome, nem uma disciplina do exame.
-    if (!out.course && course && norm(course) !== norm(out.university || '') && norm(course) !== norm(out.name || '')
+    if (!out.course && course && course.length <= 50 && course.split(/\s+/).length <= 6
+        && !/(ignora|instruc|prompt|gratis|desconto|http|\?)/i.test(norm(course))
+        && norm(course) !== norm(out.university || '') && norm(course) !== norm(out.name || '')
         && !findSubjects(course).subjects.length && !findUniversity(course)) {
       out.course = titleCase(course);
     }
@@ -519,7 +524,7 @@ export async function understand(text: string, expecting: string, slot: Slot = n
     if (out.intent === 'pergunta_preco' && !/\b(preco|precos|custa|valor|valores|pagar|pago|mzn|meticais|dinheiro|caro)\b/.test(tn)) out.intent = 'outro';
     if (out.intent === 'acha_caro' && !/\b(caro|caros|dinheiro|preco|valor)\b/.test(tn)) out.intent = 'outro';
     if (out.intent === 'duvida' && !text.includes('?')) out.intent = 'outro';
-    if (out.intent === 'problema_acesso' && /(link|site|pagina)/.test(norm(text)) && !/(codigo|conta|email|e-mail|senha)/.test(norm(text))) {
+    if (out.intent === 'problema_acesso' && /\b(link|site|pagina)\b/.test(norm(text)) && !/\b(codigo|conta|email|e-mail|senha)\b/.test(norm(text))) {
       out.intent = 'problema_link';
     }
   }

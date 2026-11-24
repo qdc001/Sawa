@@ -456,6 +456,8 @@ model Message {
   fileName      String?
   externalId    String?
   readAt        DateTime?
+  // Quando chegou ao telemovel (dois tiques). Os follow-ups da Leiz Pro contam a partir dai.
+  deliveredAt   DateTime?
   editedAt      DateTime?
   isInternal    Boolean       @default(false)
   transcription String? // transcricao de audio via Groq Whisper (preenchida on-demand)

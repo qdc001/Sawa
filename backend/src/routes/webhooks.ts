@@ -1003,7 +1003,15 @@ router.post('/evolution', async (req: Request, res: Response) => {
             newStatus === 'SERVER_ACK' || newStatus === '2' ? 'SENT' :
             null;
           if (!mapped) continue;
-          await prisma.message.updateMany({ where: { externalId: id }, data: { status: mapped as any, ...(mapped === 'READ' ? { readAt: new Date() } : {}) } });
+          // Nunca descer de estado (um DELIVERED atrasado depois do READ).
+          const rank: Record<string, number> = { PENDING: 0, SENT: 1, DELIVERED: 2, READ: 3 };
+          const cur = await prisma.message.findFirst({ where: { externalId: id }, select: { status: true, deliveredAt: true, readAt: true } });
+          if (cur && (rank[cur.status] ?? 0) > (rank[mapped] ?? 0)) continue;
+          await prisma.message.updateMany({ where: { externalId: id }, data: {
+            status: mapped as any,
+            ...((mapped === 'DELIVERED' || mapped === 'READ') && !cur?.deliveredAt ? { deliveredAt: new Date() } : {}),
+            ...(mapped === 'READ' && !cur?.readAt ? { readAt: new Date() } : {}),
+          } });
           const updated = await prisma.message.findFirst({ where: { externalId: id } });
           if (updated && io) {
             io.to(`workspace:${workspaceId}`).emit('message:updated', updated);
