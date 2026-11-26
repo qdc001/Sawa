@@ -1557,7 +1557,7 @@ export async function handBackToLeiz(workspaceId: string, contactId: string, lea
 // etapa esta cada estudante (lido das conversas) e, se quiser, devolve-o a Leiz
 // com o pacote e o dia em que disse que pagava. Nada e enviado agora.
 export async function syncLeizFromTeam(workspaceId: string, contactId: string, leadId: string | null, o: {
-  stageKey: string; pkg?: string | null; payDay?: Date | null; leiz: boolean;
+  stageKey: string; pkg?: string | null; payDay?: Date | null; leiz: boolean; reactivate?: boolean;
 }): Promise<string> {
   let st = await loadState(workspaceId, contactId);
   st = await contextFromMessages(contactId, st);
@@ -1584,7 +1584,11 @@ export async function syncLeizFromTeam(workspaceId: string, contactId: string, l
     st = { ...st, step: st.name && st.university ? 'diagnosis' : 'start', payFollow: null, regua: null };
     what = 'diagnostico';
   }
-  const next: LeizProState = { ...st, retries: 0, fu: null };
+  // Parado ha semanas: a proxima mensagem e a Reactivacao (os 3 follow-ups da etapa
+  // contam como feitos), e nao um follow-up normal fora de tempo.
+  const fuStage: FuStage = st.step === 'paying' ? 'pay' : st.step === 'pdf_sent' ? 'package' : st.step === 'ask_online' || st.step === 'ask_commitment' ? 'online' : 'course';
+  if (o.reactivate) { st = { ...st, regua: null, payFollow: st.step === 'paying' ? { at: new Date().toISOString(), sent: true } : null }; what += ' · Reactivacao'; }
+  const next: LeizProState = { ...st, retries: 0, fu: o.reactivate ? { stage: fuStage, n: 3 } : null };
   await prisma.aiSalesSuggestion.create({
     data: {
       workspaceId, contactId, leadId,

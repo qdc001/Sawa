@@ -99,7 +99,7 @@ function ApplyStagesCard() {
         </p>
         <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
           Opções depois de <code>;</code> (acertam também a Leiz): <code>paga 2026-11-30</code> (1.º follow-up de pagamento nesse dia às 12h),{' '}
-          <code>pacote Pacote D (570 MZN)</code>, <code>leiz</code> (devolve a conversa à Leiz) e <code>tarefa texto</code> (tarefa para hoje).
+          <code>pacote Pacote D (570 MZN)</code>, <code>leiz</code> (devolve a conversa à Leiz), <code>reactivar</code> (parado há semanas: a Leiz manda a Reactivação) e <code>tarefa texto</code> (tarefa para hoje).
           Nada é enviado no momento.
         </p>
       </div>

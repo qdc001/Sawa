@@ -197,12 +197,13 @@ export async function applyStages(workspaceId: string, text: string): Promise<{ 
     if (!m) { errors.push(`Linha não reconhecida: "${line.slice(0, 60)}"`); continue; }
     const ref = m[1];
     const want = normKey(m[2].replace(/\(.*\)$/, ''));
-    const opt = { leiz: false, pkg: null as string | null, payDay: null as Date | null, task: null as string | null };
+    const opt = { leiz: false, reactivate: false, pkg: null as string | null, payDay: null as Date | null, task: null as string | null };
     for (const op of optParts) {
       const d = op.match(/^paga\s+(\d{4})-(\d{2})-(\d{2})$/i);
       if (d) { opt.payDay = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3])); continue; }
       if (/^pacote\s+/i.test(op)) { opt.pkg = op.replace(/^pacote\s+/i, '').trim(); continue; }
       if (/^leiz$/i.test(op)) { opt.leiz = true; continue; }
+      if (/^reactivar$/i.test(op)) { opt.reactivate = true; opt.leiz = true; continue; }
       if (/^tarefa\s+/i.test(op)) { opt.task = op.replace(/^tarefa\s+/i, '').trim(); continue; }
       if (op) errors.push(`${ref}: opção "${op.slice(0, 40)}" ignorada`);
     }
@@ -223,7 +224,7 @@ export async function applyStages(workspaceId: string, text: string): Promise<{ 
     let extra = '';
     if (optParts.length) {
       const { syncLeizFromTeam } = await import('./engine');
-      extra = ` · ${await syncLeizFromTeam(workspaceId, c.id, lead.id, { stageKey: stage.key, pkg: opt.pkg, payDay: opt.payDay, leiz: opt.leiz })}`;
+      extra = ` · ${await syncLeizFromTeam(workspaceId, c.id, lead.id, { stageKey: stage.key, pkg: opt.pkg, payDay: opt.payDay, leiz: opt.leiz, reactivate: opt.reactivate })}`;
       if (opt.task) {
         const assignee = (await prisma.lead.findUnique({ where: { id: lead.id }, select: { assignedToId: true } }))?.assignedToId
           || (await prisma.user.findFirst({ where: { workspaceId, role: { in: ['OWNER', 'ADMIN'] } }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id;
