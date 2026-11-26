@@ -1526,7 +1526,9 @@ export async function handBackToLeiz(workspaceId: string, contactId: string, lea
     st = { ...st, step: access ? 'active' : 'followup', access: access || st.access };
     summary = access ? 'acesso activo (boas-vindas encontradas)' : 'boas-vindas sem data de fim: segue como conta criada';
   } else if (payIdx >= 0 && (pdfIdx < 0 || payIdx < pdfIdx)) {
-    st = { ...st, step: 'paying', payFollow: { at: new Date(Date.now() + 86_400_000).toISOString(), sent: false } };
+    // Ja estava a pagar com um dia marcado (ex.: sincronizacao "paga 2026-11-30"): mantem o dia.
+    const keep = st.step === 'paying' && st.payFollow && !st.payFollow.sent ? st.payFollow : null;
+    st = { ...st, step: 'paying', payFollow: keep || { at: new Date(Date.now() + 86_400_000).toISOString(), sent: false } };
     summary = `a pagar${st.pkg ? ` (${st.pkg})` : ''}: recebeu os canais de pagamento`;
   } else if (pdfIdx >= 0) {
     st = { ...st, step: 'pdf_sent', lastKey: 'packagesPdf', lastQuestion: 'packagesPdf' };
