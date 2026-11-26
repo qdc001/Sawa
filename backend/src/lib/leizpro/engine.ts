@@ -1427,7 +1427,8 @@ async function findPackagesPdf(workspaceId: string): Promise<{ productId: string
 }
 
 // ---- Concorrencia ---------------------------------------------------------------
-// Espera depois da ultima mensagem antes de responder (30 a 45 s, ao acaso),
+// Espera depois da ultima mensagem antes de responder (80 a 100 s, ao acaso;
+// eram 30 a 45 s ate a restricao do WhatsApp de 25/11),
 // para nao responder enquanto o estudante ainda esta a escrever. Cada mensagem
 // nova recomeca a espera (isLatestInbound) e a resposta junta todas.
 // LEIZPRO_DEBOUNCE_MS fixa um valor (ex.: para testes).
@@ -1435,7 +1436,7 @@ const DEBOUNCE_FIXED = process.env.LEIZPRO_DEBOUNCE_MS ? Number(process.env.LEIZ
 const contactLocks = new Map<string, Promise<void>>();
 
 export function debounceInbound(): Promise<void> {
-  const ms = DEBOUNCE_FIXED ?? 30_000 + Math.floor(Math.random() * 15_000);
+  const ms = DEBOUNCE_FIXED ?? 80_000 + Math.floor(Math.random() * 20_000);
   return new Promise((r) => setTimeout(r, ms));
 }
 

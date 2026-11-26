@@ -11,6 +11,53 @@ import prisma from './prisma';
 import { sendWhatsAppOut, sendWhatsAppPresence } from './whatsappSend';
 import { triggerAutomations } from './automationEngine';
 
+// ---- Leiz Pro: menos mensagens e mais espacadas (restricao do WhatsApp, 25/11) ----
+// 1. As partes de uma resposta vao numa so mensagem (com linhas em branco no
+//    meio); o PDF continua a ir a parte, no sitio marcado por "<<PDF>>".
+// 2. Entre duas mensagens enviadas pela Sherone (em qualquer conversa) passam
+//    pelo menos 30 a 40 segundos: nos picos de anuncios as respostas ficam em
+//    fila, em vez de sairem todas no mesmo minuto.
+const SEND_GAP_MS = process.env.LEIZPRO_SEND_GAP_MS ? Number(process.env.LEIZPRO_SEND_GAP_MS) : 30_000;
+const lastSendAt = new Map<string, number>();
+const sendChain = new Map<string, Promise<void>>();
+
+export function waitSendSlot(workspaceId: string): Promise<void> {
+  const prev = sendChain.get(workspaceId) || Promise.resolve();
+  const p = prev.then(async () => {
+    const gap = SEND_GAP_MS + Math.floor(Math.random() * (SEND_GAP_MS / 3));
+    const wait = (lastSendAt.get(workspaceId) || 0) + gap - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastSendAt.set(workspaceId, Date.now());
+  });
+  sendChain.set(workspaceId, p.catch(() => {}));
+  return p;
+}
+
+// ["Ola!", "Pergunta?"] -> ["Ola!\n\nPergunta?"]; "<<PDF>>" fica separado.
+export function joinParts(parts: string[]): string[] {
+  const out: string[] = [];
+  let buf: string[] = [];
+  for (const p of parts) {
+    if (p.trim() === '<<PDF>>') {
+      if (buf.length) out.push(buf.join('\n\n'));
+      buf = [];
+      out.push(p);
+    } else if (p.trim()) buf.push(p.trim());
+  }
+  if (buf.length) out.push(buf.join('\n\n'));
+  return out;
+}
+
+let leizProCache: { at: number; ids: Map<string, boolean> } = { at: 0, ids: new Map() };
+async function isLeizPro(workspaceId: string): Promise<boolean> {
+  if (Date.now() - leizProCache.at > 10 * 60_000) leizProCache = { at: Date.now(), ids: new Map() };
+  if (!leizProCache.ids.has(workspaceId)) {
+    const { isLeizProWorkspace } = await import('./leizpro/engine');
+    leizProCache.ids.set(workspaceId, await isLeizProWorkspace(workspaceId));
+  }
+  return leizProCache.ids.get(workspaceId)!;
+}
+
 // Pausa proporcional ao comprimento da proxima mensagem para simular
 // digitacao humana. Limites razoaveis: minimo 800ms (mostra typing pelo
 // menos esse tempo), maximo 4500ms (nao deixa o lead a aguardar demais).
@@ -38,8 +85,10 @@ export async function dispatchSalesParts(opts: {
   sentById: string | null;
   io: any;
 }): Promise<{ sentMessageIds: string[]; failedAt?: number; error?: string }> {
-  const { workspaceId, contactId, contactPhone, leadId, parts, productFiles, sentById, io } = opts;
+  const { workspaceId, contactId, contactPhone, leadId, productFiles, sentById, io } = opts;
   const sentMessageIds: string[] = [];
+  const leiz = await isLeizPro(workspaceId);
+  const parts = leiz ? joinParts(opts.parts) : opts.parts;
 
   // A parte "<<PDF>>" (Leiz Pro) marca onde entram os anexos no meio das
   // mensagens; sem ela, os anexos vao no fim, como antes.
@@ -54,6 +103,7 @@ export async function dispatchSalesParts(opts: {
       }
       continue;
     }
+    if (leiz) await waitSendSlot(workspaceId);
     // Presence: "a escrever" + pausa proporcional ao texto.
     await sendWhatsAppPresence(workspaceId, contactPhone, 'composing', typingDelayFor(text));
     await new Promise((r) => setTimeout(r, typingDelayFor(text)));
@@ -105,6 +155,7 @@ export async function dispatchSalesParts(opts: {
       : file.type?.startsWith('video/') ? 'VIDEO'
       : file.type?.startsWith('audio/') ? 'AUDIO'
       : 'DOCUMENT';
+    if (leiz) await waitSendSlot(workspaceId);
     await sendWhatsAppPresence(workspaceId, contactPhone, 'composing', 1500);
     await new Promise((r) => setTimeout(r, 1500));
 
