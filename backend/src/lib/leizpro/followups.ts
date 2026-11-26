@@ -63,6 +63,32 @@ export async function proactiveSlotFree(workspaceId: string, now = new Date()): 
   return true;
 }
 
+// Reactivacoes (alunos parados ha semanas, sincronizados com "reactivar"):
+// ritmo proprio, mais lento, porque sao numeros frios. No maximo 15 por dia,
+// 40 a 45 minutos entre elas, das 9h as 20h de Maputo. Sozinhas, espalham-se
+// pelos dias seguintes sem ser preciso aplicar por partes.
+export const REACT_PACE = { perDay: 15, gapMin: 40, gapJitter: 6, fromHour: 9, toHour: 20 };
+export async function reactivationSlotFree(workspaceId: string, now = new Date()): Promise<boolean> {
+  const { maputoHour } = await import('./fuTiming');
+  const h = maputoHour(now);
+  if (h < REACT_PACE.fromHour || h >= REACT_PACE.toHour) return false;
+  const recent = await prisma.aiSalesSuggestion.findMany({
+    where: {
+      workspaceId, modelUsed: { in: PROACTIVE }, actionPayload: { path: ['fuKey'], equals: 'reactivation' },
+      status: { notIn: ['DISCARDED', 'FAILED'] }, createdAt: { gte: new Date(now.getTime() - 86_400_000) },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, createdAt: true },
+  });
+  if (recent.length >= REACT_PACE.perDay) return false;
+  const last = recent[0];
+  if (last) {
+    const jitter = [...last.id].reduce((a, c) => a + c.charCodeAt(0), 0) % REACT_PACE.gapJitter;
+    if (now.getTime() - last.createdAt.getTime() < (REACT_PACE.gapMin + jitter) * 60_000) return false;
+  }
+  return true;
+}
+
 // Sugestoes da Sherone por enviar que ja nao servem: a conversa avancou (alguem
 // respondeu depois) ou tem mais de 24 horas (ex.: WhatsApp desligado a 25/11).
 async function discardStalePending(): Promise<void> {
@@ -349,7 +375,9 @@ export async function runLeizProFollowups(io: any): Promise<void> {
             where: { contactId: r.contactId, modelUsed: { startsWith: 'leizpro' }, status: 'PENDING', action: { in: ['send_text', 'send_product'] } },
             select: { id: true },
           });
-          if (!pendingFu && await proactiveSlotFree(r.workspaceId)) {
+          // A 4.a mensagem da etapa e a Reactivacao: ritmo das reactivacoes.
+          const isReact = (st.fu?.n ?? 0) >= 3;
+          if (!pendingFu && (isReact ? await reactivationSlotFree(r.workspaceId) : await proactiveSlotFree(r.workspaceId))) {
             await withContactLock(r.contactId, async () => {
               const suggestion = await generateLeizProStageFollowup({ workspaceId: r.workspaceId, contactId: r.contactId, leadId: r.leadId });
               if (!suggestion) return;

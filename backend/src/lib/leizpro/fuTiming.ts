@@ -32,6 +32,11 @@ function windowOf(d: Date): number | null {
   return i < 0 ? null : i;
 }
 
+// Hora de Maputo (0-24, com minutos).
+export function maputoHour(t = new Date()): number {
+  return localHour(t);
+}
+
 // Agora dentro de uma janela de envio (12h-13h, 18h-20h de Maputo)?
 export function inSendWindow(t = new Date()): boolean {
   return windowOf(t) !== null;
