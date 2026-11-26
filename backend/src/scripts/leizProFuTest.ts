@@ -151,10 +151,10 @@ ok(fuStageOf({ ...INITIAL_STATE, step: 'diagnosis', lastKey: 'greeting', lastQue
   const { payDayAt } = require('../lib/leizpro/fuTiming');
   const now = new Date('2026-11-24T08:00:00Z'); // terca, 10h Maputo
   const loc = (d: Date | null) => d ? d.toLocaleString('pt-PT', { timeZone: 'Africa/Maputo', weekday: 'short', day: 'numeric', hour: '2-digit' }) : 'null';
-  const exp: Array<[string, string]> = [['amanha', 'quarta, 25, 12'], ['so na sexta', 'sexta, 27, 12'], ['fim do mes', 'segunda, 30, 12'], ['dia 5', 'sábado, 5, 12'], ['quando receber', 'null'], ['mais tarde', 'null']];
+  const exp: Array<[string, string]> = [['amanha', 'quinta, 26, 12'], ['so na sexta', 'sábado, 28, 12'], ['fim do mes', 'terça, 1, 12'], ['dia 5', 'domingo, 6, 12'], ['quando receber', 'null'], ['mais tarde', 'null']];
   for (const [t, e] of exp) ok(loc(payDayAt(t, now)) === e, `pagamento: "${t}" -> ${e}`, loc(payDayAt(t, now)));
   const h = loc(payDayAt('hoje', new Date('2026-11-24T13:00:00Z')));
-  ok(h === 'terça, 24, 18', 'pagamento: "hoje" as 15h -> 18h', h);
+  ok(h === 'quarta, 25, 12', 'pagamento: "hoje" -> amanha as 12h', h);
 }
 
 // ---- Guia v33: compasso da Etapa 3.2 (pagamento) -----------------------------------

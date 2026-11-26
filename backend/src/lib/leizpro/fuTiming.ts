@@ -61,8 +61,8 @@ function dayStart(t: Date, plusDays: number): Date {
   return new Date(Date.UTC(l.getUTCFullYear(), l.getUTCMonth(), l.getUTCDate() + plusDays, 0) - OFFSET_MS);
 }
 
-// Guia v32: "anotar no CRM o dia que ele disser e mandar o 1.o follow-up nesse
-// dia, a tarde". Le o dia da mensagem do estudante e devolve o inicio da janela
+// Guia v32 + decisao da equipa (26/11): o 1.o follow-up de pagamento sai no dia
+// SEGUINTE ao que ele disse que pagava, as 12h. Le o dia da mensagem do estudante.
 // das 12h desse dia (hora de Maputo). Sem dia concreto ("quando receber",
 // "mais tarde"): null, e seguem-se as regras dos tiques.
 const WEEKDAYS = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
@@ -85,10 +85,11 @@ export function payDayAt(text: string, now = new Date()): Date | null {
     }
   }
   let target: Date;
-  if (plus !== null) target = new Date(Date.UTC(y, m, d + plus, 12) - OFFSET_MS);
+  // 1.o follow-up no dia SEGUINTE ao prometido, as 12h (decisao da equipa, 26/11).
+  if (plus !== null) target = new Date(Date.UTC(y, m, d + plus + 1, 12) - OFFSET_MS);
   else if (dayOfMonth !== null) {
     const mm = dayOfMonth >= d ? m : m + 1;
-    target = new Date(Date.UTC(y, mm, dayOfMonth, 12) - OFFSET_MS);
+    target = new Date(Date.UTC(y, mm, dayOfMonth + 1, 12) - OFFSET_MS);
   } else return null;
   // Hoje e ja passou das 12h: a janela seguinte (18h); depois das 20h, amanha.
   return target.getTime() < now.getTime() ? nextSendTime(now) : target;

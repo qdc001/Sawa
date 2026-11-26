@@ -625,7 +625,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
   if (st.step === 'paying' && u.intent !== 'ja_pagou' && u.intent !== 'nao_abriu' && u.intent !== 'sem_dinheiro'
       && /^(so |ainda |e |vou pagar |pago |consigo )?(hoje|agora|ja ja|daqui a pouco|logo mais)( mesmo| ainda| a tarde| a noite| sim)?\W*$/.test(text)) {
     const at = payDayAt('hoje', new Date());
-    return wait({ ...st, payFollow: { at: at!.toISOString(), sent: false, day: at!.toISOString() } }, 'diz que paga hoje: 1.o follow-up de pagamento hoje (guia v32)');
+    return wait({ ...st, payFollow: { at: at!.toISOString(), sent: false, day: at!.toISOString() } }, 'diz que paga hoje: 1.o follow-up de pagamento amanha as 12h');
   }
   if (st.step === 'paying' && u.intent === 'sem_dinheiro' && !payDate) return noMoney(st, text);
   if (st.step === 'paying' && u.intent !== 'ja_pagou' && u.intent !== 'nao_abriu'
@@ -1601,7 +1601,8 @@ export async function syncLeizFromTeam(workspaceId: string, contactId: string, l
 // Dia que disse que paga -> 12h desse dia (ou ja, se o dia passou: o
 // agendador manda na proxima janela, respeitando o ritmo).
 function nextSendTimeFor(day: Date): Date {
-  const noon = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), 10));
+  // Dia seguinte ao prometido, as 12h de Maputo.
+  const noon = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate() + 1, 10));
   return noon.getTime() < Date.now() ? new Date() : noon;
 }
 
