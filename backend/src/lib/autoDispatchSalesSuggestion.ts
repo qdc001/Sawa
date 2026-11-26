@@ -16,18 +16,25 @@ import { triggerAutomations } from './automationEngine';
 //    meio); o PDF continua a ir a parte, no sitio marcado por "<<PDF>>".
 // 2. Entre duas mensagens enviadas pela Sherone (em qualquer conversa) passam
 //    pelo menos 30 a 40 segundos: nos picos de anuncios as respostas ficam em
-//    fila, em vez de sairem todas no mesmo minuto.
+//    fila, em vez de sairem todas no mesmo minuto. Na mesma conversa a seguir
+//    (ex.: "vou enviar os pacotes" -> PDF -> "qualquer duvida"), so 15 s antes
+//    de um ficheiro e 10 s antes de um texto.
 const SEND_GAP_MS = process.env.LEIZPRO_SEND_GAP_MS ? Number(process.env.LEIZPRO_SEND_GAP_MS) : 30_000;
 const lastSendAt = new Map<string, number>();
+const lastSendContact = new Map<string, string>();
 const sendChain = new Map<string, Promise<void>>();
 
-export function waitSendSlot(workspaceId: string): Promise<void> {
+export function waitSendSlot(workspaceId: string, contactId: string, kind: 'text' | 'file' = 'text'): Promise<void> {
   const prev = sendChain.get(workspaceId) || Promise.resolve();
   const p = prev.then(async () => {
-    const gap = SEND_GAP_MS + Math.floor(Math.random() * (SEND_GAP_MS / 3));
+    const same = lastSendContact.get(workspaceId) === contactId;
+    const gap = same
+      ? (kind === 'file' ? 15_000 : 10_000) * (SEND_GAP_MS / 30_000)
+      : SEND_GAP_MS + Math.floor(Math.random() * (SEND_GAP_MS / 3));
     const wait = (lastSendAt.get(workspaceId) || 0) + gap - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastSendAt.set(workspaceId, Date.now());
+    lastSendContact.set(workspaceId, contactId);
   });
   sendChain.set(workspaceId, p.catch(() => {}));
   return p;
@@ -103,7 +110,7 @@ export async function dispatchSalesParts(opts: {
       }
       continue;
     }
-    if (leiz) await waitSendSlot(workspaceId);
+    if (leiz) await waitSendSlot(workspaceId, contactId, 'text');
     // Presence: "a escrever" + pausa proporcional ao texto.
     await sendWhatsAppPresence(workspaceId, contactPhone, 'composing', typingDelayFor(text));
     await new Promise((r) => setTimeout(r, typingDelayFor(text)));
@@ -155,7 +162,7 @@ export async function dispatchSalesParts(opts: {
       : file.type?.startsWith('video/') ? 'VIDEO'
       : file.type?.startsWith('audio/') ? 'AUDIO'
       : 'DOCUMENT';
-    if (leiz) await waitSendSlot(workspaceId);
+    if (leiz) await waitSendSlot(workspaceId, contactId, 'file');
     await sendWhatsAppPresence(workspaceId, contactPhone, 'composing', 1500);
     await new Promise((r) => setTimeout(r, 1500));
 
