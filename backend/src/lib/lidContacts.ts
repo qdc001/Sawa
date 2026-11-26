@@ -34,19 +34,68 @@ const isPlaceholder = (name: string | null | undefined) => {
   return !t || t.startsWith('Contacto WhatsApp') || /^\+?\d[\d\s]*$/.test(t);
 };
 
-// Passa tudo o que esta no contacto LID para o contacto com o numero real.
-// So apaga o contacto LID se ficar vazio e sem nada ligado (senao fica, sem
-// mensagens, para nao se perder trabalho feito nele).
+// Passa TUDO o que esta no contacto LID para o contacto com o numero real:
+// mensagens, historico da Leiz (as sugestoes guardam o passo da conversa),
+// marcacoes, tarefas, etiquetas, campos, etc. Antes so as mensagens e os
+// leads mudavam e o contacto LID era apagado: o apagar levava em cascata o
+// historico da Leiz (que voltava ao inicio da conversa), marcacoes e etiquetas.
+// So apaga o contacto LID depois de tudo mudado, e se ficar sem leads.
 async function mergeInto(fromId: string, toId: string, workspaceId: string) {
   const toLead = await prisma.lead.findFirst({ where: { contactId: toId, status: 'OPEN', workspaceId }, select: { id: true } });
   if (!toLead) {
     // O contacto real nao tem lead aberto: os leads do LID passam para ele.
     await prisma.lead.updateMany({ where: { contactId: fromId, workspaceId }, data: { contactId: toId } });
   }
-  const moved = await prisma.message.updateMany({
-    where: { contactId: fromId },
-    data: { contactId: toId, ...(toLead ? { leadId: toLead.id } : {}) },
-  });
+  const move = { contactId: toId };
+  const where = { contactId: fromId };
+  const moved = await prisma.message.updateMany({ where, data: { ...move, ...(toLead ? { leadId: toLead.id } : {}) } });
+  await prisma.aiSalesSuggestion.updateMany({ where, data: { ...move, ...(toLead ? { leadId: toLead.id } : {}) } });
+  await prisma.appointment.updateMany({ where, data: move });
+  await prisma.task.updateMany({ where, data: move });
+  await prisma.scheduledDelivery.updateMany({ where, data: move });
+  await prisma.chatbotSession.updateMany({ where, data: move });
+  await prisma.automationRun.updateMany({ where, data: move });
+  await prisma.csatRequest.updateMany({ where, data: move });
+  await prisma.quote.updateMany({ where, data: move });
+  await prisma.broadcastRecipient.updateMany({ where, data: move });
+  await prisma.financeStudent.updateMany({ where, data: move });
+  await prisma.defenseSession.updateMany({ where, data: move });
+
+  // Etiquetas: juntar (sem repetir as que o contacto real ja tem).
+  const tags = await prisma.tagOnContact.findMany({ where });
+  if (tags.length) {
+    await prisma.tagOnContact.createMany({ data: tags.map((t: any) => ({ ...t, contactId: toId })), skipDuplicates: true });
+    await prisma.tagOnContact.deleteMany({ where });
+  }
+  // Campos personalizados: so os que o contacto real ainda nao tem.
+  const fields = await prisma.customFieldValue.findMany({ where });
+  for (const f of fields as any[]) {
+    const has = await prisma.customFieldValue.findFirst({ where: { contactId: toId, fieldId: f.fieldId } });
+    if (!has) await prisma.customFieldValue.update({ where: { id: f.id }, data: move });
+  }
+  // Estado da conversa (atribuicao, arquivada...): fica o do contacto real se ja existir.
+  const metas = await prisma.conversationMeta.findMany({ where });
+  for (const m of metas as any[]) {
+    const has = await prisma.conversationMeta.findFirst({ where: { workspaceId: m.workspaceId, contactId: toId, channel: m.channel } });
+    if (!has) await prisma.conversationMeta.update({ where: { id: m.id }, data: move });
+  }
+  // Leiz ligada/desligada nesta conversa (listas por contactId no workspace).
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { aiSalesEnabledConversationIds: true, aiSalesDisabledConversationIds: true } });
+  if (ws) {
+    const swap = (v: any) => {
+      const arr = Array.isArray(v) ? (v as string[]) : [];
+      return arr.includes(fromId) ? [...new Set(arr.map((x) => (x === fromId ? toId : x)))] : null;
+    };
+    const en = swap(ws.aiSalesEnabledConversationIds);
+    const dis = swap(ws.aiSalesDisabledConversationIds);
+    if (en || dis) {
+      await prisma.workspace.update({
+        where: { id: workspaceId },
+        data: { ...(en ? { aiSalesEnabledConversationIds: en } : {}), ...(dis ? { aiSalesDisabledConversationIds: dis } : {}) },
+      });
+    }
+  }
+
   const from = await prisma.contact.findUnique({ where: { id: fromId } });
   const leadsLeft = await prisma.lead.count({ where: { contactId: fromId } });
   if (from && isPlaceholder(from.firstName) && leadsLeft === 0) {
@@ -91,4 +140,48 @@ export async function linkLid(workspaceId: string, lid: string, real: string, pu
 // Contacto ja conhecido por este LID (numero real ja revelado antes).
 export function contactByLid(workspaceId: string, lid: string) {
   return prisma.contact.findFirst({ where: { workspaceId, whatsappLid: lid } });
+}
+
+// Reparacao: conversas que perderam o passo da Leiz Pro quando um contacto
+// LID duplicado foi juntado e apagado (versao anterior desta junção apagava o
+// historico das sugestoes em cascata). A Leiz relê a conversa (boas-vindas,
+// pagamento, PDF dos pacotes) e guarda o passo, como no "Devolver a Leiz".
+// Nao envia nada. Idempotente: so toca em contactos sem passo guardado.
+export async function repairLostLeizState(workspaceId?: string): Promise<number> {
+  const { isLeizProWorkspace, handBackToLeiz } = await import('./leizpro/engine');
+  const candidates = await prisma.contact.findMany({
+    where: {
+      ...(workspaceId ? { workspaceId } : {}),
+      whatsappLid: { not: null },
+      type: 'PERSON',
+      messages: { some: { direction: 'OUTBOUND', isInternal: false } },
+    },
+    select: { id: true, workspaceId: true },
+  });
+  let fixed = 0;
+  for (const c of candidates) {
+    if (!(await isLeizProWorkspace(c.workspaceId))) continue;
+    // So conta um passo que ficou decidido (aprovado/editado/enviado). Depois
+    // de perder o passo, a Leiz pode ter gerado sugestoes por decidir ja com o
+    // passo errado ("primeiro contacto"): essas nao contam.
+    const hasState = await prisma.aiSalesSuggestion.findFirst({
+      where: { contactId: c.id, modelUsed: { startsWith: 'leizpro' }, status: { in: ['APPROVED', 'EDITED', 'SENT'] } },
+      select: { id: true },
+    });
+    if (hasState) continue;
+    try {
+      // Sugestoes por decidir calculadas sem o passo (ex: "diz-me o teu nome") ja nao servem.
+      await prisma.aiSalesSuggestion.updateMany({
+        where: { contactId: c.id, status: 'PENDING' },
+        data: { status: 'DISCARDED', decidedAt: new Date(), errorDetail: 'Descartada: passo da Leiz reconstruido a partir da conversa' },
+      });
+      const lead = await prisma.lead.findFirst({ where: { contactId: c.id, status: 'OPEN' }, select: { id: true } });
+      const r = await handBackToLeiz(c.workspaceId, c.id, lead?.id || null, null);
+      fixed++;
+      console.log(`[lid] passo da Leiz reconstruido (${c.id.slice(-6)}): ${r.summary}`);
+    } catch (e: any) {
+      console.error('[lid] falha a reconstruir passo da Leiz:', e.message);
+    }
+  }
+  return fixed;
 }

@@ -275,6 +275,15 @@ httpServer.listen(PORT, async () => {
     console.error('Falha a marcar contratos existentes:', e.message);
   }
 
+  // Conversas que perderam o passo da Leiz numa junção de contactos LID (versao
+  // anterior apagava o historico): reconstruir a partir da conversa. Idempotente.
+  setTimeout(() => {
+    import('./lib/lidContacts')
+      .then(({ repairLostLeizState }) => repairLostLeizState())
+      .then((n) => { if (n) console.log(`[lid] passo da Leiz reconstruido em ${n} conversa(s)`); })
+      .catch((e) => console.error('[lid] reparacao falhou:', e.message));
+  }, 30_000);
+
   // Migrar credenciais de integrações legadas (plaintext) para o formato encriptado.
   // Idempotente: corre todos os arranques mas só toca nas que ainda não estão encriptadas.
   try {

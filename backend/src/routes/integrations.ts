@@ -6,7 +6,7 @@ import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
 import { analysePhone, evoNumber, nameFromPushOrPhone } from '../lib/phoneFormat';
-import { contactByLid, linkLid, pnFromObject } from '../lib/lidContacts';
+import { contactByLid, linkLid, pnFromObject, repairLostLeizState } from '../lib/lidContacts';
 import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 
 import { newLeadTarget } from '../lib/leadTarget';
@@ -995,6 +995,9 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
             }) as any,
           },
         });
+
+        // Junções de contactos LID: confirmar que nenhuma conversa ficou sem o passo da Leiz.
+        try { await repairLostLeizState(workspaceId); } catch (eR: any) { console.error('[lid] reparacao falhou:', eR.message); }
 
         emit({ stage: 'done', ...stats });
 

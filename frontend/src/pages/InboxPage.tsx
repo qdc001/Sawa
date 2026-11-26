@@ -721,6 +721,9 @@ export default function InboxPage() {
       setSalesSuggestion((prev) => (prev && prev.id === sug.id) ? null : prev);
     };
 
+    // Leizy: limpeza geral das sugestoes por decidir (painel da Leizy).
+    const onAiSalesBulkDiscarded = () => { setSalesSuggestion(null); setSalesEditing(false); };
+
     // Leizy: outro utilizador reiniciou o contexto deste contacto.
     // Se a conversa actual e essa, limpa qualquer sugestao em ecra.
     const onAiSalesContextReset = (data: { contactId: string }) => {
@@ -739,6 +742,7 @@ export default function InboxPage() {
     socket.on('aiSales:suggestion', onAiSalesSuggestion);
     socket.on('aiSales:decided', onAiSalesDecided);
     socket.on('aiSales:contextReset', onAiSalesContextReset);
+    socket.on('aiSales:bulkDiscarded', onAiSalesBulkDiscarded);
     return () => {
       socket.off('connect', joinRoom);
       socket.off('presence:update', onPresence);
@@ -749,6 +753,7 @@ export default function InboxPage() {
       socket.off('aiSales:suggestion', onAiSalesSuggestion);
       socket.off('aiSales:decided', onAiSalesDecided);
       socket.off('aiSales:contextReset', onAiSalesContextReset);
+      socket.off('aiSales:bulkDiscarded', onAiSalesBulkDiscarded);
     };
   }, [workspace?.id]);
 

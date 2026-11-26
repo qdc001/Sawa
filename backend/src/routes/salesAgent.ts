@@ -367,6 +367,20 @@ router.get('/suggestions', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/sales-agent/suggestions/pending-count
+// Quantas sugestoes estao por decidir (para a limpeza geral no painel).
+router.get('/suggestions/pending-count', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const where = { workspaceId: req.user!.workspaceId, status: 'PENDING' };
+    const [count, contacts] = await Promise.all([
+      prisma.aiSalesSuggestion.count({ where }),
+      prisma.aiSalesSuggestion.findMany({ where, distinct: ['contactId'], select: { contactId: true } }),
+    ]);
+    res.json({ count, conversations: contacts.length });
+  } catch (e) { next(e); }
+});
+
 // GET /api/sales-agent/suggestions/:id
 router.get('/suggestions/:id', async (req: AuthRequest, res: Response, next) => {
   try {
@@ -588,6 +602,23 @@ router.post('/suggestions/:id/edit', async (req: AuthRequest, res: Response, nex
     });
     if (io) io.to(`workspace:${suggestion.workspaceId}`).emit('aiSales:decided', updated);
     res.json({ suggestion: updated, dispatch, createdEntity });
+  } catch (e) { next(e); }
+});
+
+// POST /api/sales-agent/suggestions/discard-pending
+// Limpeza geral: descarta todas as sugestoes por decidir (nao envia nada).
+// Nao mexe na aprendizagem: a memoria so aprende com as EDITADAS.
+router.post('/suggestions/discard-pending', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const workspaceId = req.user!.workspaceId;
+    const r = await prisma.aiSalesSuggestion.updateMany({
+      where: { workspaceId, status: 'PENDING' },
+      data: { status: 'DISCARDED', decidedAt: new Date(), decidedById: req.user!.id, errorDetail: 'Descartada: limpeza geral das sugestoes por decidir' },
+    });
+    const io = (global as any).io;
+    if (io) io.to(`workspace:${workspaceId}`).emit('aiSales:bulkDiscarded', { count: r.count });
+    res.json({ discarded: r.count });
   } catch (e) { next(e); }
 });
 

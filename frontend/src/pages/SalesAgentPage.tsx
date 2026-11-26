@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Building2, MessageSquare, Brain, ChevronRight, GraduationCap, PenLine, Power, Zap, Eye, AlertTriangle } from 'lucide-react';
+import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Building2, MessageSquare, Brain, ChevronRight, GraduationCap, PenLine, Power, Zap, Eye, AlertTriangle, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import AiCoachingPanel from '../components/AiCoachingPanel';
@@ -70,6 +70,23 @@ export default function SalesAgentPage() {
   // Leiz Pro (Zona Nerd): textos da Sherone editaveis. So aparece se estiver activa.
   const [leizProItems, setLeizProItems] = useState<LeizProTextItem[] | null>(null);
   const workspace = useAuthStore((s) => s.workspace) as any;
+  // Limpeza geral das sugestoes por decidir.
+  const [pending, setPending] = useState<{ count: number; conversations: number } | null>(null);
+  const [cleaning, setCleaning] = useState(false);
+  const loadPending = () => { api.get('/sales-agent/suggestions/pending-count').then(({ data }) => setPending(data)).catch(() => {}); };
+  useEffect(() => { loadPending(); }, []);
+  const cleanPending = async () => {
+    if (!pending?.count) return;
+    if (!window.confirm(`Descartar as ${pending.count} sugestões da Leizy por decidir (em ${pending.conversations} conversas)? Nada é enviado aos contactos. Depois, em cada conversa, podes pedir uma nova em "Sugerir resposta".`)) return;
+    setCleaning(true);
+    try {
+      const { data } = await api.post('/sales-agent/suggestions/discard-pending', {});
+      toast.success(`${data.discarded} sugestões descartadas`);
+      loadPending();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Não foi possível limpar');
+    } finally { setCleaning(false); }
+  };
   const isClinic = workspace?.sector === 'clinica';
   const isLegacy = useIsLegacy();
 
@@ -289,6 +306,17 @@ export default function SalesAgentPage() {
             Alterar
           </button>
         </div>
+        {pending && (
+          <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <span>Sugestões por decidir: <b style={{ color: 'var(--text-secondary)' }}>{pending.count}</b>{pending.count ? ` em ${pending.conversations} conversas` : ''}</span>
+            {pending.count > 0 && (
+              <button className="btn btn-outline flex items-center gap-1" style={{ fontSize: 12, padding: '2px 8px' }} onClick={cleanPending} disabled={cleaning}
+                title="Descarta todas as sugestões por decidir, sem enviar nada">
+                {cleaning ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Limpar todas
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
