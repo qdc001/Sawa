@@ -364,6 +364,10 @@ add('pay32', 'action:wait&payday:sim', ['Hoje', 'Ainda hoje', 'Hoje mesmo', 'Hoj
 add('accmid', 'key:accessGood', ['Está a correr bem', 'Bem, estou no capítulo 5', 'Tudo bem, já vou no capítulo 6', 'Muito bem obrigado', 'Está a correr bem, estou adiantado', 'Bom, quase a terminar']);
 add('accmid', 'action:handoff', ['Estou atrasado', 'Ainda não comecei', 'Estou no capítulo 3', 'Tenho dificuldade em genética', 'Não estou a conseguir estudar', 'Estou parado no capítulo 2', 'Química está difícil', 'Capítulo 4']);
 add('accmid', 'action:wait', ['Ok', 'Obrigado']);
+// Conversas reais de 26/11: cumprimentos a meio do guia nao sao um "sim".
+add('amb', 'action:handoff', ['Estou bem obrigada', 'Estou bem obrigada e você?', 'E você está?', 'Tudo bem e contigo?']);
+add('online', 'action:handoff', ['Estou bem e você?', 'Tudo bem, e tu?']);
+add('commit', 'action:handoff', ['Bem obrigado e você?']);
 add('renew1', 'key:renewSame', ['Sim', 'Quero continuar', 'Continuar', 'Sim, manda as opções', 'Quero renovar', 'Claro']);
 add('renew1', 'action:wait|money|action:handoff', ['Não, obrigado', 'Agora não', 'Não quero']);
 add('renew1', 'money|action:handoff', ['Não tenho dinheiro', 'Estou sem dinheiro agora']);

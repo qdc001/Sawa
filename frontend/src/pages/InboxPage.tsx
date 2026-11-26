@@ -421,6 +421,23 @@ function SnippetsModal({ snippets, onChange, onClose }: {
   );
 }
 
+// Avisos antes de enviar uma mensagem escrita a mao (erros reais de 25-26/11).
+const PAY_NUMBERS = ['858395481', '871443442'];
+export function outgoingWarnings(text: string): string[] {
+  const w: string[] = [];
+  const ph = text.match(/\[[A-ZÁÉÍÓÚÂÊÔÃÕÇ ]{3,}\]|\{[a-z_0-9]+\}/g);
+  if (ph) w.push(`Tem campos por preencher: ${[...new Set(ph)].join(', ')}`);
+  // Numeros de Mocambique (8x) com 8 digitos em vez de 9.
+  const short = (text.match(/(?<!\d)8[2-7]\d{6}(?!\d)/g) || []);
+  if (short.length) w.push(`Número com 8 dígitos (falta um): ${[...new Set(short)].join(', ')}`);
+  // Parecido com um numero de pagamento, mas diferente.
+  for (const n of text.match(/(?<!\d)8[2-7]\d{7}(?!\d)/g) || []) {
+    const near = PAY_NUMBERS.find((p) => p !== n && p.slice(0, 6) === n.slice(0, 6));
+    if (near) w.push(`${n} parece o número de pagamento ${near}, mas está diferente`);
+  }
+  return w;
+}
+
 // =============== Página principal ===============
 export default function InboxPage() {
   const navigate = useNavigate();
@@ -1617,6 +1634,10 @@ export default function InboxPage() {
 
   const sendMessage = async () => {
     if ((!draft.trim() && attachments.length === 0) || !selected) return;
+    // Erros vistos nas conversas de 25-26/11: modelo com "[DISCIPLINA]" por
+    // preencher e o numero de M-Pesa com um digito a menos (85839548).
+    const warns = outgoingWarnings(draft);
+    if (warns.length && !window.confirm(`Atenção antes de enviar:\n\n• ${warns.join('\n• ')}\n\nEnviar mesmo assim?`)) return;
     setSending(true);
     const apiBase = (import.meta.env as any).VITE_API_URL || '';
     const caption = draft.trim();

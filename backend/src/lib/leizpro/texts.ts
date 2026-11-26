@@ -149,6 +149,9 @@ export function validateText(key: TemplateKey, parts: unknown): string | null {
         : `${label}: esta mensagem não aceita campos entre chavetas ({${m[1]}})`;
     }
   }
+  // Numero de telefone/M-Pesa com um digito a menos (85839548, visto a 26/11).
+  const shortNum = all.match(/(?<!\d)8[2-7]\d{6}(?!\d)/);
+  if (shortNum) return `${label}: o número ${shortNum[0]} tem só 8 dígitos (os números de Moçambique têm 9)`;
   if (meta.needsPdf && !clean.includes(PDF_MARK)) return `${label}: falta uma parte só com ${PDF_MARK} (é onde vai o PDF)`;
   for (const r of meta.required || []) {
     if (!all.includes(`{${r}}`)) return `${label}: falta o campo {${r}}`;

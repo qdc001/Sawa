@@ -368,6 +368,10 @@ function ambassador(st: LeizProState, u: Understanding, text: string, isThanks: 
   if (/\b(hospital|internad\w*|doente|luto|faleceu|morreu|(pai|mae|pais|familia) nao (me )?deix\w*|nao me deix\w*|proibid\w*)\b/.test(text)) {
     return handoff(st, `Premio Embaixador: motivo serio ("${text.slice(0, 80)}"): uma pessoa da equipa responde`);
   }
+  // "Estou bem obrigada, e voce?" e cumprimento, nao um "sim" (conversa real de 26/11).
+  if (/^(estou|tou|to)? ?(bem|optima|otimo|optimo)( obrigad\w*)?( e (voce|tu)( esta| estas)?)?\W*$|^(e )?(voce|tu) (esta|estas)( bem)?\W*$|^(tudo bem|bom dia|boa tarde|boa noite|ola|oi)\W*$/.test(text)) {
+    return handoff(st, `respondeu com um cumprimento ("${text.slice(0, 60)}"): a equipa continua a conversa`);
+  }
   const reason = ambReason(text);
   const k = st.lastKey;
   // "Nunca insistir mais do que uma vez no mesmo motivo": o mesmo motivo outra vez -> despedida.
@@ -519,6 +523,14 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
   const words = text.replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean);
   const isThanks = (words.length > 0 && words.length <= 9 && words.every((w) => THANKS.has(w)))
     || (words.length === 0 && /[👍🙏✅]/u.test(rawText));
+
+  // Conversa social ("Estou bem obrigada, e voce?", "Tudo bem e contigo?") a
+  // meio do guia: nao e um "sim" nem uma resposta a pergunta. Uma pessoa
+  // responde (26/11: lido como "sim" ao Premio Embaixador).
+  if (st.step !== 'start' && words.length <= 8
+      && /\b(e (voce|tu|contigo|consigo)|como (esta|estas|vai|vais))( esta| estas| bem)?\W*$/.test(text)) {
+    return handoff(st, `respondeu com um cumprimento ("${rawText.trim().slice(0, 60)}"): a equipa continua a conversa`);
+  }
 
   // Na conexao ("o que foi mais dificil?") um emoji tambem e uma resposta ("😔").
   const emojiAnswer = st.step === 'connection' && u.intent === 'vazio' && /\p{Extended_Pictographic}/u.test(rawText);
@@ -1612,6 +1624,35 @@ function nextSendTimeFor(day: Date): Date {
   return noon.getTime() < Date.now() ? new Date() : noon;
 }
 
+// Passo pela ultima pergunta nossa que corresponde a um texto do guia.
+const INFER_KEYS: Array<[TemplateKey, Step]> = [
+  ['paymentChannels', 'paying'], ['askPackage', 'pdf_sent'], ['packagesPdf', 'pdf_sent'], ['liked', 'pdf_sent'],
+  ['vaccineCommitment', 'ask_commitment'], ['vaccineOnline', 'ask_online'], ['presencial', 'ask_online'],
+  ['connection', 'connection'], ['askCourse', 'diagnosis'], ['askUniCourse', 'diagnosis'], ['askUniOnly', 'diagnosis'],
+  ['greeting', 'diagnosis'], ['accountHelp', 'account_help'],
+];
+function templateProbe(key: TemplateKey): string | null {
+  const parts = CUR[key] as readonly string[] | undefined;
+  if (!parts?.length) return null;
+  const last = norm(parts[parts.length - 1]).replace(/\[[^\]]*\]|\{[^}]*\}/g, '|');
+  const seg = last.split('|').map((x) => x.trim()).sort((a, b) => b.length - a.length)[0] || '';
+  return seg.length >= 18 ? seg : null;
+}
+export async function inferStepFromHistory(contactId: string): Promise<Partial<LeizProState> | null> {
+  const outs = await prisma.message.findMany({
+    where: { contactId, direction: 'OUTBOUND', isInternal: false, type: 'TEXT' },
+    orderBy: { createdAt: 'desc' }, take: 12, select: { content: true },
+  });
+  for (const m of outs) {
+    const t = norm(m.content || '');
+    for (const [key, step] of INFER_KEYS) {
+      const probe = templateProbe(key);
+      if (probe && t.includes(probe)) return { step, lastKey: key, lastQuestion: key, retries: 0 };
+    }
+  }
+  return null;
+}
+
 export async function lastIsOutbound(contactId: string): Promise<boolean> {
   const last = await prisma.message.findFirst({
     where: { contactId, isInternal: false },
@@ -1675,8 +1716,33 @@ export async function generateLeizProSuggestion(opts: {
   leadId?: string | null;
   triggerMessageId?: string | null;
 }) {
-  const state = await loadState(opts.workspaceId, opts.contactId);
+  let state = await loadState(opts.workspaceId, opts.contactId);
   if (state.step === 'handoff') return null;
+  // Sem passo guardado mas a conversa ja vai a meio (contacto LID juntado,
+  // atendido a mao, historico sincronizado): nunca recomecar com a saudacao.
+  // Le as nossas ultimas mensagens e retoma na pergunta que fizemos; se nao
+  // reconhecer nenhuma, passa a equipa (26/11: "Sim" ao compromisso recebeu
+  // a apresentacao inicial).
+  if (state.step === 'start') {
+    const outs = await prisma.message.count({ where: { contactId: opts.contactId, direction: 'OUTBOUND', isInternal: false } });
+    if (outs > 0) {
+      CUR = await loadTexts(opts.workspaceId);
+      const inferred = await inferStepFromHistory(opts.contactId);
+      if (!inferred) {
+        const d = handoff(state, 'a conversa ja tinha comecado mas a Sherone nao sabe em que passo esta (use "Devolver a Leiz" depois de responder)');
+        const suggestion = await prisma.aiSalesSuggestion.create({
+          data: {
+            workspaceId: opts.workspaceId, contactId: opts.contactId, leadId: opts.leadId || null, triggerMessageId: opts.triggerMessageId || null,
+            parts: d.parts as any, action: 'handoff', productFileIds: [] as any,
+            actionPayload: { leizpro: d.next } as any, reasoning: d.reason, principlesUsed: [] as any,
+            modelUsed: 'leizpro:regras', status: 'PENDING',
+          },
+        });
+        return { suggestion, normalized: { action: 'handoff' }, notify: null };
+      }
+      state = await contextFromMessages(opts.contactId, { ...state, ...inferred });
+    }
+  }
 
   const text = await pendingInboundText(opts.contactId);
   if (!text.trim()) return null;

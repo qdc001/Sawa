@@ -476,6 +476,36 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
     return () => { socket.off('evolution:sync', onSync); };
   }, [onChanged]);
 
+  // Barra de progresso fiavel: ao abrir a pagina (sincronizacao ja a correr,
+  // ex.: depois de sair e voltar) e a cada 3 s enquanto corre, mesmo que o
+  // socket falhe.
+  useEffect(() => {
+    let stop = false;
+    const poll = async () => {
+      try {
+        const { data } = await api.get('/integrations/evolution/sync-status');
+        if (stop) return;
+        const p = data?.progress;
+        if (data?.running) {
+          setSyncing(true);
+          setSyncProgress((prev) => ({
+            current: p?.current ?? prev?.current ?? 0,
+            total: p?.total ?? prev?.total ?? 0,
+            contactsCreated: p?.contactsCreated ?? prev?.contactsCreated ?? 0,
+            messagesImported: p?.messagesImported ?? prev?.messagesImported ?? 0,
+          }));
+        } else if (syncing && p?.stage === 'done') {
+          setSyncing(false);
+          setSyncProgress(null);
+          onChanged();
+        }
+      } catch { /* sem estado: fica como esta */ }
+    };
+    poll();
+    const id = syncing ? setInterval(poll, 3000) : null;
+    return () => { stop = true; if (id) clearInterval(id); };
+  }, [syncing]);
+
   // Corrigir nomes (contactos que ficaram com nome do dono ou só dígitos)
   const fixNames = async () => {
     if (fixingNames) return;
@@ -631,22 +661,21 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
                       <div className="flex justify-between text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                         <span>
                           {syncProgress.total > 0
-                            ? `${syncProgress.current}/${syncProgress.total} conversas`
+                            ? `${syncProgress.current}/${syncProgress.total} conversas · ${Math.floor((syncProgress.current / syncProgress.total) * 100)}%`
                             : 'A listar conversas...'}
                         </span>
-                        <span>{syncProgress.messagesImported} msgs</span>
+                        <span>{syncProgress.messagesImported} mensagens novas</span>
                       </div>
-                      {syncProgress.total > 0 && (
-                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-3)' }}>
-                          <div
-                            className="h-full transition-all"
-                            style={{
-                              background: '#25D366',
-                              width: `${Math.min(100, (syncProgress.current / syncProgress.total) * 100)}%`,
-                            }}
-                          />
-                        </div>
-                      )}
+                      <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+                        <div
+                          className={`h-full transition-all ${syncProgress.total > 0 ? '' : 'animate-pulse'}`}
+                          style={{
+                            background: '#25D366',
+                            width: syncProgress.total > 0 ? `${Math.max(2, Math.min(100, (syncProgress.current / syncProgress.total) * 100))}%` : '15%',
+                          }}
+                        />
+                      </div>
+                      <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Podes sair desta página: a sincronização continua e a barra volta a aparecer quando regressares.</p>
                     </div>
                   ) : (
                     <div className="space-y-1.5">

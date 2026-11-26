@@ -453,6 +453,14 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 1000; // ate 100 mil mensagens por conversa
 const MEDIA_MAX_AGE_MS = 60 * 24 * 3600 * 1000;
 
+// GET /api/integrations/evolution/sync-status -> sincronizacao a correr e ultimo progresso.
+router.get('/evolution/sync-status', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const ws = req.user!.workspaceId;
+    res.json({ running: !!(global as any)[`__evoSyncLock_${ws}`], progress: (global as any)[`__evoSyncProgress_${ws}`] || null });
+  } catch (e) { next(e); }
+});
+
 // POST /api/integrations/evolution/sync-chats
 // Importa conversas/contactos/mensagens existentes do WhatsApp para o CRM.
 // Corre em background; progresso emitido via socket.io (evento `evolution:sync`).
@@ -492,6 +500,9 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
     // === Background job ===
     (async () => {
       const emit = (payload: any) => {
+        // Guarda o ultimo progresso: a pagina mostra a barra mesmo depois de
+        // sair e voltar (ou se o socket falhar).
+        (global as any)[`__evoSyncProgress_${workspaceId}`] = { ...payload, at: Date.now() };
         if (io) io.to(`workspace:${workspaceId}`).emit('evolution:sync', payload);
       };
       const stats = { chatsScanned: 0, contactsCreated: 0, contactsUpdated: 0, leadsCreated: 0, messagesImported: 0, messagesSkipped: 0, errors: 0, groupsScanned: 0, groupsCreated: 0 };

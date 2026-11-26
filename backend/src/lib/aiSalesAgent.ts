@@ -579,6 +579,9 @@ export async function maybeTriggerSalesSuggestion(opts: {
       await leizpro.withContactLock(opts.contactId, async () => {
         if (await leizpro.lastIsOutbound(opts.contactId)) return; // ja respondida entretanto
         if (await leizpro.teamTookOver(opts.contactId)) return;   // a equipa esta a conduzir esta conversa
+        // A equipa escreveu depois do ultimo passo da Sherone (mesmo que a ultima
+        // mensagem seja dela): fica com a equipa ate "Devolver a Leiz".
+        if (await leizpro.teamWroteAfterState(opts.workspaceId, opts.contactId)) return;
         const gen = await leizpro.generateLeizProSuggestion({
           workspaceId: opts.workspaceId,
           contactId: opts.contactId,

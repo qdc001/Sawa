@@ -39,6 +39,8 @@ export type Understanding = {
   pkg: 'A' | 'B' | 'C' | 'D' | null; // "quero o pacote D", "o B"
   modelUsed: string | null;
   modelError: string | null;
+  // Campos que so o modelo local leu (nenhuma regra os confirmou).
+  modelFields?: string[];
 };
 
 const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://sawa_ollama:11434').replace(/\/$/, '');
@@ -206,6 +208,9 @@ const UNIVERSITIES: Array<[string, RegExp]> = [
   ['UniLicungo', /\bunilicungo\b|\blicungo\b/],
   ['ACIPOL', /\bacipol\b/],
   ['ESHTI', /\beshti\b/],
+  // Institutos de formacao de professores ("escolhi IFP", 26/11) e industriais.
+  ['IFP', /\bifps?\b|\binstituto de formacao de professores\b/],
+  ['IICM', /\biicm\b/],
 ];
 
 function findUniversity(text: string): string | null {
@@ -327,11 +332,11 @@ const BAD_NAMES = new Set([
   'claro', 'pode', 'yes', 'yeah', 'okay', 'perfeito', 'combinado', 'nome', 'chamo', 'meu', 'pre', 'universitario',
 ]);
 
-function titleCase(v: string): string {
+export function titleCase(v: string): string {
   return v.split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 }
 
-function validName(v: string | null | undefined): string | null {
+export function validName(v: string | null | undefined): string | null {
   if (!v) return null;
   const words = v.trim().split(/\s+/).slice(0, 3);
   if (!words.length || words.some((w) => !/^[A-Za-zÀ-ÿ'-]{2,}$/.test(w))) return null;
@@ -347,7 +352,7 @@ function regexName(text: string): string | null {
 }
 
 // Aceita um valor so se todas as palavras significativas aparecerem na mensagem.
-function presentIn(value: unknown, text: string): string | null {
+export function presentIn(value: unknown, text: string): string | null {
   if (typeof value !== 'string') return null;
   const v = value.trim();
   if (!v || v.length > 80) return null;
@@ -358,7 +363,7 @@ function presentIn(value: unknown, text: string): string | null {
 }
 
 // ---- Modelo local -----------------------------------------------------------
-const MODEL_INTENTS: Intent[] = [
+export const MODEL_INTENTS: Intent[] = [
   'saudacao', 'da_dados', 'pergunta_preco', 'acha_caro', 'sem_dinheiro', 'prefere_presencial',
   'problema_acesso', 'quer_pagar', 'ja_pagou', 'nao_sei', 'sim', 'nao', 'duvida', 'outro',
 ];
@@ -449,8 +454,12 @@ export async function understand(text: string, expecting: string, slot: Slot = n
         && !findSubjects(modelName).subjects.length && !findSubjects(modelName).missing.length
         && norm(modelName) !== norm(String(modelJson.curso || ''))) {
       out.name = modelName;
+      out.modelFields = [...(out.modelFields || []), 'name'];
     }
-    if (!out.university) out.university = presentIn(modelJson.universidade, text);
+    if (!out.university) {
+      out.university = presentIn(modelJson.universidade, text);
+      if (out.university) out.modelFields = [...(out.modelFields || []), 'university'];
+    }
     const course = presentIn(modelJson.curso, text);
     // O curso nao pode ser a universidade, o nome, nem uma disciplina do exame.
     if (!out.course && course && course.length <= 50 && course.split(/\s+/).length <= 6
@@ -458,6 +467,7 @@ export async function understand(text: string, expecting: string, slot: Slot = n
         && norm(course) !== norm(out.university || '') && norm(course) !== norm(out.name || '')
         && !findSubjects(course).subjects.length && !findUniversity(course)) {
       out.course = titleCase(course);
+      out.modelFields = [...(out.modelFields || []), 'course'];
     }
   }
   // Instituicao que nao esta na lista ("Centro dos professores", "IFP",
