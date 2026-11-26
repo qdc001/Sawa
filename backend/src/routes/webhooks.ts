@@ -1,3 +1,4 @@
+import { contactByLid, linkLid } from '../lib/lidContacts';
 import { Router, Request, Response } from 'express';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
@@ -842,30 +843,19 @@ router.post('/evolution', async (req: Request, res: Response) => {
         } else {
           // CONTACTO normal (1-1)
           const contactName = nameFromPushOrPhone(incomingPush, phone);
-          contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
-          // O WhatsApp revelou o numero real de um contacto que ate agora so
-          // tinha o LID ("Contacto WhatsApp 1234", sem numero): passar esse
-          // contacto para o numero real, com a conversa e o lead que ja tem.
-          if (!contact && lidDigits && lidDigits !== phoneInfo.rawDigits && !phoneInfo.isLid) {
-            const lidContact = await prisma.contact.findFirst({ where: { whatsapp: lidDigits, workspaceId } });
-            if (lidContact) {
-              const placeholder = !(lidContact.firstName || '').trim() || (lidContact.firstName || '').startsWith('Contacto WhatsApp');
-              contact = await prisma.contact.update({
-                where: { id: lidContact.id },
-                data: {
-                  whatsapp: phoneInfo.rawDigits,
-                  phone: lidContact.phone || phoneInfo.display,
-                  ...(placeholder ? { firstName: contactName } : {}),
-                },
-              });
-              console.log(`[evo] contacto LID ${lidDigits.slice(-4)} passou para o numero real ${phoneInfo.rawDigits.slice(-4)}`);
-            }
-          }
+          // LID com numero real revelado: ligar os dois (o historico guardado
+          // com o LID e as mensagens novas ficam no mesmo contacto).
+          // LID sem numero: usar o contacto que ja se sabe ser deste LID.
+          contact = null;
+          if (lidDigits && !phoneInfo.isLid) contact = await linkLid(workspaceId, lidDigits, phoneInfo.rawDigits, incomingPush);
+          else if (phoneInfo.isLid) contact = await contactByLid(workspaceId, phoneInfo.rawDigits);
+          if (!contact) contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
           if (!contact) {
             contact = await prisma.contact.create({
               data: {
                 firstName: contactName,
                 whatsapp: phoneInfo.rawDigits,
+                whatsappLid: lidDigits || (phoneInfo.isLid ? phoneInfo.rawDigits : null),
                 phone: phoneInfo.isLid ? null : phoneInfo.display,
                 workspaceId,
                 type: 'PERSON',

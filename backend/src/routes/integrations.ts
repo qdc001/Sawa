@@ -6,6 +6,7 @@ import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
 import { analysePhone, evoNumber, nameFromPushOrPhone } from '../lib/phoneFormat';
+import { contactByLid, linkLid, pnFromObject } from '../lib/lidContacts';
 import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 
 import { newLeadTarget } from '../lib/leadTarget';
@@ -557,6 +558,30 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
           }
         } catch { /* opcional */ }
 
+        // 1.55) LID de cada numero que o CRM ja conhece (best-effort: versoes
+        // da Evolution que devolvem `lid` em whatsappNumbers). Liga o historico
+        // guardado com o LID ao contacto com o numero, mesmo quando as
+        // mensagens antigas nao trazem o numero.
+        const lidToReal: Map<string, string> = new Map();
+        try {
+          const known = await prisma.contact.findMany({
+            where: { workspaceId, whatsapp: { not: null }, whatsappLid: null, type: 'PERSON' },
+            select: { whatsapp: true },
+          });
+          const nums = known.map((c) => String(c.whatsapp)).filter((n) => /^\d{8,14}$/.test(n) && !analysePhone(n).isLid);
+          for (let k = 0; k < nums.length; k += 50) {
+            const r = await evolutionFetch(creds, `/chat/whatsappNumbers/${creds.instanceName}`, {
+              method: 'POST',
+              body: JSON.stringify({ numbers: nums.slice(k, k + 50) }),
+            });
+            for (const x of (Array.isArray(r) ? r : [])) {
+              const lidJid = [x?.lid, x?.lidJid].find((v) => typeof v === 'string' && v.includes('@lid'));
+              const realJid = typeof x?.jid === 'string' && x.jid.endsWith('@s.whatsapp.net') ? x.jid : null;
+              if (lidJid && realJid) lidToReal.set(lidJid.split('@')[0].replace(/\D/g, ''), realJid.split('@')[0].replace(/\D/g, ''));
+            }
+          }
+        } catch { /* opcional */ }
+
         // 1.6) Detectar nome do dono da instância (para tratar como placeholder se aparecer como nome de contacto)
         let ownerName: string | null = null;
         try {
@@ -706,14 +731,29 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
 
           try {
             const remoteJid: string = chat?.remoteJid || chat?.id || chat?.chatId || '';
-            const phone = remoteJid.split('@')[0].replace(/\D/g, '');
-            if (!phone) { stats.errors++; continue; }
+            const jidDigits = remoteJid.split('@')[0].replace(/\D/g, '');
+            if (!jidDigits) { stats.errors++; continue; }
+
+            // Mensagens deste chat (todas as paginas, mais antigas primeiro).
+            const messages = await fetchAllMessages(remoteJid);
+
+            // Conversa guardada com o LID: descobrir o numero real (nos dados do
+            // chat, da lista de contactos ou das mensagens recebidas) para o
+            // historico cair no contacto certo e nao num "Contacto WhatsApp".
+            const isLidChat = remoteJid.endsWith('@lid') || analysePhone(jidDigits).isLid;
+            const lid = isLidChat ? jidDigits : '';
+            let real: string | null = null;
+            if (isLidChat) {
+              real = lidToReal.get(jidDigits) || pnFromObject(chat) || pnFromObject(evoContactsByPhone.get(jidDigits));
+              if (!real) for (const m of messages) { real = pnFromObject(m?.key); if (real) break; }
+            }
+            const phone = real || jidDigits;
 
             // Fonte do nome (em ordem de preferência):
             // 1) pushName do contacto na lista global (mais fiável)
             // 2) chat.notify / chat.name / chat.subject
             // 3) Nunca chat.pushName — vimos casos em que devolve o nome do dono
-            const evoContact = evoContactsByPhone.get(phone);
+            const evoContact = evoContactsByPhone.get(phone) || evoContactsByPhone.get(jidDigits);
             let rawPush: string =
               (evoContact?.pushName || evoContact?.verifiedName || evoContact?.name || '').trim() ||
               (chat?.notify || chat?.name || chat?.subject || '').trim();
@@ -723,14 +763,19 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
             const phoneInfo = analysePhone(phone);
             const displayName = nameFromPushOrPhone(rawPush, phone);
 
-            // 1.1) Contacto — dedup por whatsapp (rawDigits)
-            let contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
+            // 1.1) Contacto — dedup por whatsapp (rawDigits), ligando o LID ao
+            // numero real quando se sabe (e juntando um "Contacto WhatsApp" antigo).
+            let contact: any = null;
+            if (lid && real) contact = await linkLid(workspaceId, lid, real, rawPush);
+            else if (lid) contact = await contactByLid(workspaceId, lid);
+            if (!contact) contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
             let createdContact = false;
             if (!contact) {
               contact = await prisma.contact.create({
                 data: {
                   firstName: displayName,
                   whatsapp: phoneInfo.rawDigits,
+                  whatsappLid: lid || null,
                   phone: phoneInfo.isLid ? null : phoneInfo.display,
                   workspaceId,
                   type: 'PERSON',
@@ -784,8 +829,6 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
               stats.leadsCreated++;
             }
 
-            // 1.4) Mensagens deste chat (todas as paginas, mais antigas primeiro)
-            const messages = await fetchAllMessages(remoteJid);
 
             for (const m of messages) {
               try {

@@ -393,6 +393,9 @@ model Contact {
   email       String?
   phone       String?
   whatsapp    String?
+  // LID do WhatsApp (identificador interno usado quando o numero esta escondido).
+  // Guardado para o historico guardado com o LID cair neste contacto.
+  whatsappLid String?
   instagramId String? // IGSID (Instagram Scoped ID)
   facebookId  String? // PSID (Page-Scoped ID) Messenger
   tiktokId    String?
@@ -429,6 +432,7 @@ model Contact {
   appointments        Appointment[]
 
   @@index([assignedToId])
+  @@index([workspaceId, whatsappLid])
   @@index([workspaceId, assigneeCode])
   @@map("contacts")
 }
