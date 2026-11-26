@@ -1551,6 +1551,60 @@ export async function handBackToLeiz(workspaceId: string, contactId: string, lea
   return { step: next.step, summary };
 }
 
+// Sincronizacao em lote ("Aplicar etapas" com opcoes): a equipa diz em que
+// etapa esta cada estudante (lido das conversas) e, se quiser, devolve-o a Leiz
+// com o pacote e o dia em que disse que pagava. Nada e enviado agora.
+export async function syncLeizFromTeam(workspaceId: string, contactId: string, leadId: string | null, o: {
+  stageKey: string; pkg?: string | null; payDay?: Date | null; leiz: boolean;
+}): Promise<string> {
+  let st = await loadState(workspaceId, contactId);
+  st = await contextFromMessages(contactId, st);
+  let what = '';
+  if (o.stageKey === 'paid') {
+    st = { ...st, step: 'handoff', paidOnce: true, payFollow: null, regua: null };
+    what = 'pago: a equipa acompanha (boas-vindas activam o acompanhamento do acesso)';
+  } else if (o.stageKey === 'chosen' || o.stageKey === 'payFollowup') {
+    const day = o.payDay ? nextSendTimeFor(o.payDay) : null;
+    st = {
+      ...st, step: 'paying', pkg: o.pkg || st.pkg, regua: null,
+      payFollow: day ? { at: day.toISOString(), sent: false, day: day.toISOString() } : { at: new Date(Date.now() + 86_400_000).toISOString(), sent: false },
+      lastKey: 'paymentChannels', lastQuestion: 'paymentChannels',
+    };
+    what = `a pagar${st.pkg ? ` (${st.pkg})` : ''}${day ? `: 1.o follow-up a ${day.toLocaleDateString('pt-PT', { timeZone: 'Africa/Maputo' })} as ${day.toLocaleTimeString('pt-PT', { timeZone: 'Africa/Maputo', hour: '2-digit', minute: '2-digit' })}` : ': follow-ups pelo compasso da Etapa 3.2'}`;
+  } else if (['packages', 'regua1', 'regua2', 'regua3'].includes(o.stageKey)) {
+    st = { ...st, step: 'pdf_sent', lastKey: 'packagesPdf', lastQuestion: 'packagesPdf', payFollow: null,
+      regua: { startAt: decisionSlot().iso, sent: o.stageKey === 'regua1' ? 1 : o.stageKey === 'regua2' ? 2 : o.stageKey === 'regua3' ? 3 : 0 } };
+    what = 'pacotes enviados: a regua continua';
+  } else if (o.stageKey === 'presentation') {
+    st = { ...st, step: st.step === 'ask_commitment' ? 'ask_commitment' : 'ask_online', lastKey: null, lastQuestion: null, payFollow: null, regua: null };
+    what = 'apresentacao';
+  } else {
+    st = { ...st, step: st.name && st.university ? 'diagnosis' : 'start', payFollow: null, regua: null };
+    what = 'diagnostico';
+  }
+  const next: LeizProState = { ...st, retries: 0, fu: null };
+  await prisma.aiSalesSuggestion.create({
+    data: {
+      workspaceId, contactId, leadId,
+      parts: [] as any, action: 'wait', productFileIds: [] as any,
+      actionPayload: { leizpro: next, syncedByTeam: true } as any,
+      reasoning: `Sincronizado pela equipa (conversas lidas): ${what}.${o.leiz ? ' Devolvido à Leiz.' : ' Fica com a equipa.'}`,
+      principlesUsed: [] as any,
+      // "leizpro:devolvida" faz a Sherone voltar a falar nesta conversa.
+      modelUsed: o.leiz ? 'leizpro:devolvida' : 'leizpro:sincronizada',
+      status: 'APPROVED', decidedAt: new Date(),
+    },
+  });
+  return what;
+}
+
+// Dia que disse que paga -> 12h desse dia (ou ja, se o dia passou: o
+// agendador manda na proxima janela, respeitando o ritmo).
+function nextSendTimeFor(day: Date): Date {
+  const noon = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), 10));
+  return noon.getTime() < Date.now() ? new Date() : noon;
+}
+
 export async function lastIsOutbound(contactId: string): Promise<boolean> {
   const last = await prisma.message.findFirst({
     where: { contactId, isInternal: false },

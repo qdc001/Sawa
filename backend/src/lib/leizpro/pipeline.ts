@@ -190,10 +190,22 @@ export async function applyStages(workspaceId: string, text: string): Promise<{ 
   const errors: string[] = [];
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 1000);
   for (const line of lines) {
-    const m = line.match(/^(?:ref\s*)?([a-z0-9]{6,30})\s*[=:>|-]+\s*(.+)$/i);
+    // Opcoes depois de ";": "paga 2026-11-30", "pacote Pacote D (570 MZN)",
+    // "leiz" (devolver a Leiz), "tarefa <texto>" (tarefa para a equipa, hoje).
+    const [main, ...optParts] = line.split(';').map((x) => x.trim());
+    const m = main.match(/^(?:ref\s*)?([a-z0-9]{6,30})\s*[=:>|-]+\s*(.+)$/i);
     if (!m) { errors.push(`Linha não reconhecida: "${line.slice(0, 60)}"`); continue; }
     const ref = m[1];
     const want = normKey(m[2].replace(/\(.*\)$/, ''));
+    const opt = { leiz: false, pkg: null as string | null, payDay: null as Date | null, task: null as string | null };
+    for (const op of optParts) {
+      const d = op.match(/^paga\s+(\d{4})-(\d{2})-(\d{2})$/i);
+      if (d) { opt.payDay = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3])); continue; }
+      if (/^pacote\s+/i.test(op)) { opt.pkg = op.replace(/^pacote\s+/i, '').trim(); continue; }
+      if (/^leiz$/i.test(op)) { opt.leiz = true; continue; }
+      if (/^tarefa\s+/i.test(op)) { opt.task = op.replace(/^tarefa\s+/i, '').trim(); continue; }
+      if (op) errors.push(`${ref}: opção "${op.slice(0, 40)}" ignorada`);
+    }
     const stage = STAGES.find((s) => normKey(s.name) === want) || STAGES.find((s) => normKey(s.name).startsWith(want) && want.length >= 4);
     if (!stage) { errors.push(`${ref}: etapa "${m[2].trim()}" não existe`); continue; }
     const contacts = await prisma.contact.findMany({ where: { workspaceId, id: { endsWith: ref } }, select: { id: true, firstName: true, lastName: true }, take: 2 });
@@ -207,7 +219,26 @@ export async function applyStages(workspaceId: string, text: string): Promise<{ 
       where: { id: lead.id },
       data: { stageId: p.stageIds[stage.key], status: won ? 'WON' : 'OPEN', closedAt: won ? new Date() : null },
     });
-    moved.push(`${[c.firstName, c.lastName].filter(Boolean).join(' ') || ref} → ${stage.name}`);
+    const label = [c.firstName, c.lastName].filter(Boolean).join(' ') || ref;
+    let extra = '';
+    if (optParts.length) {
+      const { syncLeizFromTeam } = await import('./engine');
+      extra = ` · ${await syncLeizFromTeam(workspaceId, c.id, lead.id, { stageKey: stage.key, pkg: opt.pkg, payDay: opt.payDay, leiz: opt.leiz })}`;
+      if (opt.task) {
+        const assignee = (await prisma.lead.findUnique({ where: { id: lead.id }, select: { assignedToId: true } }))?.assignedToId
+          || (await prisma.user.findFirst({ where: { workspaceId, role: { in: ['OWNER', 'ADMIN'] } }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id;
+        if (assignee) {
+          await prisma.task.create({
+            data: {
+              title: `${opt.task.slice(0, 80)} · ${label}`, description: `Da sincronização das conversas (25/11).\n${opt.task}`,
+              type: 'FOLLOW_UP', status: 'PENDING', priority: 'HIGH', dueAt: new Date(), contactId: c.id, leadId: lead.id, assignedToId: assignee,
+            },
+          });
+          extra += ' · tarefa criada';
+        }
+      }
+    }
+    moved.push(`${label} → ${stage.name}${extra}`);
   }
   return { moved, errors };
 }
