@@ -32,6 +32,11 @@ function windowOf(d: Date): number | null {
   return i < 0 ? null : i;
 }
 
+// Agora dentro de uma janela de envio (12h-13h, 18h-20h de Maputo)?
+export function inSendWindow(t = new Date()): boolean {
+  return windowOf(t) !== null;
+}
+
 // Primeiro momento >= t dentro de uma janela de envio. avoid: indice de janela
 // a evitar ("a outra hora do dia").
 export function nextSendTime(t: Date, avoid: number | null = null): Date {

@@ -853,7 +853,7 @@ export async function loadState(workspaceId: string, contactId: string): Promise
       workspaceId,
       contactId,
       modelUsed: { startsWith: 'leizpro' },
-      status: { not: 'DISCARDED' },
+      status: { notIn: ['DISCARDED', 'FAILED'] },
       ...(reset ? { createdAt: { gt: reset.createdAt } } : {}),
     },
     orderBy: { createdAt: 'desc' },
@@ -1378,6 +1378,9 @@ export async function generateLeizProFollowup(opts: { workspaceId: string; conta
     select: { id: true },
   });
   if (exists) return null;
+  // A equipa escreveu ao estudante depois de a regua arrancar (ex.: respondeu
+  // a mao com a Leiz desligada): a regua para, para nao repetir o que disse.
+  if (await teamWroteAfterState(opts.workspaceId, opts.contactId)) return null;
 
   // Sem curso nem disciplinas (atendido a mao, ou curso fora dos editais sem as
   // disciplinas): procura nas mensagens dele; se nao houver, nao envia e avisa.
@@ -1452,14 +1455,99 @@ export async function teamTookOver(contactId: string): Promise<boolean> {
   const lastOut = await prisma.message.findFirst({
     where: { contactId, direction: 'OUTBOUND', isInternal: false },
     orderBy: { createdAt: 'desc' },
-    select: { id: true },
+    select: { id: true, createdAt: true },
   });
   if (!lastOut) return false;
+  // "Devolver a Leiz" depois da ultima mensagem da equipa: a Sherone volta.
+  const back = await prisma.aiSalesSuggestion.findFirst({
+    where: { contactId, modelUsed: 'leizpro:devolvida', createdAt: { gt: lastOut.createdAt } }, select: { id: true },
+  });
+  if (back) return false;
   const fromSherone = await prisma.aiSalesSuggestion.findFirst({
     where: { contactId, sentMessageIds: { array_contains: [lastOut.id] } },
     select: { id: true },
   });
   return !fromSherone;
+}
+
+// A equipa escreveu ao estudante depois do ultimo passo da Sherone (mensagens
+// que nao sairam de nenhuma sugestao). Os 20 minutos a seguir a uns pacotes
+// enviados a mao nao contam ("amanha as 18h" da equipa faz parte do envio).
+export async function teamWroteAfterState(workspaceId: string, contactId: string): Promise<boolean> {
+  const last = await prisma.aiSalesSuggestion.findFirst({
+    where: { workspaceId, contactId, modelUsed: { startsWith: 'leizpro' }, status: { notIn: ['DISCARDED', 'FAILED'] } },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true, modelUsed: true },
+  });
+  if (!last) return false;
+  const since = new Date(last.createdAt.getTime() + (last.modelUsed === 'leizpro:regua-manual' ? 20 * 60_000 : 0));
+  const outs = await prisma.message.findMany({
+    where: { contactId, direction: 'OUTBOUND', isInternal: false, createdAt: { gt: since } },
+    select: { id: true }, take: 20,
+  });
+  for (const m of outs) {
+    const fromSherone = await prisma.aiSalesSuggestion.findFirst({ where: { contactId, sentMessageIds: { array_contains: [m.id] } }, select: { id: true } });
+    if (!fromSherone) return true;
+  }
+  return false;
+}
+
+// "Devolver a Leiz": a equipa atendeu a mao (Leiz desligada, passou a equipa)
+// e devolve a conversa. A Sherone le a conversa para saber em que passo esta:
+// boas-vindas do acesso -> acesso activo; numeros de pagamento -> a pagar;
+// PDF dos pacotes -> pacotes enviados; senao, o ultimo passo que ela conhecia.
+// Nao manda nada por iniciativa propria; responde a proxima mensagem dele.
+export async function handBackToLeiz(workspaceId: string, contactId: string, leadId: string | null, userId: string | null): Promise<{ step: Step; summary: string }> {
+  let st = await loadState(workspaceId, contactId);
+  if (st.step === 'handoff') {
+    // O passo antes de passar a equipa.
+    const hist = await prisma.aiSalesSuggestion.findMany({
+      where: { workspaceId, contactId, modelUsed: { startsWith: 'leizpro' }, status: { notIn: ['DISCARDED', 'FAILED'] } },
+      orderBy: { createdAt: 'desc' }, take: 40, select: { actionPayload: true },
+    });
+    const prev = hist.map((h) => (h.actionPayload as any)?.leizpro).find((s: any) => s && s.step && s.step !== 'handoff' && KNOWN_STEPS.includes(s.step));
+    st = { ...st, step: prev ? prev.step : (st.name && st.university ? 'diagnosis' : 'start') };
+  }
+  st = await contextFromMessages(contactId, st);
+  // O que a equipa (ou a Sherone) mandou nos ultimos 45 dias.
+  const outs = await prisma.message.findMany({
+    where: { contactId, direction: 'OUTBOUND', isInternal: false, createdAt: { gte: new Date(Date.now() - 45 * 86_400_000) } },
+    orderBy: { createdAt: 'desc' }, take: 80,
+    select: { content: true, type: true, fileName: true, createdAt: true },
+  });
+  const { WELCOME_RE, parseWelcome } = await import('./access');
+  const welcome = outs.find((m) => WELCOME_RE.test(m.content || ''));
+  const payIdx = outs.findIndex((m) => /871443442|858395481|canais de pagamento/i.test(m.content || ''));
+  const pdfIdx = outs.findIndex((m) => m.type === 'DOCUMENT' && /pacote/i.test(m.fileName || ''));
+  let summary: string;
+  if (welcome) {
+    const access = parseWelcome(welcome.content || '', welcome.createdAt, st.snMonths, st.examSubjects?.length ? st.examSubjects.join(' e ') : null);
+    st = { ...st, step: access ? 'active' : 'followup', access: access || st.access };
+    summary = access ? 'acesso activo (boas-vindas encontradas)' : 'boas-vindas sem data de fim: segue como conta criada';
+  } else if (payIdx >= 0 && (pdfIdx < 0 || payIdx < pdfIdx)) {
+    st = { ...st, step: 'paying', payFollow: { at: new Date(Date.now() + 86_400_000).toISOString(), sent: false } };
+    summary = `a pagar${st.pkg ? ` (${st.pkg})` : ''}: recebeu os canais de pagamento`;
+  } else if (pdfIdx >= 0) {
+    st = { ...st, step: 'pdf_sent', lastKey: 'packagesPdf', lastQuestion: 'packagesPdf' };
+    summary = 'recebeu os pacotes';
+  } else {
+    summary = `continua no passo "${st.step}"`;
+  }
+  const next: LeizProState = {
+    ...st, retries: 0, fu: null, regua: null,
+    ...(st.step === 'pdf_sent' ? {} : { lastKey: null, lastQuestion: null }),
+    ...(st.step === 'paying' ? {} : { payFollow: null }),
+  };
+  await prisma.aiSalesSuggestion.create({
+    data: {
+      workspaceId, contactId, leadId,
+      parts: [] as any, action: 'wait', productFileIds: [] as any,
+      actionPayload: { leizpro: next, handBackBy: userId } as any,
+      reasoning: `Conversa devolvida à Leiz pela equipa: ${summary}. A Sherone responde à próxima mensagem do estudante.`,
+      principlesUsed: [] as any, modelUsed: 'leizpro:devolvida', status: 'APPROVED', decidedAt: new Date(),
+    },
+  });
+  return { step: next.step, summary };
 }
 
 export async function lastIsOutbound(contactId: string): Promise<boolean> {

@@ -1045,6 +1045,23 @@ export default function InboxPage() {
     }
   };
 
+  // "Devolver a Leiz": a equipa atendeu a mao e a Leiz retoma a conversa no
+  // passo certo (le a conversa: pacotes, pagamento, boas-vindas do acesso).
+  const handBackToLeiz = async (contactId: string, leadId?: string | null) => {
+    if (!window.confirm('Devolver esta conversa à Leiz? Ela lê a conversa para saber em que passo está e responde à próxima mensagem do estudante (sem repetir o que já disseste).')) return;
+    try {
+      const { data } = await api.post('/sales-agent/leizpro/hand-back', { contactId, leadId: leadId || undefined });
+      setSalesSuggestion(null);
+      setSalesEditing(false);
+      if (data?.reenabled && salesConfig) {
+        setSalesConfig({ ...salesConfig, aiSalesDisabledConversationIds: (salesConfig.aiSalesDisabledConversationIds || []).filter((x) => x !== contactId) });
+      }
+      toast.success(`Conversa devolvida à Leiz: ${data?.summary || 'retoma no passo certo'}.${data?.replying ? ' Ela vai responder à última mensagem.' : ''}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a devolver a conversa à Leiz');
+    }
+  };
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
 
@@ -2299,6 +2316,14 @@ export default function InboxPage() {
                         >
                           <RefreshCw size={14} style={{ color: '#F59E0B' }} />
                           <span className="flex-1">Reiniciar contexto da Leizy</span>
+                        </button>
+                        <button
+                          onClick={() => { handBackToLeiz(selected.contact!.id, selected.leadId); setShowHeaderMenu(false); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left"
+                          title="Respondeste tu a esta conversa: a Leiz retoma a partir daqui, no passo certo"
+                        >
+                          <Reply size={14} style={{ color: '#16A34A' }} />
+                          <span className="flex-1">Devolver à Leiz</span>
                         </button>
                       </>
                     )}

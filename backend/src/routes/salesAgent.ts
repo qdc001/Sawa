@@ -720,6 +720,52 @@ router.post('/reset-context', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/sales-agent/leizpro/hand-back
+// "Devolver a Leiz": a equipa atendeu a mao e devolve a conversa a Sherone.
+// Ela le a conversa (pacotes, pagamento, boas-vindas do acesso) para retomar no
+// passo certo, volta a ficar ligada nesta conversa e, se a ultima mensagem e do
+// estudante, responde-lhe. Nao repete o que a equipa ja disse.
+// Body: { contactId: string, leadId?: string }
+router.post('/leizpro/hand-back', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, leadId } = req.body || {};
+    if (!contactId || typeof contactId !== 'string') throw new AppError('contactId obrigatorio', 400);
+    const workspaceId = req.user!.workspaceId;
+    if (!(await isLeizProWorkspace(workspaceId))) throw new AppError('Disponivel so no workspace da Leiz Pro', 400);
+    const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { id: true } });
+    if (!contact) throw new AppError('Contacto nao encontrado neste workspace', 404);
+
+    // Sugestoes por enviar desta conversa ja nao servem.
+    await prisma.aiSalesSuggestion.updateMany({
+      where: { workspaceId, contactId, status: 'PENDING' },
+      data: { status: 'DISCARDED', decidedAt: new Date(), decidedById: req.user!.id, errorDetail: 'Descartada: conversa devolvida a Leiz' },
+    });
+    const { handBackToLeiz } = await import('../lib/leizpro/engine');
+    const r = await handBackToLeiz(workspaceId, contactId, leadId || null, req.user!.id);
+
+    // Volta a ligar a Leiz nesta conversa (se tinha sido desligada).
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { aiSalesDisabledConversationIds: true } });
+    const disabled = Array.isArray(ws?.aiSalesDisabledConversationIds) ? (ws!.aiSalesDisabledConversationIds as string[]) : [];
+    if (disabled.includes(contactId)) {
+      await prisma.workspace.update({ where: { id: workspaceId }, data: { aiSalesDisabledConversationIds: disabled.filter((x) => x !== contactId) } });
+    }
+
+    // A ultima mensagem e do estudante e ninguem respondeu: a Sherone responde.
+    const last = await prisma.message.findFirst({
+      where: { contactId, isInternal: false }, orderBy: { createdAt: 'desc' }, select: { id: true, direction: true, content: true },
+    });
+    let replying = false;
+    if (last?.direction === 'INBOUND') {
+      replying = true;
+      const { maybeTriggerSalesSuggestion } = await import('../lib/aiSalesAgent');
+      maybeTriggerSalesSuggestion({
+        workspaceId, contactId, leadId: leadId || null, triggerMessageId: last.id, triggerMessageContent: last.content || null, io: (global as any).io,
+      }).catch((e: any) => console.error('[leizpro] devolver: resposta falhou:', e?.message || e));
+    }
+    res.json({ ok: true, step: r.step, summary: r.summary, replying, reenabled: disabled.includes(contactId) });
+  } catch (e) { next(e); }
+});
+
 // ---- Leiz Pro (Zona Nerd): textos da Sherone editaveis no painel ------------
 // GET devolve cada mensagem com o texto do guia, o texto em uso e as regras.
 router.get('/leizpro/texts', async (req: AuthRequest, res: Response, next) => {
