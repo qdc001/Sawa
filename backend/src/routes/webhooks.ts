@@ -618,10 +618,11 @@ router.post('/evolution', async (req: Request, res: Response) => {
         // contacto com o LID como "numero".
         const rawRemoteJid: string = m.key?.remoteJid || '';
         let remoteJid: string = rawRemoteJid;
+        let lidDigits = '';
         if (rawRemoteJid.endsWith('@lid')) {
           const alt = [m.key?.remoteJidAlt, m.key?.senderPn, m.senderPn]
             .find((x) => typeof x === 'string' && x.endsWith('@s.whatsapp.net')) as string | undefined;
-          if (alt) remoteJid = alt;
+          if (alt) { remoteJid = alt; lidDigits = rawRemoteJid.split('@')[0].replace(/\D/g, ''); }
           if (lidLogCount < 20) {
             lidLogCount++;
             console.log(`[evo] msg de LID ${rawRemoteJid.slice(0, 18)} -> ${alt ? 'numero real ' + alt.slice(0, 18) : 'SEM numero real'} | key=${JSON.stringify(m.key)}`);
@@ -842,6 +843,24 @@ router.post('/evolution', async (req: Request, res: Response) => {
           // CONTACTO normal (1-1)
           const contactName = nameFromPushOrPhone(incomingPush, phone);
           contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
+          // O WhatsApp revelou o numero real de um contacto que ate agora so
+          // tinha o LID ("Contacto WhatsApp 1234", sem numero): passar esse
+          // contacto para o numero real, com a conversa e o lead que ja tem.
+          if (!contact && lidDigits && lidDigits !== phoneInfo.rawDigits && !phoneInfo.isLid) {
+            const lidContact = await prisma.contact.findFirst({ where: { whatsapp: lidDigits, workspaceId } });
+            if (lidContact) {
+              const placeholder = !(lidContact.firstName || '').trim() || (lidContact.firstName || '').startsWith('Contacto WhatsApp');
+              contact = await prisma.contact.update({
+                where: { id: lidContact.id },
+                data: {
+                  whatsapp: phoneInfo.rawDigits,
+                  phone: lidContact.phone || phoneInfo.display,
+                  ...(placeholder ? { firstName: contactName } : {}),
+                },
+              });
+              console.log(`[evo] contacto LID ${lidDigits.slice(-4)} passou para o numero real ${phoneInfo.rawDigits.slice(-4)}`);
+            }
+          }
           if (!contact) {
             contact = await prisma.contact.create({
               data: {

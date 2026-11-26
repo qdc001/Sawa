@@ -11,6 +11,7 @@ import path from 'path';
 import prisma from './prisma';
 import { getCreds } from './integrationCrypto';
 import { publicMediaUrl } from './evolutionMedia';
+import { evoNumber } from './phoneFormat';
 
 // Acima disto, preferimos mandar URL em vez de base64. O base64 infla o
 // payload em ~33% e vai tudo num unico JSON; ficheiros grandes (viram-se
@@ -91,14 +92,15 @@ export async function sendWhatsAppOut(
     if (creds.baseUrl && creds.apiKey && creds.instanceName) {
       try {
         let path: string;
-        const isGroupJid = typeof phone === 'string' && phone.includes('@g.us');
-        const destination = isGroupJid ? phone : phone.replace(/\D/g, '');
+        // Contactos so com LID vao como "<lid>@lid" (ver evoNumber).
+        const destination = evoNumber(phone);
+        const isJid = destination.includes('@');
         // Numeros internacionais validos tem entre 8 e 15 digitos (E.164).
         // Sem esta verificacao, um numero corrompido na BD (prefixo
         // duplicado, dado migrado mal) so falha depois de uma chamada
         // completa a Evolution — vimos no log o mesmo numero invalido a
         // falhar 4 vezes seguidas em tentativas diferentes.
-        if (!isGroupJid && (destination.length < 8 || destination.length > 15)) {
+        if (!isJid && (destination.length < 8 || destination.length > 15)) {
           return { ok: false, error: `Número de telefone inválido: "${phone}" (${destination.length} dígitos após limpeza). Verifica o contacto.` };
         }
         let body: any = { number: destination };
@@ -272,8 +274,7 @@ export async function sendWhatsAppPresence(
     if (!evo) return;
     const creds: any = getCreds(evo);
     if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return;
-    const isGroupJid = typeof phone === 'string' && phone.includes('@g.us');
-    const destination = isGroupJid ? phone : String(phone).replace(/\D/g, '');
+    const destination = evoNumber(String(phone));
     await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/sendPresence/${creds.instanceName}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },

@@ -44,6 +44,7 @@ async function sendMetaOut(workspaceId: string, channel: 'INSTAGRAM' | 'FACEBOOK
 // desta funcao com codigo divergente, o que gerou bugs de envio de media
 // - ex: base64 em formato Data URL so estava numa das copias).
 import { sendWhatsAppOut } from '../lib/whatsappSend';
+import { evoNumber, evoRemoteJid } from '../lib/phoneFormat';
 
 const messageInclude = {
   sentBy: { select: { id: true, name: true, avatar: true } },
@@ -454,8 +455,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
               body: JSON.stringify({
-                number: phone.replace(/\D/g, ''),
-                key: { id: existing.externalId, remoteJid: `${phone.replace(/\D/g, '')}@s.whatsapp.net`, fromMe: true },
+                number: evoNumber(phone),
+                key: { id: existing.externalId, remoteJid: evoRemoteJid(phone), fromMe: true },
                 text: content,
               }),
             });
@@ -565,7 +566,7 @@ router.post('/:id/react', async (req: AuthRequest, res: Response, next) => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
                 body: JSON.stringify({
-                  key: { remoteJid: `${cleanPhone}@s.whatsapp.net`, fromMe: existing.direction === 'OUTBOUND', id: existing.externalId },
+                  key: { remoteJid: evoRemoteJid(cleanPhone), fromMe: existing.direction === 'OUTBOUND', id: existing.externalId },
                   reaction: applying ? emoji : '',
                 }),
               });
@@ -604,7 +605,7 @@ async function evolutionMarkRead(workspaceId: string, messages: Array<{ external
     if (!m.externalId) continue;
     const phone = m.contact?.whatsapp || m.contact?.phone;
     if (!phone) continue;
-    const remote = `${phone.replace(/\D/g, '')}@s.whatsapp.net`;
+    const remote = evoRemoteJid(phone);
     if (!groups.has(remote)) groups.set(remote, []);
     groups.get(remote)!.push(m.externalId);
   }

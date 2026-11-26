@@ -75,6 +75,22 @@ export function analysePhone(rawJidOrPhone: string): PhoneInfo {
   };
 }
 
+// Destino para a Evolution. Contactos que o WhatsApp esconde por privacidade
+// so tem um LID (nao e numero de telefone): enviar o LID como numero falha,
+// tem de ir como "<lid>@lid". Grupos e JIDs completos passam tal como estao.
+export function evoNumber(raw: string): string {
+  const s = String(raw || '').trim();
+  if (s.includes('@')) return s;
+  const digits = s.replace(/\D/g, '');
+  return digits && analysePhone(digits).isLid ? `${digits}@lid` : digits;
+}
+
+// JID completo (para key.remoteJid em reaccoes, leitura e edicao).
+export function evoRemoteJid(raw: string): string {
+  const n = evoNumber(raw);
+  return n.includes('@') ? n : `${n}@s.whatsapp.net`;
+}
+
 // Decide o nome a guardar no firstName de um contacto que vem do WhatsApp.
 // Se há um pushName "real" (não é só o número), prefere isso. Senão usa o display formatado.
 export function nameFromPushOrPhone(pushName: string | undefined | null, rawPhone: string): string {

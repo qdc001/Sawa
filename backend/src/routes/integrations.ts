@@ -5,7 +5,7 @@ import nodemailer from 'nodemailer';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
-import { analysePhone, nameFromPushOrPhone } from '../lib/phoneFormat';
+import { analysePhone, evoNumber, nameFromPushOrPhone } from '../lib/phoneFormat';
 import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 
 import { newLeadTarget } from '../lib/leadTarget';
@@ -262,6 +262,9 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
             instanceName,
             qrcode: true,
             integration: 'WHATSAPP-BAILEYS',
+            // Pedir ao WhatsApp todo o historico ao ligar o telemovel (sem
+            // isto so chegam os meses mais recentes).
+            syncFullHistory: true,
           }),
         });
       } catch (e: any) {
@@ -275,6 +278,30 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
             `Evolution create error: ${e.message} (baseUrl=${creds.baseUrl} instance=${instanceName})`
           );
         }
+      }
+    }
+
+    // 2.5) Instancia ja existente: ligar o historico completo para o proximo
+    // emparelhamento (QR). Le as definicoes actuais para nao mexer nas outras.
+    if (exists) {
+      try {
+        const cur: any = await evolutionFetch(creds, `/settings/find/${instanceName}`);
+        if (cur && cur.syncFullHistory !== true) {
+          await evolutionFetch(creds, `/settings/set/${instanceName}`, {
+            method: 'POST',
+            body: JSON.stringify({
+              rejectCall: !!cur.rejectCall,
+              msgCall: cur.msgCall || '',
+              groupsIgnore: !!cur.groupsIgnore,
+              alwaysOnline: !!cur.alwaysOnline,
+              readMessages: !!cur.readMessages,
+              readStatus: !!cur.readStatus,
+              syncFullHistory: true,
+            }),
+          });
+        }
+      } catch (e: any) {
+        console.warn(`Evolution settings (syncFullHistory) falhou instance=${instanceName}: ${e.message}`);
       }
     }
 
@@ -408,7 +435,7 @@ router.post('/evolution/presence', async (req: AuthRequest, res: Response, next)
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
         body: JSON.stringify({
-          number: String(phone).replace(/\D/g, ''),
+          number: evoNumber(String(phone)),
           presence,
           delay: 1200,
         }),
@@ -419,6 +446,11 @@ router.post('/evolution/presence', async (req: AuthRequest, res: Response, next)
     }
   } catch (e) { next(e); }
 });
+
+// Paginacao do historico na Evolution v2 e idade maxima dos anexos a descarregar.
+const PAGE_SIZE = 100;
+const MAX_PAGES = 1000; // ate 100 mil mensagens por conversa
+const MEDIA_MAX_AGE_MS = 60 * 24 * 3600 * 1000;
 
 // POST /api/integrations/evolution/sync-chats
 // Importa conversas/contactos/mensagens existentes do WhatsApp para o CRM.
@@ -556,13 +588,25 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
         // o formato da mensagem em si (documentMessage, imageMessage, etc.)
         // e identico nos dois casos, so muda o que se faz DEPOIS com o
         // resultado (grupos preciam de prefixo com o nome do participante).
-        const extractMessageBody = async (m: any): Promise<{ content: string; msgType: any; mediaUrlLocal: string | null; mediaTypeStr: string | null; skip: boolean }> => {
+        const extractMessageBody = async (m: any): Promise<{ content: string; msgType: any; mediaUrlLocal: string | null; mediaTypeStr: string | null; fileName: string | null; skip: boolean }> => {
           const msg = m?.message || {};
+          // O WhatsApp so guarda os anexos no servidor durante algumas semanas:
+          // tentar descarregar anexos antigos so atrasa a sincronizacao (cada
+          // falha espera e repete). Esses ficam com o marcador ([Audio], ...).
+          const tsMedia = Number(m?.messageTimestamp || m?.timestamp || 0);
+          const recent = !tsMedia || Date.now() - tsMedia * 1000 < MEDIA_MAX_AGE_MS;
+          const media = async (ext: string, mime: string | undefined, fallbackMime: string) => {
+            if (!recent) return;
+            const local = await fetchMediaFromEvolution(creds, m, ext);
+            if (local) { mediaUrlLocal = publicMediaUrl(local); mediaTypeStr = mime || fallbackMime; }
+          };
+          let fileName: string | null = null;
           const unwrapped =
             msg.ephemeralMessage?.message ||
             msg.viewOnceMessage?.message ||
             msg.viewOnceMessageV2?.message ||
             msg.documentWithCaptionMessage?.message ||
+            msg.associatedChildMessage?.message ||
             msg;
 
           let content = '';
@@ -578,31 +622,82 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
             msgType = 'IMAGE';
             const im = unwrapped.imageMessage || msg.imageMessage;
             content = im?.caption || '[Imagem]';
-            const local = await fetchMediaFromEvolution(creds, m, 'jpg');
-            if (local) { mediaUrlLocal = publicMediaUrl(local); mediaTypeStr = im?.mimetype || 'image/jpeg'; }
+            await media('jpg', im?.mimetype, 'image/jpeg');
           } else if (unwrapped.videoMessage || msg.videoMessage) {
             msgType = 'VIDEO';
             const vm = unwrapped.videoMessage || msg.videoMessage;
             content = vm?.caption || '[Video]';
+            await media('mp4', vm?.mimetype, 'video/mp4');
           } else if (unwrapped.audioMessage || msg.audioMessage) {
             msgType = 'AUDIO'; content = '[Audio]';
+            const am = unwrapped.audioMessage || msg.audioMessage;
+            await media('ogg', am?.mimetype, 'audio/ogg');
           } else if (unwrapped.documentMessage || msg.documentMessage) {
             msgType = 'DOCUMENT';
             const dm = unwrapped.documentMessage || msg.documentMessage;
-            content = dm?.fileName || '[Documento]';
+            // Igual ao webhook: o texto e o comentario; o nome vai em fileName.
+            content = dm?.caption || '[Documento]';
+            fileName = dm?.fileName || null;
+            const ext = String(dm?.fileName || '').split('.').pop() || 'bin';
+            await media(ext, dm?.mimetype, 'application/octet-stream');
           } else if (msg.locationMessage) {
             msgType = 'LOCATION';
             content = `Localização: ${msg.locationMessage.degreesLatitude}, ${msg.locationMessage.degreesLongitude}`;
           } else if (msg.stickerMessage) {
             msgType = 'IMAGE'; content = '[Sticker]';
-            const local = await fetchMediaFromEvolution(creds, m, 'webp');
-            if (local) { mediaUrlLocal = publicMediaUrl(local); mediaTypeStr = 'image/webp'; }
-          } else if (msg.protocolMessage) {
-            return { content: '', msgType: 'TEXT', mediaUrlLocal: null, mediaTypeStr: null, skip: true };
+            await media('webp', undefined, 'image/webp');
+          } else if (msg.protocolMessage || msg.reactionMessage) {
+            return { content: '', msgType: 'TEXT', mediaUrlLocal: null, mediaTypeStr: null, fileName: null, skip: true };
           } else {
             content = '[Mensagem]';
           }
-          return { content, msgType, mediaUrlLocal, mediaTypeStr, skip: false };
+          return { content, msgType, mediaUrlLocal, mediaTypeStr, fileName, skip: false };
+        };
+
+        // Todas as mensagens de uma conversa. A Evolution v2 devolve-as por
+        // paginas ({ messages: { total, pages, currentPage, records } }, 50 por
+        // pagina por defeito) e ignora `limit`: antes so se lia a primeira
+        // pagina, e de cada conversa so entravam as ~50 mensagens mais recentes.
+        const fetchAllMessages = async (remoteJid: string): Promise<any[]> => {
+          const out: any[] = [];
+          const seen = new Set<string>();
+          const add = (list: any[]) => {
+            for (const x of list) {
+              const id = x?.key?.id || x?.id;
+              if (id && seen.has(id)) continue;
+              if (id) seen.add(id);
+              out.push(x);
+            }
+          };
+          let paged = false;
+          try {
+            for (let page = 1; page <= MAX_PAGES; page++) {
+              const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}`, {
+                method: 'POST',
+                body: JSON.stringify({ where: { key: { remoteJid } }, page, offset: PAGE_SIZE }),
+              });
+              const records = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
+              if (!Array.isArray(records)) break;
+              add(records);
+              const pages = Number(r?.messages?.pages || 0);
+              paged = true;
+              // Sem informacao de paginas (Evolution antiga) ou ultima pagina.
+              if (!pages || page >= pages || records.length === 0 || out.length >= msgsPerChat) break;
+            }
+          } catch { /* tenta variante v1 */ }
+
+          if (!paged || out.length === 0) {
+            try {
+              const qs = msgsPerChat !== Number.MAX_SAFE_INTEGER ? `limit=${msgsPerChat}&` : '';
+              const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}?${qs}remoteJid=${encodeURIComponent(remoteJid)}`, { method: 'GET' });
+              const records = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
+              if (Array.isArray(records)) add(records);
+            } catch { /* silent */ }
+          }
+
+          // Mais antigas primeiro; se houver limite, ficam as mais recentes.
+          out.sort((a: any, b: any) => Number(a?.messageTimestamp || a?.timestamp || 0) - Number(b?.messageTimestamp || b?.timestamp || 0));
+          return out.length > msgsPerChat ? out.slice(out.length - msgsPerChat) : out;
         };
 
         for (let i = 0; i < chats.length; i++) {
@@ -689,34 +784,8 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
               stats.leadsCreated++;
             }
 
-            // 1.4) Mensagens deste chat
-            // Se msgsPerChat for finito, mandamos `limit`. Se for ilimitado, omitimos para o servidor devolver o máximo.
-            const limitedMode = msgsPerChat !== Number.MAX_SAFE_INTEGER;
-            let messages: any[] = [];
-            try {
-              const body: any = { where: { key: { remoteJid } } };
-              if (limitedMode) body.limit = msgsPerChat;
-              const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}`, {
-                method: 'POST',
-                body: JSON.stringify(body),
-              });
-              messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
-            } catch { /* tenta variante v1 */ }
-
-            if (messages.length === 0) {
-              try {
-                const qs = limitedMode ? `limit=${msgsPerChat}&` : '';
-                const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}?${qs}remoteJid=${encodeURIComponent(remoteJid)}`, { method: 'GET' });
-                messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
-              } catch { /* silent */ }
-            }
-
-            // Ordenar mais antigas primeiro
-            messages.sort((a: any, b: any) => {
-              const ta = Number(a?.messageTimestamp || a?.timestamp || 0);
-              const tb = Number(b?.messageTimestamp || b?.timestamp || 0);
-              return ta - tb;
-            });
+            // 1.4) Mensagens deste chat (todas as paginas, mais antigas primeiro)
+            const messages = await fetchAllMessages(remoteJid);
 
             for (const m of messages) {
               try {
@@ -728,7 +797,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
                 if (exists) { stats.messagesSkipped++; continue; }
 
                 const fromMe = !!m?.key?.fromMe;
-                const { content, msgType, mediaUrlLocal, mediaTypeStr, skip } = await extractMessageBody(m);
+                const { content, msgType, mediaUrlLocal, mediaTypeStr, fileName, skip } = await extractMessageBody(m);
                 if (skip) { stats.messagesSkipped++; continue; } // mensagens de sistema/protocol (apagadas, etc)
 
                 const ts = Number(m?.messageTimestamp || m?.timestamp || 0);
@@ -747,6 +816,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
                     createdAt,
                     mediaUrl: mediaUrlLocal || undefined,
                     mediaType: mediaTypeStr || undefined,
+                    fileName: fileName || undefined,
                   },
                 });
                 stats.messagesImported++;
@@ -812,31 +882,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
               stats.contactsUpdated++;
             }
 
-            const limitedMode = msgsPerChat !== Number.MAX_SAFE_INTEGER;
-            let messages: any[] = [];
-            try {
-              const body: any = { where: { key: { remoteJid } } };
-              if (limitedMode) body.limit = msgsPerChat;
-              const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}`, {
-                method: 'POST',
-                body: JSON.stringify(body),
-              });
-              messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
-            } catch { /* tenta variante v1 */ }
-
-            if (messages.length === 0) {
-              try {
-                const qs = limitedMode ? `limit=${msgsPerChat}&` : '';
-                const r = await evolutionFetch(creds, `/chat/findMessages/${creds.instanceName}?${qs}remoteJid=${encodeURIComponent(remoteJid)}`, { method: 'GET' });
-                messages = Array.isArray(r) ? r : (r?.messages?.records || r?.messages || r?.data || []);
-              } catch { /* silent */ }
-            }
-
-            messages.sort((a: any, b: any) => {
-              const ta = Number(a?.messageTimestamp || a?.timestamp || 0);
-              const tb = Number(b?.messageTimestamp || b?.timestamp || 0);
-              return ta - tb;
-            });
+            const messages = await fetchAllMessages(remoteJid);
 
             for (const m of messages) {
               try {
@@ -847,7 +893,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
                 if (exists) { stats.messagesSkipped++; continue; }
 
                 const fromMe = !!m?.key?.fromMe;
-                let { content, msgType, mediaUrlLocal, mediaTypeStr, skip } = await extractMessageBody(m);
+                let { content, msgType, mediaUrlLocal, mediaTypeStr, fileName, skip } = await extractMessageBody(m);
                 if (skip) { stats.messagesSkipped++; continue; }
 
                 const pushName: string | undefined = m?.pushName;
@@ -871,6 +917,7 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
                     createdAt,
                     mediaUrl: mediaUrlLocal || undefined,
                     mediaType: mediaTypeStr || undefined,
+                    fileName: fileName || undefined,
                   },
                 });
                 stats.messagesImported++;
