@@ -39,9 +39,10 @@ export function FinanceOverview({ data }: { data: Summary }) {
   }));
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label="Dinheiro existente" value={mzn(flow.total)} />
-        <Kpi label="Capital de giro" value={mzn(flow.workingCapitalFilled)} hint={`Meta: ${mzn(flow.workingCapital)}`} color={flow.total >= flow.workingCapital ? '#10B981' : '#EF4444'} />
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <Kpi label="Dinheiro existente" value={mzn(flow.total)} hint={flow.vatOwed ? `Da empresa: ${mzn(flow.available)} (sem o IVA por entregar)` : undefined} />
+        <Kpi label="IVA a entregar ao Estado" value={mzn(flow.vatOwed)} color={flow.vatOwed ? '#D97706' : undefined} hint={`Cobrado ${mzn(flow.vatTotal)} · entregue ${mzn(flow.vatPaid)}. A entrega ao Estado regista-se como despesa com a categoria "IVA".`} />
+        <Kpi label="Capital de giro" value={mzn(flow.workingCapitalFilled)} hint={`Meta: ${mzn(flow.workingCapital)}`} color={flow.available >= flow.workingCapital ? '#10B981' : '#EF4444'} />
         <Kpi label="Valor a distribuir (SEAL)" value={mzn(flow.distributable)} />
         <Kpi label="Lucro líquido total" value={mzn(flow.years.reduce((a, y) => a + y.totals.profit, 0))} />
       </div>
@@ -49,18 +50,18 @@ export function FinanceOverview({ data }: { data: Summary }) {
       <div className="card p-4 overflow-x-auto">
         <h3 className="font-semibold text-sm mb-2">Situação financeira por ano</h3>
         <table className="w-full">
-          <thead><tr>{['Ano', '', 'DRE', 'Receita', 'Despesa', 'Saldo', 'Salários', 'Pró-labore', 'Lucro líquido', '% Lucro'].map((h, i) => <Th key={i} right={i > 1}>{h}</Th>)}</tr></thead>
+          <thead><tr>{['Ano', '', 'DRE', 'Receita (sem IVA)', 'IVA', 'Despesa', 'Saldo', 'Salários', 'Pró-labore', 'Lucro líquido', '% Lucro'].map((h, i) => <Th key={i} right={i > 1}>{h}</Th>)}</tr></thead>
           <tbody>
             {flow.years.flatMap((y) => [
               <tr key={y.year}>
                 <Td bold>{y.year}</Td><Td bold>Total</Td>
-                <Td right>{num(y.totals.dre)}</Td><Td right>{num(y.totals.revenue)}</Td><Td right>{num(y.totals.expense)}</Td>
+                <Td right>{num(y.totals.dre)}</Td><Td right>{num(y.totals.revenue)}</Td><Td right>{num(y.totals.vat)}</Td><Td right>{num(y.totals.expense)}</Td>
                 <Td right>{num(y.totals.balance)}</Td><Td right>{num(y.totals.salary)}</Td><Td right>{num(y.totals.proLabore)}</Td>
                 <Td right bold color={y.totals.profit >= 0 ? '#10B981' : '#EF4444'}>{num(y.totals.profit)}</Td><Td right>{pct(y.profitPct)}</Td>
               </tr>,
               <tr key={`${y.year}-m`}>
                 <Td /><Td>Média ({y.activeMonths} {y.activeMonths === 1 ? 'mês' : 'meses'})</Td>
-                <Td right>{num(y.averages.dre)}</Td><Td right>{num(y.averages.revenue)}</Td><Td right>{num(y.averages.expense)}</Td>
+                <Td right>{num(y.averages.dre)}</Td><Td right>{num(y.averages.revenue)}</Td><Td /><Td right>{num(y.averages.expense)}</Td>
                 <Td right>{num(y.averages.balance)}</Td><Td right>{num(y.averages.salary)}</Td><Td right>{num(y.averages.proLabore)}</Td>
                 <Td right>{num(y.averages.profit)}</Td><Td />
               </tr>,
@@ -291,11 +292,11 @@ export function FinanceMonths({ data, reload }: { data: Summary; reload: () => v
       <div className="card p-4 overflow-x-auto">
         <h3 className="font-semibold text-sm mb-2">Resumo financeiro {year}</h3>
         <table className="w-full">
-          <thead><tr>{['Mês', 'DRE', 'Receita', 'Despesa', 'Saldo', 'Salários', 'Pró-labore', 'Reinvest.', 'Imprev.', 'Lucro líquido', '% Lucro', 'Salários', ''].map((h, i) => <Th key={i} right={i > 0 && i < 11}>{h}</Th>)}</tr></thead>
+          <thead><tr>{['Mês', 'DRE', 'Receita (sem IVA)', 'IVA', 'Despesa', 'Saldo', 'Salários', 'Pró-labore', 'Reinvest.', 'Imprev.', 'Lucro líquido', '% Lucro', 'Salários', ''].map((h, i) => <Th key={i} right={i > 0 && i < 12}>{h}</Th>)}</tr></thead>
           <tbody>
             {months.map((m) => (
               <tr key={m.period}>
-                <Td bold>{monthLabel(m.period).split(' ')[0]}</Td><Td right>{num(m.dre)}</Td><Td right>{num(m.revenue)}</Td><Td right>{num(m.expense)}</Td><Td right>{num(m.balance)}</Td>
+                <Td bold>{monthLabel(m.period).split(' ')[0]}</Td><Td right>{num(m.dre)}</Td><Td right>{num(m.revenue)}</Td><Td right>{num(m.vat)}</Td><Td right>{num(m.expense)}</Td><Td right>{num(m.balance)}</Td>
                 <Td right>{num(m.salary)}</Td><Td right>{num(m.proLabore)}</Td><Td right>{num(m.reinvestment)}</Td><Td right>{num(m.reserve)}</Td>
                 <Td right bold color={m.profit >= 0 ? '#10B981' : '#EF4444'}>{num(m.profit)}</Td><Td right>{pct(m.profitPct)}</Td>
                 <Td><span style={{ color: statusColor(m.status), fontSize: 12, fontWeight: 600 }}>{m.status}</span></Td>

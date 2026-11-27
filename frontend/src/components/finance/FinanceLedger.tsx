@@ -216,9 +216,11 @@ export default function FinanceLedger({ data, reload }: { data: Summary; reload:
       </div>
 
       {month && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <Kpi label="Receita potencial" value={mzn(month.dre)} />
-          <Kpi label={month.vat ? `Receita (sem IVA ${mzn(month.vat)})` : 'Receita'} value={mzn(month.revenue)} color="#10B981" />
+          <Kpi label={month.vat ? 'Receita (sem IVA)' : 'Receita'} value={mzn(month.revenue)} color="#10B981" />
+          <Kpi label="IVA do mês" value={mzn(month.vat)} color={month.vat ? '#D97706' : undefined}
+            hint={month.vatPaid ? `Entregue ao Estado: ${mzn(month.vatPaid)}` : 'Entrega ao Estado: despesa com categoria "IVA"'} />
           <Kpi label="Despesas" value={mzn(month.expense)} color="#EF4444" />
           <Kpi label="Comissões" value={mzn(month.commissionTotal)} />
         </div>

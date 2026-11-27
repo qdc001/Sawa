@@ -136,7 +136,7 @@ export function StudentModal({ student, associates, creditName, creditValue, sha
           </label>
           {vat && Number(f.totalValue) > 0 && (
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Dos {mzn(Number(f.totalValue))}, {mzn(Math.round((Number(f.totalValue) * vatRate) / (1 + vatRate) * 100) / 100)} são IVA: a receita e as comissões contam só {mzn(Math.round(Number(f.totalValue) / (1 + vatRate) * 100) / 100)}.
+              Dos {mzn(Number(f.totalValue))}, {mzn(Math.round((Number(f.totalValue) * vatRate) / (1 + vatRate) * 100) / 100)} são IVA: a receita da empresa conta só {mzn(Math.round(Number(f.totalValue) / (1 + vatRate) * 100) / 100)}. As comissões contam o valor todo.
             </p>
           )}
           <label className="flex items-center gap-2 text-sm cursor-pointer mt-2">
@@ -247,14 +247,14 @@ export function SplitPreview({ student, value, rate, shares, vatRate = 0.16, ass
 }) {
   const d = defensePart(student.totalValue, studentShare(student, shares), student.paidAmount, value);
   const main = value - d;
-  // IVA incluido: a comissao conta so o valor sem IVA.
+  // IVA incluido: sai da receita, mas a comissao conta o valor todo.
   const net = student.vat ? 1 / (1 + vatRate) : 1;
   if (!associateName && !d && !student.vat) return null;
   return (
     <p className="text-xs p-2 rounded" style={{ background: 'var(--surface-2)' }}>
       {student.vat && <>Inclui <b>{mzn(Math.round(value * (1 - net) * 100) / 100)}</b> de IVA. </>}
-      {associateName && main > 0 && <>A comissão de <b>{mzn(Math.round(main * net * rate * 100) / 100)}</b> ({Math.round(rate * 100)}%{student.vat ? ' sem IVA' : ''}) vai para <b>{associateName}</b>. </>}
-      {d > 0 && <><b>{mzn(d)}</b> deste pagamento já é da parte da defesa: <b>{mzn(Math.round(d * net * rate * 100) / 100)}</b> vão para <b>{student.defenseAssociate?.name}</b>. </>}
+      {associateName && main > 0 && <>A comissão de <b>{mzn(Math.round(main * rate * 100) / 100)}</b> ({Math.round(rate * 100)}%) vai para <b>{associateName}</b>. </>}
+      {d > 0 && <><b>{mzn(d)}</b> deste pagamento já é da parte da defesa: <b>{mzn(Math.round(d * rate * 100) / 100)}</b> vão para <b>{student.defenseAssociate?.name}</b>. </>}
       Entra no salário de <b>{monthLabel(period)}</b>.
     </p>
   );

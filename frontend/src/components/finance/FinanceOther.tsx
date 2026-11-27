@@ -382,14 +382,18 @@ export function FinanceCoupons() {
 export function FinanceMine() {
   const [data, setData] = useState<{
     associate: { code: string; name: string } | null;
-    months: { period: string; commission: number; revenue: number; payments: number; defenseCommission: number; defenseAmount: number; defensePayments: number }[];
+    rate?: number;
+    months: { period: string; commission: number; revenue: number; vat: number; toDefense: number; payments: number; defenseCommission: number; defenseAmount: number; defensePayments: number }[];
     defenseStudents: { code: string; name: string; packageTier: string | null; totalValue: number; paidAmount: number; ledgerBalance: boolean; share: number; startsAt: number; received: number; commission: number }[];
   } | null>(null);
   useEffect(() => { api.get('/finance/me').then(({ data: d }) => setData(d)).catch((e) => toast.error(errMsg(e))); }, []);
   if (!data) return <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin" /></div>;
   if (!data.associate) return <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>A tua conta ainda não está ligada a um associado. Pede ao administrador para fazer a ligação.</div>;
   const hasDefense = data.defenseStudents.length > 0 || data.months.some((m) => m.defenseCommission);
-  const sum = (k: 'payments' | 'revenue' | 'commission' | 'defenseAmount' | 'defenseCommission') => data.months.reduce((a, m) => a + m[k], 0);
+  const sum = (k: 'payments' | 'revenue' | 'vat' | 'toDefense' | 'commission' | 'defenseAmount' | 'defenseCommission') => data.months.reduce((a, m) => a + (m[k] || 0), 0);
+  const hasVat = data.months.some((m) => m.vat);
+  const hasToDefense = data.months.some((m) => m.toDefense);
+  const pctRate = Math.round((data.rate ?? 0.25) * 100);
   return (
     <div className="space-y-4">
       <div className="card p-4 overflow-x-auto">
@@ -397,21 +401,27 @@ export function FinanceMine() {
         <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
           A tua comissão de cada pagamento recebido, no mês em que foi pago.{hasDefense && ' A preparação para defesa conta só a parte final de cada pacote.'}
         </p>
+        <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+          Comissão = percentagem da comissão (hoje {pctRate}%) × (valor recebido{hasToDefense ? ' − parte da defesa' : ''}).
+          {' '}Os meses com salários já pagos ficam com a percentagem desse mês.
+          {hasVat && ' O IVA vem dentro do valor recebido e conta para a comissão: só sai da receita da empresa.'}
+          {hasToDefense && ' A parte final dos pacotes vai para o associado da preparação para defesa.'}
+        </p>
         <table className="w-full">
           <thead><tr>
-            <Th>Mês</Th><Th right>Pagamentos</Th><Th right>Valor recebido</Th><Th right>Comissão</Th>
+            <Th>Mês</Th><Th right>Pagamentos</Th><Th right>Valor recebido</Th>{hasVat && <Th right>IVA</Th>}{hasToDefense && <Th right>Para a defesa</Th>}<Th right>Comissão</Th>
             {hasDefense && <><Th right>Parte da defesa</Th><Th right>Comissão da defesa</Th><Th right>Total</Th></>}
           </tr></thead>
           <tbody>
             {data.months.map((m) => (
               <tr key={m.period}>
-                <Td bold>{monthLabel(m.period)}</Td><Td right>{m.payments}</Td><Td right>{num(m.revenue)}</Td><Td right bold={!hasDefense}>{num(m.commission)}</Td>
+                <Td bold>{monthLabel(m.period)}</Td><Td right>{m.payments}</Td><Td right>{num(m.revenue)}</Td>{hasVat && <Td right>{num(m.vat)}</Td>}{hasToDefense && <Td right>{num(m.toDefense)}</Td>}<Td right bold={!hasDefense}>{num(m.commission)}</Td>
                 {hasDefense && <><Td right>{num(m.defenseAmount)}</Td><Td right>{num(m.defenseCommission)}</Td><Td right bold>{num(m.commission + m.defenseCommission)}</Td></>}
               </tr>
             ))}
             {data.months.length > 1 && (
               <tr>
-                <Td bold>Total</Td><Td right bold>{sum('payments')}</Td><Td right bold>{num(sum('revenue'))}</Td><Td right bold>{num(sum('commission'))}</Td>
+                <Td bold>Total</Td><Td right bold>{sum('payments')}</Td><Td right bold>{num(sum('revenue'))}</Td>{hasVat && <Td right bold>{num(sum('vat'))}</Td>}{hasToDefense && <Td right bold>{num(sum('toDefense'))}</Td>}<Td right bold>{num(sum('commission'))}</Td>
                 {hasDefense && <><Td right bold>{num(sum('defenseAmount'))}</Td><Td right bold>{num(sum('defenseCommission'))}</Td><Td right bold>{num(sum('commission') + sum('defenseCommission'))}</Td></>}
               </tr>
             )}

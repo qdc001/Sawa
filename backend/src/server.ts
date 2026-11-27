@@ -275,6 +275,21 @@ httpServer.listen(PORT, async () => {
     console.error('Falha a marcar contratos existentes:', e.message);
   }
 
+  // Comissoes dos estudantes com IVA passam a contar o valor todo (antes descontavam o IVA).
+  // Idempotente; os meses com salarios ja pagos ficam como estavam.
+  try {
+    const { closedPeriods, recalcStudentLedger } = await import('./lib/financeLedger');
+    const prismaV = (await import('./lib/prisma')).default;
+    const vatStudents = await prismaV.financeStudent.findMany({ where: { vat: true }, select: { id: true, workspaceId: true } });
+    const frozenBy = new Map<string, Set<string>>();
+    for (const st of vatStudents) {
+      if (!frozenBy.has(st.workspaceId)) frozenBy.set(st.workspaceId, await closedPeriods(prismaV, st.workspaceId));
+      await recalcStudentLedger(prismaV, st.id, { frozen: frozenBy.get(st.workspaceId) });
+    }
+  } catch (e: any) {
+    console.error('Falha a recalcular comissoes com IVA:', e.message);
+  }
+
   // Conversas que perderam o passo da Leiz numa junção de contactos LID (versao
   // anterior apagava o historico): reconstruir a partir da conversa. Idempotente.
   setTimeout(() => {

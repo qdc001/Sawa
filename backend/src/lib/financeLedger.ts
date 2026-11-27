@@ -45,15 +45,28 @@ type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0] | typeof pris
 // Recalcula um estudante a partir dos lancamentos ligados a ele.
 // Com saldo automatico: valor pago, parcelas, estado e a divisao da comissao (normal / defesa).
 // Sem saldo automatico (dados antigos da planilha) so desfaz uma divisao que tenha ficado de antes.
-export async function recalcStudentLedger(tx: Tx, studentId: string) {
+// Meses fechados: salarios marcados como pagos ou com algum pagamento de
+// salario registado. Mudar a percentagem da comissao, a parte da defesa ou o
+// IVA nas definicoes nao mexe nas comissoes desses meses (ja foram pagas).
+export async function closedPeriods(tx: Tx, workspaceId: string): Promise<Set<string>> {
+  const [rows, pays] = await Promise.all([
+    tx.financePayroll.findMany({ where: { workspaceId }, select: { period: true, status: true, paidMpesa: true, paidEmola: true, paidBim: true } }),
+    tx.financeSalaryPayment.findMany({ where: { workspaceId }, select: { period: true }, distinct: ['period'] }),
+  ]);
+  const out = new Set<string>(pays.map((p) => p.period));
+  for (const r of rows) if (r.status === 'Pago' || r.paidMpesa || r.paidEmola || r.paidBim) out.add(r.period);
+  return out;
+}
+
+export async function recalcStudentLedger(tx: Tx, studentId: string, opts: { frozen?: Set<string> } = {}) {
   const st = await tx.financeStudent.findUnique({ where: { id: studentId } });
   if (!st) return;
   const settings = await tx.financeSettings.findUnique({ where: { workspaceId: st.workspaceId } });
   const rate = settings?.commissionRate ?? 0.25;
-  // IVA incluido: a comissao conta so o valor sem IVA.
+  // IVA incluido no valor: sai da receita da empresa, mas a comissao conta o
+  // valor todo (os comissionistas nao sofrem o IVA).
   const vatRate = st.vat ? settings?.vatRate ?? 0.16 : 0;
   const vatOf = (v: number) => (vatRate ? round2((v * vatRate) / (1 + vatRate)) : 0);
-  const net = 1 / (1 + vatRate);
   const entries = await tx.financeEntry.findMany({
     where: { studentId, type: 'RECEITA' },
     orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
@@ -61,11 +74,12 @@ export async function recalcStudentLedger(tx: Tx, studentId: string) {
 
   if (!st.ledgerBalance) {
     for (const e of entries) {
+      if (opts.frozen?.has(e.period)) continue;
       const vatAmount = vatOf(e.revenue);
       if (!e.defenseAmount && !e.defenseCommission && !e.defenseAssociateId && vatAmount === e.vatAmount) continue;
       await tx.financeEntry.update({
         where: { id: e.id },
-        data: { defenseAmount: 0, defenseCommission: 0, defenseAssociateId: null, vatAmount, commission: e.associateId ? round2((e.revenue - vatAmount) * rate) : 0 },
+        data: { defenseAmount: 0, defenseCommission: 0, defenseAssociateId: null, vatAmount, commission: e.associateId ? round2(e.revenue * rate) : 0 },
       });
     }
     return;
@@ -75,6 +89,7 @@ export async function recalcStudentLedger(tx: Tx, studentId: string) {
   const parts = splitDefense(st.totalValue, share, entries.map((e) => e.revenue), st.openingPaid);
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
+    if (opts.frozen?.has(e.period)) continue;
     const vatAmount = vatOf(e.revenue);
     // Pagamentos antes de "ledgerSince" ficam com a comissao que tinham (ja foi paga); so o IVA se acerta.
     if (st.ledgerSince && (!e.date || e.date < st.ledgerSince)) {
@@ -84,9 +99,9 @@ export async function recalcStudentLedger(tx: Tx, studentId: string) {
     const d = parts[i];
     const want = {
       defenseAmount: d,
-      defenseCommission: d > 0 ? round2(d * net * rate) : 0,
+      defenseCommission: d > 0 ? round2(d * rate) : 0,
       defenseAssociateId: d > 0 ? st.defenseAssociateId : null,
-      commission: e.associateId ? round2((e.revenue - d) * net * rate) : 0,
+      commission: e.associateId ? round2((e.revenue - d) * rate) : 0,
       vatAmount,
     };
     if (want.defenseAmount !== e.defenseAmount || want.defenseCommission !== e.defenseCommission || want.vatAmount !== e.vatAmount

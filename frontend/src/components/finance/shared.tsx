@@ -45,20 +45,21 @@ export type Associate = { id: string; code: string; name: string; whatsapp?: str
 export type WalletLine = { in: number; out: number; salaries: number; net: number };
 export type Month = {
   period: string; dre: number; revenue: number; expense: number; balance: number;
-  commissions: Record<string, number>; commissionTotal: number; vat: number; newStudents: number; newStudentFee: number;
+  commissions: Record<string, number>; commissionTotal: number; vat: number; vatPaid: number; newStudents: number; newStudentFee: number;
   fixedSalaries: number; salary: number; proLabore: number; reinvestment: number; reserve: number;
   profit: number; profitPct: number | null; toPay: number; paid: number; status: string;
   wallets: Record<Wallet, WalletLine>; walletTotal: number; hasActivity: boolean;
 };
 export type Year = {
   year: string; months: number; activeMonths: number;
-  totals: Record<'dre' | 'revenue' | 'expense' | 'balance' | 'salary' | 'proLabore' | 'reinvestment' | 'reserve' | 'profit', number>;
+  totals: Record<'dre' | 'revenue' | 'vat' | 'vatPaid' | 'expense' | 'balance' | 'salary' | 'proLabore' | 'reinvestment' | 'reserve' | 'profit', number>;
   averages: Record<'dre' | 'revenue' | 'expense' | 'balance' | 'salary' | 'proLabore' | 'profit', number>;
   profitPct: number | null; wallets: Record<Wallet, number>; walletTotal: number;
 };
 export type FundKey = 'Previdencia' | 'Oportunidade' | 'Dono' | 'Expansao';
 export type Flow = {
   years: Year[]; walletTotals: Record<Wallet, number>; total: number;
+  vatTotal: number; vatPaid: number; vatOwed: number; available: number;
   workingCapital: number; workingCapitalFilled: number; distributable: number;
   afterCapitalByYear: Record<string, number>;
   funds: Record<FundKey, { pct: number; share: number; withdrawn: number; available: number }>;

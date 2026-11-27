@@ -31,7 +31,12 @@ export type CalcEntry = {
   defenseCommission?: number; defenseAssociateId?: string | null;
   // IVA incluido no pagamento: sai da receita (as carteiras recebem o valor todo).
   vatAmount?: number;
+  // Despesa com categoria "IVA" = entrega do IVA ao Estado: nao e despesa da
+  // empresa (a receita ja nao conta o IVA), so abate ao IVA por entregar.
+  category?: string | null;
 };
+
+export const isVatPayment = (category: string | null | undefined) => /^\s*iva(\s|$|[^a-z])/i.test(category || '');
 export type CalcPayroll = {
   period: string; proLabore: number; reinvestment: number; reserve: number; status: string;
   paidMpesa: number; paidEmola: number; paidBim: number;
@@ -47,7 +52,7 @@ export type WalletLine = { in: number; out: number; salaries: number; net: numbe
 export type MonthSummary = {
   period: string;
   dre: number; revenue: number; expense: number; balance: number;
-  commissions: Record<string, number>; commissionTotal: number; vat: number;
+  commissions: Record<string, number>; commissionTotal: number; vat: number; vatPaid: number;
   newStudents: number; newStudentFee: number; fixedSalaries: number;
   salary: number; proLabore: number; reinvestment: number; reserve: number;
   profit: number; profitPct: number | null;
@@ -58,7 +63,7 @@ export type MonthSummary = {
 
 export type YearSummary = {
   year: string; months: number; activeMonths: number;
-  totals: { dre: number; revenue: number; expense: number; balance: number; salary: number; proLabore: number; reinvestment: number; reserve: number; profit: number };
+  totals: { dre: number; revenue: number; vat: number; vatPaid: number; expense: number; balance: number; salary: number; proLabore: number; reinvestment: number; reserve: number; profit: number };
   averages: { dre: number; revenue: number; expense: number; balance: number; salary: number; proLabore: number; profit: number };
   profitPct: number | null;
   wallets: Record<Wallet, number>; walletTotal: number;
@@ -67,6 +72,8 @@ export type YearSummary = {
 export type Flow = {
   years: YearSummary[];
   walletTotals: Record<Wallet, number>; total: number;
+  // IVA cobrado e ainda nao entregue ao Estado: esta nas carteiras mas nao e da empresa.
+  vatTotal: number; vatPaid: number; vatOwed: number; available: number;
   workingCapital: number; workingCapitalFilled: number; distributable: number;
   afterCapitalByYear: Record<string, number>;
   funds: Record<'Previdencia' | 'Oportunidade' | 'Dono' | 'Expansao', { pct: number; share: number; withdrawn: number; available: number }>;
@@ -116,10 +123,11 @@ export function computeMonths(
   return periods.map((period) => {
     const list = entriesBy.get(period) || [];
     const wallets = emptyWallets();
-    let dre = 0, revenue = 0, expense = 0, commissionTotal = 0, vat = 0;
+    let dre = 0, revenue = 0, expense = 0, commissionTotal = 0, vat = 0, vatPaid = 0;
     const commissions: Record<string, number> = {};
     for (const e of list) {
-      dre += e.potentialRevenue; revenue += e.revenue - (e.vatAmount || 0); expense += e.expense; vat += e.vatAmount || 0;
+      dre += e.potentialRevenue; revenue += e.revenue - (e.vatAmount || 0); vat += e.vatAmount || 0;
+      if (e.expense && isVatPayment(e.category)) vatPaid += e.expense; else expense += e.expense;
       if (e.associateId) {
         commissions[e.associateId] = (commissions[e.associateId] || 0) + e.commission;
         commissionTotal += e.commission;
@@ -159,7 +167,7 @@ export function computeMonths(
       walletTotal += wallets[w].net;
     }
     return {
-      period, dre, revenue, expense, balance, commissions, commissionTotal, vat, newStudents, newStudentFee, fixedSalaries,
+      period, dre, revenue, expense, balance, commissions, commissionTotal, vat, vatPaid, newStudents, newStudentFee, fixedSalaries,
       salary, proLabore, reinvestment, reserve, profit, profitPct: revenue ? profit / revenue : null,
       toPay, paid, status, wallets, walletTotal,
       hasActivity: revenue !== 0 || expense !== 0,
@@ -173,7 +181,7 @@ export function computeFlow(months: MonthSummary[], investments: CalcInvestment[
     const ms = months.filter((m) => m.period.startsWith(year));
     const sum = (f: (m: MonthSummary) => number) => ms.reduce((a, m) => a + f(m), 0);
     const totals = {
-      dre: sum((m) => m.dre), revenue: sum((m) => m.revenue), expense: sum((m) => m.expense), balance: sum((m) => m.balance),
+      dre: sum((m) => m.dre), revenue: sum((m) => m.revenue), vat: sum((m) => m.vat), vatPaid: sum((m) => m.vatPaid || 0), expense: sum((m) => m.expense), balance: sum((m) => m.balance),
       salary: sum((m) => m.salary), proLabore: sum((m) => m.proLabore), reinvestment: sum((m) => m.reinvestment),
       reserve: sum((m) => m.reserve), profit: sum((m) => m.profit),
     };
@@ -200,6 +208,11 @@ export function computeFlow(months: MonthSummary[], investments: CalcInvestment[
   const walletTotals = {} as Record<Wallet, number>;
   for (const w of WALLETS) walletTotals[w] = summaries.reduce((a, y) => a + y.wallets[w], 0);
   const total = WALLETS.reduce((a, w) => a + walletTotals[w], 0);
+  const vatTotal = summaries.reduce((a, y) => a + y.totals.vat, 0);
+  const vatPaid = summaries.reduce((a, y) => a + y.totals.vatPaid, 0);
+  const vatOwed = Math.max(0, vatTotal - vatPaid);
+  // Dinheiro da empresa: o das carteiras menos o IVA que ainda e do Estado.
+  const available = total - vatOwed;
 
   const withdrawn = { Previdencia: 0, Oportunidade: 0, Dono: 0, Expansao: 0 };
   for (const inv of investments) {
@@ -207,7 +220,7 @@ export function computeFlow(months: MonthSummary[], investments: CalcInvestment[
   }
   const allWithdrawn = Object.values(withdrawn).reduce((a, b) => a + b, 0);
   const cg = cfg.workingCapital;
-  const distributable = total + allWithdrawn > cg ? total + allWithdrawn - cg : 0;
+  const distributable = available + allWithdrawn > cg ? available + allWithdrawn - cg : 0;
   const fund = (key: keyof typeof withdrawn, pct: number) => {
     const share = distributable * pct;
     return { pct, share, withdrawn: withdrawn[key], available: share - withdrawn[key] };
@@ -219,12 +232,12 @@ export function computeFlow(months: MonthSummary[], investments: CalcInvestment[
   for (const y of summaries) {
     const ratio = Math.min(y.walletTotal / cg, 1);
     const used = filled ? 0 : ratio;
-    afterCapitalByYear[y.year] = total < cg ? 0 : y.walletTotal - cg * used;
+    afterCapitalByYear[y.year] = available < cg ? 0 : y.walletTotal - cg * used;
     if (ratio === 1) filled = true;
   }
 
   return {
-    years: summaries, walletTotals, total, workingCapital: cg, workingCapitalFilled: Math.min(total, cg),
+    years: summaries, walletTotals, total, vatTotal, vatPaid, vatOwed, available, workingCapital: cg, workingCapitalFilled: Math.max(0, Math.min(available, cg)),
     distributable, afterCapitalByYear,
     funds: {
       Previdencia: fund('Previdencia', cfg.sealPrevidencia), Oportunidade: fund('Oportunidade', cfg.sealOportunidade),

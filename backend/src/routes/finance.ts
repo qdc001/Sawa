@@ -9,7 +9,7 @@ import { computeFlow, computeMonths, FinanceConfig, FixedSalary, normalizeWallet
 import { ParsedWorkbook, parseFinanceWorkbook, reconcile, SalaryPaymentCandidate, suggestSalaryPayments } from '../lib/financeImport';
 import { buildXlsx, XlsxSheet } from '../lib/xlsxWriter';
 import { planStudentLinks } from '../lib/financeLink';
-import { defenseShares, normalizeTier, openingFor, openingFromSums, PACKAGE_TIERS, recalcStudentLedger } from '../lib/financeLedger';
+import { closedPeriods, defenseShares, normalizeTier, openingFor, openingFromSums, PACKAGE_TIERS, recalcStudentLedger } from '../lib/financeLedger';
 import {
   adminOnly, assertPhase, getSettings, metaOnly, optDate, parseDate, Phase, phaseId, phaseLabel, phaseList,
   scopeStudents, studentDto, text,
@@ -63,7 +63,7 @@ async function loadSummary(workspaceId: string) {
   const [entries, payrolls, students, investments, associates, salaryPayments] = await Promise.all([
     prisma.financeEntry.findMany({
       where: { workspaceId },
-      select: { period: true, revenue: true, expense: true, potentialRevenue: true, commission: true, associateId: true, paymentMethod: true, defenseCommission: true, defenseAssociateId: true, vatAmount: true },
+      select: { period: true, revenue: true, expense: true, potentialRevenue: true, commission: true, associateId: true, paymentMethod: true, defenseCommission: true, defenseAssociateId: true, vatAmount: true, category: true },
     }),
     prisma.financePayroll.findMany({ where: { workspaceId } }),
     prisma.financeStudent.findMany({ where: { workspaceId }, select: { entryDate: true, sellerCredit: true } }),
@@ -177,7 +177,7 @@ router.get('/me', async (req: AuthRequest, res: Response, next) => {
     const [rows, def, students, settings] = await Promise.all([
       prisma.financeEntry.groupBy({
         by: ['period'], where: { workspaceId, associateId: associate.id },
-        _sum: { commission: true, revenue: true }, _count: { _all: true },
+        _sum: { commission: true, revenue: true, vatAmount: true, defenseAmount: true }, _count: { _all: true },
       }),
       prisma.financeEntry.groupBy({
         by: ['period'], where: { workspaceId, defenseAssociateId: associate.id },
@@ -190,17 +190,19 @@ router.get('/me', async (req: AuthRequest, res: Response, next) => {
       }),
       getSettings(workspaceId),
     ]);
-    type Row = { period: string; commission: number; revenue: number; payments: number; defenseCommission: number; defenseAmount: number; defensePayments: number };
+    // vat = IVA dentro do valor recebido; toDefense = parte final dos pacotes (vai para o associado de defesa).
+    type Row = { period: string; commission: number; revenue: number; vat: number; toDefense: number; payments: number; defenseCommission: number; defenseAmount: number; defensePayments: number };
     const by = new Map<string, Row>();
     const row = (period: string) => {
-      if (!by.has(period)) by.set(period, { period, commission: 0, revenue: 0, payments: 0, defenseCommission: 0, defenseAmount: 0, defensePayments: 0 });
+      if (!by.has(period)) by.set(period, { period, commission: 0, revenue: 0, vat: 0, toDefense: 0, payments: 0, defenseCommission: 0, defenseAmount: 0, defensePayments: 0 });
       return by.get(period)!;
     };
-    for (const r of rows) Object.assign(row(r.period), { commission: r._sum.commission || 0, revenue: r._sum.revenue || 0, payments: r._count._all });
+    for (const r of rows) Object.assign(row(r.period), { commission: r._sum.commission || 0, revenue: r._sum.revenue || 0, vat: r._sum.vatAmount || 0, toDefense: r._sum.defenseAmount || 0, payments: r._count._all });
     for (const r of def) Object.assign(row(r.period), { defenseCommission: r._sum.defenseCommission || 0, defenseAmount: r._sum.defenseAmount || 0, defensePayments: r._count._all });
     const shares = defenseShares(settings);
     res.json({
       associate: { code: associate.code, name: associate.name },
+      rate: settings.commissionRate,
       months: [...by.values()].sort((a, b) => b.period.localeCompare(a.period)),
       defenseStudents: students.map((st) => {
         const share = st.packageTier ? Math.min(shares[st.packageTier] || 0, st.totalValue) : 0;
@@ -1018,7 +1020,9 @@ router.put('/settings', adminOnly, async (req: AuthRequest, res: Response, next)
       const list = await prisma.financeStudent.findMany({
         where: { workspaceId, OR: [{ ledgerBalance: true }, ...(data.vatRate !== undefined ? [{ vat: true }] : [])] }, select: { id: true },
       });
-      for (const st of list) await recalcStudentLedger(prisma, st.id);
+      // Meses com salarios ja pagos ficam como estavam: a mudanca vale daqui para a frente.
+      const frozen = await closedPeriods(prisma, workspaceId);
+      for (const st of list) await recalcStudentLedger(prisma, st.id, { frozen });
     }
     res.json({ ...saved, defenseShares: defenseShares(saved) });
   } catch (e) { next(e); }
