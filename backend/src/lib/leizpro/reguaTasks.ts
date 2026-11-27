@@ -98,11 +98,15 @@ export async function syncPayTask(workspaceId: string, contactId: string, st: Le
     const t = existing.find((x) => x.description?.includes(tag));
     const { paySentAt } = await import('./pipeline');
     const sent = await paySentAt(contactId);
+    // Reactivacao: o pagamento fica marcado como feito sem follow-up de pagamento
+    // (a proxima mensagem e a Reactivacao), por isso nao ha tarefa de pagamento.
+    const reactivation = active.sent && !sent;
     if (t) {
       if (sent && t.status !== 'COMPLETED') await prisma.task.update({ where: { id: t.id }, data: { status: 'COMPLETED', completedAt: new Date() } });
+      else if (reactivation && t.status !== 'COMPLETED') await prisma.task.delete({ where: { id: t.id } });
       return;
     }
-    if (sent) return;
+    if (sent || reactivation) return;
     const lead = await prisma.lead.findFirst({ where: { workspaceId, contactId }, orderBy: { createdAt: 'desc' }, select: { id: true, assignedToId: true } });
     const assignee = lead?.assignedToId || (await prisma.user.findFirst({
       where: { workspaceId, role: { in: ['OWNER', 'ADMIN'] } }, orderBy: { createdAt: 'asc' }, select: { id: true },

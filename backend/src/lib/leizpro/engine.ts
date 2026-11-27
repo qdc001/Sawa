@@ -1902,7 +1902,13 @@ export async function syncLeizFromTeam(workspaceId: string, contactId: string, l
   // contam como feitos), e nao um follow-up normal fora de tempo.
   const fuStage: FuStage = st.step === 'paying' ? 'pay' : st.step === 'pdf_sent' ? 'package' : st.step === 'ask_online' || st.step === 'ask_commitment' ? 'online' : 'course';
   if (o.reactivate) { st = { ...st, regua: null, payFollow: st.step === 'paying' ? { at: new Date().toISOString(), sent: true } : null }; what += ' · Reactivacao'; }
-  const next: LeizProState = { ...st, retries: 0, fu: o.reactivate ? { stage: fuStage, n: 3 } : null };
+  let next: LeizProState = { ...st, retries: 0, fu: o.reactivate ? { stage: fuStage, n: 3 } : null };
+  // Fica com a equipa: a Leiz nao manda regua nem follow-ups (27/11: contactos com
+  // tarefa ficavam com a regua agendada e a Sherone ia escrever-lhes).
+  if (!o.leiz && next.step !== 'handoff') {
+    next = { ...next, step: 'handoff', regua: null, payFollow: null, fu: null };
+    what += ' · fica com a equipa';
+  }
   await prisma.aiSalesSuggestion.create({
     data: {
       workspaceId, contactId, leadId,
@@ -1915,6 +1921,10 @@ export async function syncLeizFromTeam(workspaceId: string, contactId: string, l
       status: 'APPROVED', decidedAt: new Date(),
     },
   });
+  // Tarefas da regua e do pagamento conforme o novo estado (apaga as que ja nao valem).
+  const { syncReguaTasks, syncPayTask } = await import('./reguaTasks');
+  await syncReguaTasks(workspaceId, contactId, next);
+  await syncPayTask(workspaceId, contactId, next);
   return what;
 }
 

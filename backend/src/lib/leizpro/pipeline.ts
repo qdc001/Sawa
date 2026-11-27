@@ -204,6 +204,8 @@ export async function applyStages(workspaceId: string, text: string): Promise<{ 
       if (/^pacote\s+/i.test(op)) { opt.pkg = op.replace(/^pacote\s+/i, '').trim(); continue; }
       if (/^leiz$/i.test(op)) { opt.leiz = true; continue; }
       if (/^reactivar$/i.test(op)) { opt.reactivate = true; opt.leiz = true; continue; }
+      // "equipa": fica com a equipa (a Leiz nao escreve), sem criar tarefa.
+      if (/^equipa$/i.test(op)) { opt.leiz = false; continue; }
       if (/^tarefa\s+/i.test(op)) { opt.task = op.replace(/^tarefa\s+/i, '').trim(); continue; }
       if (op) errors.push(`${ref}: opção "${op.slice(0, 40)}" ignorada`);
     }
