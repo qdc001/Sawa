@@ -751,6 +751,36 @@ router.post('/reset-context', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/sales-agent/leizpro/send-packages
+// Botao "Enviar pacotes" no Inbox: manda o PDF dos pacotes do catalogo (o mesmo
+// que a Sherone envia) sem ter de procurar o ficheiro no computador.
+// Body: { contactId: string, leadId?: string, text?: string (mensagem depois do PDF) }
+router.post('/leizpro/send-packages', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, leadId, text } = req.body || {};
+    if (!contactId || typeof contactId !== 'string') throw new AppError('contactId obrigatorio', 400);
+    const workspaceId = req.user!.workspaceId;
+    const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { id: true, whatsapp: true, phone: true } });
+    if (!contact) throw new AppError('Contacto nao encontrado neste workspace', 404);
+    const phone = contact.whatsapp || contact.phone;
+    if (!phone) throw new AppError('O contacto nao tem numero de WhatsApp', 400);
+    const { findPackagesPdf } = await import('../lib/leizpro/engine');
+    const pdf = await findPackagesPdf(workspaceId);
+    if (!pdf) throw new AppError('Nao ha PDF dos pacotes no catalogo (produto com "pacote" no nome e um PDF)', 400);
+    const files = await prisma.file.findMany({ where: { id: { in: pdf.fileIds } } });
+    const { dispatchSalesParts } = await import('../lib/autoDispatchSalesSuggestion');
+    const after = typeof text === 'string' && text.trim() ? [text.trim().slice(0, 1500)] : [];
+    const r = await dispatchSalesParts({
+      workspaceId, contactId, contactPhone: phone, leadId: leadId || null,
+      parts: ['<<PDF>>', ...after],
+      productFiles: files.map((f) => ({ id: f.id, url: f.url, type: f.mimeType, name: f.name })),
+      sentById: req.user!.id, io: (global as any).io,
+    });
+    if (r.error) throw new AppError(`Nao chegou ao destinatario: ${r.error}`, 502);
+    res.json({ ok: true, sent: r.sentMessageIds.length });
+  } catch (e) { next(e); }
+});
+
 // POST /api/sales-agent/leizpro/hand-back
 // "Devolver a Leiz": a equipa atendeu a mao e devolve a conversa a Sherone.
 // Ela le a conversa (pacotes, pagamento, boas-vindas do acesso) para retomar no

@@ -1084,6 +1084,22 @@ export default function InboxPage() {
     }
   };
 
+  // "Enviar pacotes": o PDF dos pacotes do catalogo (o mesmo da Sherone), sem
+  // procurar o ficheiro no computador.
+  const [sendingPackages, setSendingPackages] = useState(false);
+  const sendPackagesPdf = async (contactId: string, leadId?: string | null, name?: string | null) => {
+    if (!window.confirm(`Enviar o PDF dos pacotes${name ? ` a ${name}` : ''}?`)) return;
+    setSendingPackages(true);
+    try {
+      await api.post('/sales-agent/leizpro/send-packages', { contactId, leadId: leadId || undefined });
+      toast.success('PDF dos pacotes enviado.');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a enviar o PDF dos pacotes');
+    } finally {
+      setSendingPackages(false);
+    }
+  };
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
 
@@ -3200,6 +3216,13 @@ export default function InboxPage() {
                   <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" title="Anexar ficheiro">
                     {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} style={{ color: 'var(--text-muted)' }} />}
                   </button>
+                  {!isInternalNote && selected?.contact?.id && (
+                    <button type="button" disabled={sendingPackages}
+                      onClick={() => sendPackagesPdf(selected.contact!.id, selected.leadId, [selected.contact!.firstName, selected.contact!.lastName].filter(Boolean).join(' '))}
+                      className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" title="Enviar pacotes (PDF do catálogo)">
+                      {sendingPackages ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} style={{ color: 'var(--text-muted)' }} />}
+                    </button>
+                  )}
                   <div className="relative flex-shrink-0">
                     <button type="button" onClick={() => setShowEmoji(!showEmoji)} className="p-1 rounded-lg hover:bg-slate-100" title="Emojis">
                       <Smile size={18} style={{ color: showEmoji ? 'var(--primary)' : 'var(--text-muted)' }} />

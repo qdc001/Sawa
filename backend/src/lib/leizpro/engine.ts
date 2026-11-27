@@ -1730,7 +1730,7 @@ export async function generateLeizProFollowup(opts: { workspaceId: string; conta
 
 // ---- PDF dos pacotes ------------------------------------------------------------
 // Produto activo do catalogo cujo nome tem "pacote", com pelo menos um PDF.
-async function findPackagesPdf(workspaceId: string): Promise<{ productId: string; fileIds: string[] } | null> {
+export async function findPackagesPdf(workspaceId: string): Promise<{ productId: string; fileIds: string[] } | null> {
   const products = await prisma.product.findMany({
     where: { workspaceId, isActive: true, name: { contains: 'pacote', mode: 'insensitive' } },
     select: { id: true, files: { where: { mimeType: 'application/pdf' }, select: { id: true }, orderBy: { createdAt: 'desc' }, take: 1 } },
