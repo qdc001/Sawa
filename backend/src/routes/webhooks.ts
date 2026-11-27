@@ -628,6 +628,12 @@ router.post('/evolution', async (req: Request, res: Response) => {
             lidLogCount++;
             console.log(`[evo] msg de LID ${rawRemoteJid.slice(0, 18)} -> ${alt ? 'numero real ' + alt.slice(0, 18) : 'SEM numero real'} | key=${JSON.stringify(m.key)}`);
           }
+        } else if (rawRemoteJid.endsWith('@s.whatsapp.net')) {
+          // Ao contrario: chega do numero real e o alternativo e o LID (a conversa
+          // que conhecemos so pelo LID). Liga os dois em vez de criar outro contacto.
+          const altLid = [m.key?.remoteJidAlt, m.key?.senderLid, m.senderLid]
+            .find((x) => typeof x === 'string' && x.endsWith('@lid')) as string | undefined;
+          if (altLid) lidDigits = altLid.split('@')[0].replace(/\D/g, '');
         }
         if (!remoteJid) continue;
         if (remoteJid.endsWith('@broadcast')) continue; // ignorar broadcast lists

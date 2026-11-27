@@ -9,8 +9,8 @@ import { Loader2, Users as UsersIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../lib/api';
 
-type Option = { id: string; name: string; phone4: string; minutesBefore: number; nameMatch: boolean };
-type Candidate = { id: string; name: string; firstMessage: string; firstAt: string; options: Option[] };
+type Option = { id: string; fromId: string; toId: string; name: string; phone4: string; minutesBefore: number; nameMatch: boolean };
+type Candidate = { id: string; name: string; phone4?: string; firstMessage: string; firstAt: string; options: Option[] };
 
 function ago(min: number): string {
   if (min < 60) return `${min} min antes`;
@@ -41,13 +41,14 @@ export default function LidDuplicatesPanel() {
   };
 
   const merge = async (c: Candidate) => {
-    const toId = choice[c.id];
-    if (!toId) return;
-    const to = c.options.find((o) => o.id === toId);
-    if (!window.confirm(`Juntar "${c.name}" em "${to?.name}" (…${to?.phone4})? As mensagens passam para esse contacto e o duplicado é apagado. Não se pode desfazer.`)) return;
+    const opt = c.options.find((o) => o.id === choice[c.id]);
+    if (!opt) return;
+    const keep = opt.toId === c.id ? `${c.name}${c.phone4 ? ` (…${c.phone4})` : ''}` : `${opt.name} (…${opt.phone4})`;
+    const drop = opt.fromId === c.id ? c.name : opt.name;
+    if (!window.confirm(`Juntar "${drop}" em "${keep}"? As mensagens passam para "${keep}" e o duplicado é apagado. Não se pode desfazer.`)) return;
     setMerging(c.id);
     try {
-      const { data } = await api.post('/integrations/evolution/lid-merge', { pairs: [{ fromId: c.id, toId }] });
+      const { data } = await api.post('/integrations/evolution/lid-merge', { pairs: [{ fromId: opt.fromId, toId: opt.toId }] });
       if (data.errors?.length) throw new Error(data.errors[0]);
       toast.success(`"${c.name}" juntado`);
       setResult((r) => (r ? { ...r, candidates: r.candidates.filter((x) => x.id !== c.id) } : r));
@@ -75,7 +76,7 @@ export default function LidDuplicatesPanel() {
           {result.autoLinked.map((a) => <div key={a}>✓ {a}</div>)}
           {result.candidates.map((c) => (
             <div key={c.id} className="p-2 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-              <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{c.name}</div>
+              <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{c.name}{c.phone4 ? ` (…${c.phone4})` : ' (só LID)'}</div>
               <div className="mb-1">1.ª mensagem: “{c.firstMessage}” · {new Date(c.firstAt).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
               {c.options.length === 0 && <div>Sem candidatos (deve ser um contacto novo).</div>}
               {c.options.map((o) => (

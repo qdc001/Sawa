@@ -1230,8 +1230,14 @@ router.get('/evolution/lid-duplicates', async (req: AuthRequest, res: Response, 
     const candidates: any[] = [];
     const { isTriggerText } = await import('../lib/leizpro/engine');
     const recent = Date.now() - 60 * 86_400_000;
-    for (const c of pending) {
+    // Duas direccoes: um LID novo que responde por alguem com numero, ou um
+    // numero novo que responde por alguem que so conhecemos pelo LID (27/11,
+    // Jurelma: conversa no LID 4462, o "Ta bem" chegou do numero real).
+    const lidIds = new Set(lidOnly.map((x) => x.id));
+    const newcomers = [...pending, ...real];
+    for (const c of newcomers) {
       if (candidates.length >= 150) break;
+      const cIsLid = lidIds.has(c.id);
       const firstIn = await prisma.message.findFirst({
         where: { contactId: c.id, direction: 'INBOUND' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true, content: true },
       });
@@ -1257,7 +1263,8 @@ router.get('/evolution/lid-duplicates', async (req: AuthRequest, res: Response, 
       }
       const scored: any[] = [];
       for (const [cid, info] of byContact) {
-        const rc = real.find((x) => x.id === cid);
+        // Pares LID <-> numero: o outro lado tem de ser do tipo contrario.
+        const rc = cIsLid ? real.find((x) => x.id === cid) : pending.find((x) => x.id === cid);
         if (!rc) continue;
         // Respondeu do numero depois da nossa mensagem: nao e ele.
         const answered = await prisma.message.findFirst({ where: { contactId: cid, direction: 'INBOUND', createdAt: { gt: info.last } }, select: { id: true } });
@@ -1265,11 +1272,16 @@ router.get('/evolution/lid-duplicates', async (req: AuthRequest, res: Response, 
         const rcName = norm([rc.firstName, rc.lastName].filter(Boolean).join(' '));
         const nameHit = !!name && (rcName.includes(name) || norm(info.text).includes(name));
         const mins = Math.round((firstIn.createdAt.getTime() - info.last.getTime()) / 60000);
-        scored.push({ id: rc.id, name: [rc.firstName, rc.lastName].filter(Boolean).join(' '), phone4: (rc.whatsapp || '').slice(-4), minutesBefore: mins, nameMatch: nameHit, score: (nameHit ? 1000 : 0) - mins });
+        // Fica sempre o contacto com o numero real; o LID e juntado nele.
+        const fromId = cIsLid ? c.id : rc.id;
+        const toId = cIsLid ? rc.id : c.id;
+        scored.push({ id: rc.id, fromId, toId, name: [rc.firstName, rc.lastName].filter(Boolean).join(' '), phone4: (rc.whatsapp || '').slice(-4), minutesBefore: mins, nameMatch: nameHit, score: (nameHit ? 1000 : 0) - mins });
       }
       scored.sort((a, b) => b.score - a.score);
+      // Numero novo sem nenhum LID por responder antes dele: nao ha nada a juntar.
+      if (!cIsLid && !scored.length) continue;
       candidates.push({
-        id: c.id, name: [c.firstName, c.lastName].filter(Boolean).join(' '),
+        id: c.id, name: [c.firstName, c.lastName].filter(Boolean).join(' '), phone4: cIsLid ? '' : (c.whatsapp || '').slice(-4),
         firstMessage: (firstIn.content || '').slice(0, 80), firstAt: firstIn.createdAt,
         options: scored.slice(0, 3),
       });
