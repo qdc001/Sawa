@@ -24,7 +24,8 @@ import {
 } from './guide';
 import { loadTexts, type Texts } from './texts';
 import { subjectListOnly, findSubjects, NOT_YES } from './understand';
-import { understand, norm, LEIZPRO_MODEL, type Understanding, type Slot as AskSlot } from './understand';
+import { understand, norm, LEIZPRO_MODEL, presentIn, validName, titleCase, type Understanding, type Intent, type Slot as AskSlot } from './understand';
+import { askVertex, vertexEnabled, vertexModel } from './vertex';
 import { examSubjects, examOptions, findCourseIn } from './courses';
 import { syncStage } from './pipeline';
 import { proposeSlots, decisionSlot, parseTimeChoice, slotLabel, type Slot } from './schedule';
@@ -528,7 +529,7 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
   // meio do guia: nao e um "sim" nem uma resposta a pergunta. Uma pessoa
   // responde (26/11: lido como "sim" ao Premio Embaixador).
   if (st.step !== 'start' && words.length <= 8
-      && /\b(e (voce|tu|contigo|consigo)|como (esta|estas|vai|vais))( esta| estas| bem)?\W*$/.test(text)) {
+      && /\b(e (voce|tu|contigo|consigo)|como (esta|estas|vai|vais))( esta| estas)?( bem)?\W*$/.test(text)) {
     return handoff(st, `respondeu com um cumprimento ("${rawText.trim().slice(0, 60)}"): a equipa continua a conversa`);
   }
 
@@ -962,6 +963,134 @@ function expectingFor(st: LeizProState): string {
   }
 }
 
+// ---- Segunda opiniao (Gemini no Vertex) -----------------------------------------
+// A Leiz responde sozinha quando uma regra testada reconheceu a mensagem. Quando
+// o modelo local teve de adivinhar (intencao ou dados lidos so por ele), ou a
+// conversa ia para a equipa sem uma regra, o motor calcula todas as respostas do
+// guia possiveis nesta etapa e o Gemini escolhe a certa, ou passa a equipa.
+const CANDIDATE_INTENTS: Intent[] = [
+  'saudacao', 'da_dados', 'pergunta_preco', 'acha_caro', 'sem_dinheiro', 'prefere_presencial', 'problema_acesso',
+  'problema_link', 'quer_pagar', 'ja_pagou', 'pagamento_seguro', 'vai_passar', 'muito_basico', 'horario_apoio',
+  'telemovel_fraco', 'partilhar_conta', 'nao_percebi', 'desconfianca', 'nao_sei', 'sim', 'nao', 'duvida',
+  'super_nerd', 'sem_chamada', 'outra_hora', 'vidas', 'instalar_app', 'problema_codigo', 'cobre_exame',
+  'universidade_fora', 'pagar_outra_pessoa', 'indicar_amigo', 'nao_abriu', 'gratis', 'porque_pergunta', 'e_ia',
+  'quer_agora', 'escolhe_pacote', 'criar_conta', 'conta_criada', 'gostou', 'esqueci_senha', 'trocar_disciplinas',
+  'acesso_acabou', 'paguei_errado', 'como_funciona', 'outro',
+];
+
+export type SecondOpinion = {
+  used: boolean;
+  why: string;              // porque foi pedida
+  choice?: number;          // opcao escolhida (0 = equipa)
+  options?: number;
+  confidence?: string;
+  motive?: string;
+  usd?: number;
+  ms?: number;
+  error?: string;
+};
+
+// A Leiz tem a certeza? (regra testada, sem dados lidos so pelo modelo local)
+export function needsSecondOpinion(st: LeizProState, u: Understanding, d: Decision, rawText: string): string | null {
+  if (!/[A-Za-zÀ-ÿ]{2,}/.test(rawText.replace(/\[(IMAGE|VIDEO|DOCUMENT|AUDIO)\]/g, ''))) return null; // so media/emoji
+  if (d.action === 'wait') return null;
+  if (['start', 'handoff'].includes(st.step)) return null;
+  const modelFields = u.modelFields || [];
+  if (modelFields.length) return `dados lidos so pelo modelo local (${modelFields.join(', ')})`;
+  // Mensagem longa, ou com uma pergunta que a resposta da regra nao trata
+  // ("gostei dos pacotes mas... da para os dois?"): a regra pode ter lido so uma parte.
+  const words = rawText.trim().split(/\s+/).length;
+  if (words > 18) return `mensagem longa (${words} palavras)`;
+  if (rawText.includes('?') && words > 6 && ['sim', 'nao', 'gostou', 'saudacao', 'da_dados', 'escolhe_pacote', 'outro'].includes(u.intent)) {
+    return `pergunta junto com "${u.intent}"`;
+  }
+  if (u.intentSource === 'rule') return null;
+  // Resposta com dados que as regras leram (nome, universidade, disciplinas...).
+  if (u.intent === 'da_dados') return null;
+  if (d.action === 'handoff') return `ia passar a equipa sem regra (${d.reason.slice(0, 80)})`;
+  return `intencao "${u.intent}" adivinhada pelo modelo local`;
+}
+
+function optionText(d: Decision): string {
+  if (d.action === 'handoff') return 'PASSAR A CONVERSA A EQUIPA (nao responder nada)';
+  return d.parts.map((p) => (p.trim() === PDF_MARK ? '[envia o PDF dos pacotes]' : p)).join(' || ').replace(/\s+/g, ' ').slice(0, 900);
+}
+
+const SO_SYSTEM = [
+  'Es a supervisora da Sherone, assistente de vendas da Zona Nerd (explicacoes online para exames de admissao em Mocambique).',
+  'Recebes a conversa, a mensagem nova do estudante e uma lista numerada de respostas possiveis, todas tiradas do guia oficial.',
+  'Escolhe a resposta que responde de forma certa e natural a mensagem nova, no ponto em que a conversa esta.',
+  'Escolhe 0 (passar a equipa) quando nenhuma resposta serve, quando a resposta escolhida ignoraria uma pergunta ou pedido do estudante,',
+  'quando ha reclamacao, comprovativo ou problema de pagamento que so a equipa confirma, ou quando a mensagem e sobre outro assunto.',
+  'Nunca inventes texto. Indica tambem os dados do estudante que a mensagem nova disser (so palavras que estao la; senao null).',
+  'Responde SO com JSON: {"opcao": numero, "confianca": "alta"|"media"|"baixa", "nome": texto|null, "universidade": texto|null, "curso": texto|null, "motivo": "uma frase curta"}.',
+].join(' ');
+
+export async function secondOpinion(st: LeizProState, u: Understanding, d: Decision, rawText: string, history: string[], why: string):
+  Promise<{ d: Decision; so: SecondOpinion }> {
+  const so: SecondOpinion = { used: false, why };
+  // Todas as respostas possiveis nesta etapa (o motor e deterministico).
+  const options: { d: Decision; intent: Intent | null }[] = [];
+  const seen = new Set<string>();
+  const cands: { d: Decision | null; intent: Intent | null }[] = [{ d, intent: null }, ...CANDIDATE_INTENTS.map((i) => {
+    try { return { d: decide(st, { ...u, intent: i, intentSource: 'model' }, rawText), intent: i }; } catch { return { d: null, intent: i }; }
+  })];
+  for (const c of cands) {
+    if (!c.d || c.d.action === 'handoff' || c.d.action === 'wait' || hasPlaceholders(c.d.parts)) continue;
+    const key = optionText(c.d);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    options.push({ d: c.d, intent: c.intent ?? (u.intent as Intent) });
+  }
+  so.options = options.length;
+  if (!options.length) return { d, so };
+  const prompt = [
+    `Etapa: a equipa acabou de perguntar ${expectingFor(st)}.`,
+    `Dados que ja temos: nome=${st.name || '?'}, universidade=${st.university || '?'}, curso=${st.course || '?'}, pacote=${st.pkg || '?'}.`,
+    history.length ? `Conversa (da mais antiga para a mais recente):\n${history.join('\n')}` : 'Sem conversa anterior.',
+    `Mensagem nova do estudante:\n${rawText.slice(0, 1200)}`,
+    'Respostas possiveis:',
+    '0. PASSAR A CONVERSA A EQUIPA (nao responder nada)',
+    ...options.map((o, i) => `${i + 1}. ${optionText(o.d)}`),
+  ].join('\n');
+  try {
+    const r = await askVertex(SO_SYSTEM, prompt);
+    so.used = true;
+    so.usd = r.usd;
+    so.ms = r.ms;
+    const n = Number(r.json?.opcao);
+    so.choice = Number.isInteger(n) && n >= 0 && n <= options.length ? n : 0;
+    so.confidence = String(r.json?.confianca || '');
+    so.motive = String(r.json?.motivo || '').slice(0, 200);
+    if (so.choice === 0 || so.confidence === 'baixa') {
+      return { d: handoff(st, `a supervisora (Gemini) achou melhor a equipa responder: ${so.motive || 'sem motivo'}`), so };
+    }
+    const pick = options[so.choice - 1];
+    let chosen = pick.d;
+    // Dados que so o modelo local leu: valem os do Gemini (se estiverem na mensagem).
+    const mf = u.modelFields || [];
+    if (mf.length) {
+      const name = validName(presentIn(r.json?.nome, rawText));
+      const uni = presentIn(r.json?.universidade, rawText);
+      const course = presentIn(r.json?.curso, rawText);
+      const fixed: Understanding = {
+        ...u,
+        name: mf.includes('name') ? name : u.name,
+        university: mf.includes('university') ? uni : u.university,
+        course: mf.includes('course') ? (course ? titleCase(course) : null) : u.course,
+      };
+      if (fixed.name !== u.name || fixed.university !== u.university || fixed.course !== u.course) {
+        const re = decide(st, { ...fixed, intent: pick.intent || u.intent, intentSource: 'model' }, rawText);
+        if (re.action === 'handoff' || re.action === 'wait' || !hasPlaceholders(re.parts)) chosen = re;
+      }
+    }
+    return { d: { ...chosen, reason: `${chosen.reason} [Gemini: opcao ${so.choice}/${options.length}, ${so.confidence}: ${so.motive}]` }, so };
+  } catch (e: any) {
+    so.error = e?.name === 'AbortError' ? 'timeout' : String(e?.message || e).slice(0, 200);
+    return { d, so };
+  }
+}
+
 // Uma volta completa (compreensao + decisao + verificacao). Exportada para o
 // simulador de testes (scripts/leizProSimulate.ts) usar exactamente o mesmo caminho.
 export async function runTurn(state: LeizProState, text: string, workspaceId?: string, history: string[] = []) {
@@ -971,13 +1100,21 @@ export async function runTurn(state: LeizProState, text: string, workspaceId?: s
   if (d.action !== 'handoff' && d.action !== 'wait' && hasPlaceholders(d.parts)) {
     d = handoff(state, 'a resposta ficou com campos por preencher');
   }
+  // Sem certeza: o Gemini escolhe entre as respostas do guia (se estiver ligado).
+  let so: SecondOpinion | null = null;
+  // Sem Vertex ligado fica so registado o motivo (para medir quantas iriam).
+  const why = needsSecondOpinion(state, u, d, text);
+  if (why) {
+    if (vertexEnabled()) ({ d, so } = await secondOpinion(state, u, d, text, history, why));
+    else so = { used: false, why };
+  }
   // A regua so continua enquanto ele esta a decidir o pacote (pdf_sent).
   if (d.next.step !== 'pdf_sent') d.next = { ...d.next, regua: null };
   // O follow-up de pagamento so existe enquanto ele esta a pagar.
   if (d.next.step !== 'paying') d.next = { ...d.next, payFollow: null };
   // Respondeu: os follow-ups da etapa recomecam do zero (na etapa onde ficar).
   d.next = { ...d.next, fu: null };
-  return { u, d };
+  return { u, d, so };
 }
 
 // ---- Acesso activo (guia v34, Fluxo 7) -----------------------------------------
@@ -1758,7 +1895,7 @@ export async function generateLeizProSuggestion(opts: {
     if (!isTriggerText(first?.content || '')) return null;
   }
 
-  let { u, d } = await runTurn(state, text, opts.workspaceId, await recentHistory(opts.contactId));
+  let { u, d, so } = await runTurn(state, text, opts.workspaceId, await recentHistory(opts.contactId));
 
   // PDF dos pacotes: do catalogo; sem ele, os pacotes em texto.
   let productId: string | null = null;
@@ -1779,6 +1916,8 @@ export async function generateLeizProSuggestion(opts: {
     `Passo ${state.step} -> ${d.next.step}.`,
     `Intencao: ${u.intent} (${u.intentSource}).`,
     u.modelError ? `Modelo local indisponivel: ${u.modelError}.` : '',
+    so?.used ? `Segunda opiniao (${vertexModel()}): ${so.why}.` : '',
+    so?.error ? `Gemini indisponivel (${so.error}): ficou a leitura do modelo local.` : '',
   ].filter(Boolean).join(' ');
 
   const suggestion = await prisma.aiSalesSuggestion.create({
@@ -1791,10 +1930,10 @@ export async function generateLeizProSuggestion(opts: {
       action,
       productId,
       productFileIds: productFileIds as any,
-      actionPayload: { leizpro: d.next, understood: { ...u }, ...(d.notify ? { notify: d.notify } : {}) } as any,
+      actionPayload: { leizpro: d.next, understood: { ...u }, ...(so ? { secondOpinion: so } : {}), ...(d.notify ? { notify: d.notify } : {}) } as any,
       reasoning,
       principlesUsed: [] as any,
-      modelUsed: `leizpro:${u.modelUsed || 'regras'}`,
+      modelUsed: `leizpro:${so?.used ? vertexModel() : (u.modelUsed || 'regras')}`,
       // "Nao responder" nao precisa de decisao: fica ja resolvida.
       status: d.action === 'wait' ? 'APPROVED' : 'PENDING',
       ...(d.action === 'wait' ? { decidedAt: new Date() } : {}),

@@ -560,6 +560,7 @@ async function main() {
   const fails: string[] = [];
   const inv: Record<string, number> = {};
   let total = 0;
+  let soCount = 0; let soTotal = 0;
   const times: number[] = [];
   const t0 = Date.now();
 
@@ -580,7 +581,8 @@ async function main() {
       }
       try {
         const r = await runTurn({ ...st }, reply, undefined, hist);
-        d = r.d; intent = `${r.u.intent}/${r.u.intentSource}${r.u.modelError ? ' ERRO:' + r.u.modelError : ''}`;
+        d = r.d; intent = `${r.u.intent}/${r.u.intentSource}${r.u.modelError ? ' ERRO:' + r.u.modelError : ''}${r.so ? ' GEMINI' : ''}`;
+        if (r.so) soCount += 1;
       } catch (e: any) {
         fails.push(`EXCEPCAO [${stateName}] "${reply.slice(0, 60)}" -> ${e?.message || e}`);
         continue;
@@ -607,6 +609,8 @@ async function main() {
         if (st.step === 'handoff') { log.push(`   E: ${m}\n   (equipa ja assumiu)`); continue; }
         const r = await runTurn({ ...st }, m, undefined, hist.slice(-8));
         d = r.d;
+        soTotal += 1;
+        if (r.so) soCount += 1;
         bad = bad || invariant('chain', st, d);
         log.push(`   E: ${m.replace(/\n/g, ' ⏎ ')}\n   S: ${fmt(d)}`);
         hist.push(`Estudante: ${m}`);
@@ -625,6 +629,7 @@ async function main() {
   const avg = times.reduce((a, b) => a + b, 0) / (times.length || 1);
   console.log(`\n==== ${total} casos em ${((Date.now() - t0) / 60000).toFixed(1)} min · ${fails.length} falhas · media ${avg.toFixed(1)}s · p95 ${(times[Math.floor(times.length * 0.95)] || 0).toFixed(1)}s · max ${(times[times.length - 1] || 0).toFixed(1)}s`);
   console.log(`Regras violadas: ${JSON.stringify(inv)}`);
+  console.log(`Segunda opiniao (Gemini): ${soCount} de ${total + soTotal} mensagens`);
   for (const f of fails) console.log(f);
 }
 
