@@ -990,25 +990,38 @@ export type SecondOpinion = {
   error?: string;
 };
 
-// A Leiz tem a certeza? (regra testada, sem dados lidos so pelo modelo local)
+// Perguntas que a propria regra ja responde ("quanto custa?", "e seguro pagar?").
+const QUESTION_INTENTS: Intent[] = [
+  'pergunta_preco', 'duvida', 'como_funciona', 'pagamento_seguro', 'horario_apoio', 'cobre_exame', 'instalar_app',
+  'gratis', 'porque_pergunta', 'e_ia', 'partilhar_conta', 'telemovel_fraco', 'vidas', 'problema_acesso', 'problema_link',
+  'problema_codigo', 'esqueci_senha', 'super_nerd', 'universidade_fora', 'pagar_outra_pessoa', 'nao_percebi',
+  'criar_conta', 'trocar_disciplinas', 'quer_pagar', 'escolhe_pacote', 'prefere_presencial', 'nao_abriu',
+];
+
+// A Leiz so responde sozinha quando tem a certeza: uma regra testada reconheceu
+// uma mensagem curta e simples. Tudo o resto (devolve o motivo) vai ao Gemini.
 export function needsSecondOpinion(st: LeizProState, u: Understanding, d: Decision, rawText: string): string | null {
   if (!/[A-Za-zÀ-ÿ]{2,}/.test(rawText.replace(/\[(IMAGE|VIDEO|DOCUMENT|AUDIO)\]/g, ''))) return null; // so media/emoji
   if (d.action === 'wait') return null;
   if (['start', 'handoff'].includes(st.step)) return null;
   const modelFields = u.modelFields || [];
   if (modelFields.length) return `dados lidos so pelo modelo local (${modelFields.join(', ')})`;
-  // Mensagem longa, ou com uma pergunta que a resposta da regra nao trata
-  // ("gostei dos pacotes mas... da para os dois?"): a regra pode ter lido so uma parte.
   const words = rawText.trim().split(/\s+/).length;
-  if (words > 18) return `mensagem longa (${words} palavras)`;
-  if (rawText.includes('?') && words > 6 && ['sim', 'nao', 'gostou', 'saudacao', 'da_dados', 'escolhe_pacote', 'outro'].includes(u.intent)) {
-    return `pergunta junto com "${u.intent}"`;
+  const question = rawText.includes('?');
+  // Diagnostico: dados que as regras leram (nome, universidade, curso, disciplinas).
+  if (st.step === 'diagnosis' && u.intent === 'da_dados' && !question && words <= 25) return null;
+  // Uma regra mandou para a equipa (ja pagou, desconfianca...): a equipa ja trata.
+  if (u.intentSource === 'rule' && d.action === 'handoff') return null;
+  if (u.intentSource !== 'rule') {
+    return d.action === 'handoff'
+      ? `ia passar a equipa sem regra (${d.reason.slice(0, 80)})`
+      : `intencao "${u.intent}" sem regra (leitura do modelo local)`;
   }
-  if (u.intentSource === 'rule') return null;
-  // Resposta com dados que as regras leram (nome, universidade, disciplinas...).
-  if (u.intent === 'da_dados') return null;
-  if (d.action === 'handoff') return `ia passar a equipa sem regra (${d.reason.slice(0, 80)})`;
-  return `intencao "${u.intent}" adivinhada pelo modelo local`;
+  // Regra, mas a mensagem pode ter mais do que a regra leu.
+  if (words > 12) return `mensagem longa (${words} palavras) para a regra "${u.intent}"`;
+  if (question && !QUESTION_INTENTS.includes(u.intent)) return `pergunta junto com "${u.intent}"`;
+  if (/\b(mas|porem|so que|e se|tambem)\b/.test(norm(rawText)) && words > 4) return `resposta com condicao ("mas", "e se"...) para "${u.intent}"`;
+  return null;
 }
 
 function optionText(d: Decision): string {
@@ -1022,6 +1035,7 @@ const SO_SYSTEM = [
   'Escolhe a resposta que responde de forma certa e natural a mensagem nova, no ponto em que a conversa esta.',
   'Escolhe 0 (passar a equipa) quando nenhuma resposta serve, quando a resposta escolhida ignoraria uma pergunta ou pedido do estudante,',
   'quando ha reclamacao, comprovativo ou problema de pagamento que so a equipa confirma, ou quando a mensagem e sobre outro assunto.',
+  'Prefere respostas que seguem a etapa actual; nao saltes para vender o Super Nerd ou outro pacote se o estudante nao pediu.',
   'Nunca inventes texto. Indica tambem os dados do estudante que a mensagem nova disser (so palavras que estao la; senao null).',
   'Responde SO com JSON: {"opcao": numero, "confianca": "alta"|"media"|"baixa", "nome": texto|null, "universidade": texto|null, "curso": texto|null, "motivo": "uma frase curta"}.',
 ].join(' ');
