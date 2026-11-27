@@ -152,6 +152,7 @@ export type Decision = {
   next: LeizProState;
   reason: string;
   notify?: string;   // avisar a equipa (mesmo enviando uma resposta)
+  improvised?: boolean; // texto escrito pelo Gemini (nao e do guia)
 };
 
 function vars(st: LeizProState): Record<string, string> {
@@ -981,13 +982,15 @@ const CANDIDATE_INTENTS: Intent[] = [
 export type SecondOpinion = {
   used: boolean;
   why: string;              // porque foi pedida
-  choice?: number;          // opcao escolhida (0 = equipa)
+  choice?: number;          // opcao escolhida (0 = equipa, -1 = escreveu)
   options?: number;
   confidence?: string;
   motive?: string;
   usd?: number;
   ms?: number;
   error?: string;
+  improvised?: string[];   // resposta escrita pelo Gemini
+  rejected?: string;       // resposta escrita recusada pela verificacao
 };
 
 // Perguntas que a propria regra ja responde ("quanto custa?", "e seguro pagar?").
@@ -1029,20 +1032,80 @@ function optionText(d: Decision): string {
   return d.parts.map((p) => (p.trim() === PDF_MARK ? '[envia o PDF dos pacotes]' : p)).join(' || ').replace(/\s+/g, ' ').slice(0, 900);
 }
 
+// Resposta escrita pelo Gemini quando nenhum texto do guia serve:
+//   off      nunca escreve (so escolhe ou passa a equipa)
+//   approve  escreve, mas fica a espera de aprovacao da equipa (por omissao)
+//   auto     escreve e sai sozinha
+export function improviseMode(): 'off' | 'approve' | 'auto' {
+  const v = (process.env.LEIZPRO_IMPROVISE || '').trim().toLowerCase();
+  return v === 'off' || v === 'auto' ? v : 'approve';
+}
+
+// Textos do guia que trazem factos (precos, pacotes, pagamento, plataforma, objecoes).
+const FACT_KEYS: TemplateKey[] = [
+  'priceFirst', 'connection', 'accountHelp', 'superNerdAsk', 'superNerdPrice', 'paymentChannels', 'expensive', 'paymentSafe',
+  'friendReferral', 'coversExam', 'willIPass', 'noUniversity', 'weakPhone', 'shareAccount', 'payOtherPerson', 'lives',
+  'accessProblem', 'emailCode', 'forgotPassword', 'changeSubjects', 'accessEnded', 'linkProblem', 'presencial', 'howOnline',
+  'schedule', 'tooBasic', 'noMoney', 'ambYes', 'isFree', 'whyAsk',
+];
+
+function guideFacts(st: LeizProState): string {
+  const lines: string[] = [packagesTextParts(st).filter((p) => p.trim() !== PDF_MARK).join(' ')];
+  for (const k of FACT_KEYS) {
+    if (!CUR[k]) continue;
+    const parts = fill(CUR[k], st, vars(st)).filter((p) => p.trim() !== PDF_MARK && !hasPlaceholders([p]));
+    if (parts.length) lines.push(parts.join(' '));
+  }
+  return lines.map((l) => `- ${l.replace(/\s+/g, ' ').trim()}`).join('\n');
+}
+
+// Verificacao da resposta escrita: so factos do guia, curta e a voltar a etapa.
+const PROMISES = ['prestac', 'parcel', 'desconto', 'promoc', 'reembols', 'garanti', 'devolv', 'oferta', 'mukuru', 'transferencia internacional'];
+export function checkImprovised(parts: string[], facts: string): string | null {
+  if (!parts.length || parts.length > 3) return 'tem de ter 1 a 3 mensagens';
+  if (parts.some((p) => p.length > 450) || parts.join(' ').length > 900) return 'texto demasiado longo';
+  if (hasPlaceholders(parts) || /[[\]{}<>]/.test(parts.join(' '))) return 'campos por preencher';
+  const all = parts.join(' ');
+  const factDigits = facts.replace(/(\d)[\s.](?=\d)/g, '$1');
+  for (const m of all.replace(/(\d)[\s.](?=\d)/g, '$1').matchAll(/\d{2,}/g)) {
+    if (!factDigits.includes(m[0])) return `numero que nao esta no guia (${m[0]})`;
+  }
+  for (const m of all.matchAll(/\b[\w-]+\.(com|co\.mz|net|org|io|app)\b\S*/gi)) {
+    if (!facts.toLowerCase().includes(m[0].toLowerCase().replace(/[.,;!?)]+$/, ''))) return `link que nao esta no guia (${m[0]})`;
+  }
+  const nAll = norm(all);
+  const nFacts = norm(facts);
+  for (const w of PROMISES) if (nAll.includes(w) && !nFacts.includes(w)) return `promessa fora do guia ("${w}")`;
+  if (/(?<!\d)8[2-7]\d{6}(?!\d)/.test(all)) return 'numero de 8 digitos';
+  if (!parts[parts.length - 1].includes('?')) return 'nao termina com a pergunta da etapa';
+  return null;
+}
+
 const SO_SYSTEM = [
   'Es a supervisora da Sherone, assistente de vendas da Zona Nerd (explicacoes online para exames de admissao em Mocambique).',
   'Recebes a conversa, a mensagem nova do estudante e uma lista numerada de respostas possiveis, todas tiradas do guia oficial.',
   'Escolhe a resposta que responde de forma certa e natural a mensagem nova, no ponto em que a conversa esta.',
-  'Escolhe 0 (passar a equipa) quando nenhuma resposta serve, quando a resposta escolhida ignoraria uma pergunta ou pedido do estudante,',
-  'quando ha reclamacao, comprovativo ou problema de pagamento que so a equipa confirma, ou quando a mensagem e sobre outro assunto.',
   'Prefere respostas que seguem a etapa actual; nao saltes para vender o Super Nerd ou outro pacote se o estudante nao pediu.',
-  'Nunca inventes texto. Indica tambem os dados do estudante que a mensagem nova disser (so palavras que estao la; senao null).',
-  'Responde SO com JSON: {"opcao": numero, "confianca": "alta"|"media"|"baixa", "nome": texto|null, "universidade": texto|null, "curso": texto|null, "motivo": "uma frase curta"}.',
+  'Escolhe 0 (passar a equipa) quando ha comprovativo ou problema de pagamento que so a equipa confirma, pagamento para o numero errado,',
+  'reclamacao, desconfianca (burla, golpe), pedido para falar com uma pessoa, ou assunto que os factos do guia nao respondem.',
+  'Indica tambem os dados do estudante que a mensagem nova disser (so palavras que estao la; senao null).',
+].join(' ');
+
+const SO_PICK_ONLY = 'Nunca inventes texto. Responde SO com JSON: {"opcao": numero, "confianca": "alta"|"media"|"baixa", "nome": texto|null, "universidade": texto|null, "curso": texto|null, "motivo": "uma frase curta"}.';
+
+const SO_WRITE = [
+  'Se nenhuma resposta da lista serve, mas a duvida tem resposta nos FACTOS DO GUIA, usa a opcao "E" e escreve a resposta em "resposta":',
+  'uma lista de 1 a 3 mensagens curtas de WhatsApp, em portugues de Mocambique, tratando por tu, no tom da Sherone (simpatica, directa, um emoji no maximo).',
+  'Primeiro responde a duvida usando SO os factos do guia; depois volta a conversa ao ponto em que estava, terminando com a pergunta da etapa.',
+  'Nunca prometas prestacoes, descontos, outros meios de pagamento, prazos, garantias ou qualquer coisa que nao esteja nos factos: nesse caso escolhe 0.',
+  'Nao escrevas numeros, precos ou links que nao estejam nos factos. Prefere sempre uma resposta da lista quando ela serve.',
+  'Responde SO com JSON: {"opcao": numero ou "E", "resposta": [texto, ...] (so com "E"), "confianca": "alta"|"media"|"baixa", "nome": texto|null, "universidade": texto|null, "curso": texto|null, "motivo": "uma frase curta"}.',
 ].join(' ');
 
 export async function secondOpinion(st: LeizProState, u: Understanding, d: Decision, rawText: string, history: string[], why: string):
   Promise<{ d: Decision; so: SecondOpinion }> {
   const so: SecondOpinion = { used: false, why };
+  const write = improviseMode() !== 'off';
   // Todas as respostas possiveis nesta etapa (o motor e deterministico).
   const options: { d: Decision; intent: Intent | null }[] = [];
   const seen = new Set<string>();
@@ -1057,25 +1120,52 @@ export async function secondOpinion(st: LeizProState, u: Understanding, d: Decis
     options.push({ d: c.d, intent: c.intent ?? (u.intent as Intent) });
   }
   so.options = options.length;
-  if (!options.length) return { d, so };
+  if (!options.length && !write) return { d, so };
+  const facts = write ? guideFacts(st) : '';
+  const stepQuestion = lastQuestionText(st);
   const prompt = [
     `Etapa: a equipa acabou de perguntar ${expectingFor(st)}.`,
+    stepQuestion ? `Pergunta da etapa (para voltar a ela): ${stepQuestion}` : '',
     `Dados que ja temos: nome=${st.name || '?'}, universidade=${st.university || '?'}, curso=${st.course || '?'}, pacote=${st.pkg || '?'}.`,
     history.length ? `Conversa (da mais antiga para a mais recente):\n${history.join('\n')}` : 'Sem conversa anterior.',
     `Mensagem nova do estudante:\n${rawText.slice(0, 1200)}`,
+    write ? `FACTOS DO GUIA (unica fonte para escrever):\n${facts}` : '',
     'Respostas possiveis:',
     '0. PASSAR A CONVERSA A EQUIPA (nao responder nada)',
     ...options.map((o, i) => `${i + 1}. ${optionText(o.d)}`),
-  ].join('\n');
+    write ? 'E. ESCREVER uma resposta curta com os factos do guia e voltar a etapa' : '',
+  ].filter(Boolean).join('\n');
   try {
-    const r = await askVertex(SO_SYSTEM, prompt);
+    const r = await askVertex(`${SO_SYSTEM} ${write ? SO_WRITE : SO_PICK_ONLY}`, prompt);
     so.used = true;
     so.usd = r.usd;
     so.ms = r.ms;
-    const n = Number(r.json?.opcao);
-    so.choice = Number.isInteger(n) && n >= 0 && n <= options.length ? n : 0;
     so.confidence = String(r.json?.confianca || '');
     so.motive = String(r.json?.motivo || '').slice(0, 200);
+    const raw = r.json?.opcao;
+    if (write && String(raw).trim().toUpperCase() === 'E') {
+      so.choice = -1;
+      const parts = (Array.isArray(r.json?.resposta) ? r.json.resposta : [r.json?.resposta])
+        .map((p: unknown) => String(p ?? '').trim()).filter(Boolean);
+      const bad = so.confidence === 'baixa' ? 'confianca baixa' : checkImprovised(parts, facts);
+      if (bad) {
+        so.rejected = bad;
+        return { d: handoff(st, `a supervisora (Gemini) escreveu uma resposta que nao passou na verificacao (${bad}): ${so.motive || 'sem motivo'}`), so };
+      }
+      so.improvised = parts;
+      return {
+        d: {
+          action: 'send_text',
+          parts,
+          next: { ...st },   // fica na mesma etapa: a resposta volta a pergunta dela
+          reason: `resposta escrita pelo Gemini com os factos do guia [${so.confidence}: ${so.motive}]`,
+          improvised: true,
+        },
+        so,
+      };
+    }
+    const n = Number(raw);
+    so.choice = Number.isInteger(n) && n >= 0 && n <= options.length ? n : 0;
     if (so.choice === 0 || so.confidence === 'baixa') {
       return { d: handoff(st, `a supervisora (Gemini) achou melhor a equipa responder: ${so.motive || 'sem motivo'}`), so };
     }
@@ -1924,6 +2014,12 @@ export async function generateLeizProSuggestion(opts: {
     }
   }
   const action = d.action === 'send_pdf' ? 'send_product' : d.action;
+  // Resposta escrita pelo Gemini: nos primeiros dias fica a espera de aprovacao
+  // (LEIZPRO_IMPROVISE=approve). A equipa recebe o aviso para aprovar ou editar.
+  const needsApproval = !!d.improvised && improviseMode() === 'approve';
+  if (needsApproval) {
+    d = { ...d, notify: `resposta escrita pelo Gemini à espera da tua aprovação: "${d.parts.join(' ').slice(0, 140)}"` };
+  }
 
   const reasoning = [
     d.reason,
@@ -1944,7 +2040,7 @@ export async function generateLeizProSuggestion(opts: {
       action,
       productId,
       productFileIds: productFileIds as any,
-      actionPayload: { leizpro: d.next, understood: { ...u }, ...(so ? { secondOpinion: so } : {}), ...(d.notify ? { notify: d.notify } : {}) } as any,
+      actionPayload: { leizpro: d.next, understood: { ...u }, ...(so ? { secondOpinion: so } : {}), ...(d.improvised ? { improvised: true } : {}), ...(d.notify ? { notify: d.notify } : {}) } as any,
       reasoning,
       principlesUsed: [] as any,
       modelUsed: `leizpro:${so?.used ? vertexModel() : (u.modelUsed || 'regras')}`,
@@ -1955,7 +2051,7 @@ export async function generateLeizProSuggestion(opts: {
   });
   // Pipeline (a passagem a equipa nao muda a etapa) e tarefas da regua.
   await syncStage(opts.workspaceId, opts.contactId, d.next);
-  return { suggestion, normalized: { action }, notify: d.notify || null };
+  return { suggestion, normalized: { action }, notify: d.notify || null, needsApproval };
 }
 
 export { LEIZPRO_MODEL, AVAILABLE_SUBJECTS };

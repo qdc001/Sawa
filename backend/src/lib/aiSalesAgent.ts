@@ -590,7 +590,12 @@ export async function maybeTriggerSalesSuggestion(opts: {
         });
         if (!gen) return;
         if (opts.io) opts.io.to(`workspace:${opts.workspaceId}`).emit('aiSales:suggestion', gen.suggestion);
-        if (ws.aiSalesMode === 'auto') {
+        // Resposta escrita pelo Gemini em modo de aprovacao: nao sai sozinha,
+        // a equipa e avisada para aprovar ou editar a sugestao.
+        if ((gen as any).needsApproval) {
+          await leizpro.notifyHandoff(opts.workspaceId, opts.contactId, gen.suggestion).catch((e: any) =>
+            console.error('[leizpro] notify approval failed:', e?.message || e));
+        } else if (ws.aiSalesMode === 'auto') {
           if (['send_text', 'send_product', 'book_appointment'].includes(gen.normalized.action)) {
             try {
               const { autoDispatchSuggestion } = await import('./autoDispatchSalesSuggestion');
