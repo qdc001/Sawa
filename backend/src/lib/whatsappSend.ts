@@ -204,6 +204,19 @@ export async function sendWhatsAppOut(
         try { data = JSON.parse(respText); } catch {}
         if (r.ok) {
           console.log(`[whatsappSend] ok externalId=${data?.key?.id || '?'}`);
+          // O WhatsApp respondeu com o LID desta conversa: fica ligado ao contacto
+          // (as respostas que chegarem so com o LID caem na mesma conversa).
+          const respJid = String(data?.key?.remoteJid || '');
+          if (respJid.endsWith('@lid')) {
+            const digits = String(destination).split('@')[0].replace(/\D/g, '');
+            prisma.contact.findFirst({ where: { workspaceId, whatsapp: digits }, select: { id: true } })
+              .then(async (c) => {
+                if (!c) return;
+                const { attachLid } = await import('./lidContacts');
+                await attachLid(workspaceId, c.id, respJid.split('@')[0]);
+              })
+              .catch((e) => console.error('[whatsappSend] ligar LID falhou:', e?.message || e));
+          }
           return { ok: true, externalId: data?.key?.id, via: 'evolution' };
         }
         console.error(`[whatsappSend] falhou HTTP ${r.status} body=${respText.substring(0, 500)}`);

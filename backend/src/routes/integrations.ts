@@ -1162,6 +1162,142 @@ router.post('/evolution/sync-contact-names', async (req: AuthRequest, res: Respo
   } catch (e) { next(e); }
 });
 
+// ---- Contactos duplicados por LID ---------------------------------------------
+// A mesma pessoa em dois contactos: o do numero (onde enviamos) e um "so LID"
+// criado quando ela respondeu sem o WhatsApp revelar o numero (27/11, Jurelma).
+//
+// GET /api/integrations/evolution/lid-duplicates?apply=1
+//   1) Liga sozinho os que a Evolution confirma (LID <-> numero) e junta-os.
+//   2) Para os restantes, sugere candidatos para a equipa confirmar: contactos
+//      com numero a quem escrevemos nos 3 dias antes da 1.a mensagem do LID,
+//      sem resposta deles, e com o nome a bater certo (pesa mais).
+router.get('/evolution/lid-duplicates', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const apply = req.query.apply === '1';
+    const { attachLid } = await import('../lib/lidContacts');
+    const all = await prisma.contact.findMany({
+      where: { workspaceId, type: 'PERSON', whatsapp: { not: null } },
+      select: { id: true, firstName: true, lastName: true, whatsapp: true, whatsappLid: true, phone: true },
+    });
+    const isLidOnly = (c: { whatsapp: string | null }) => !!c.whatsapp && analysePhone(c.whatsapp).isLid;
+    const lidOnly = all.filter(isLidOnly);
+    const real = all.filter((c) => !isLidOnly(c));
+
+    // 1) Confirmacoes da Evolution (best-effort: depende da versao).
+    const lidToReal = new Map<string, string>();
+    const integration = await prisma.integration.findFirst({
+      where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
+    });
+    const creds: any = integration ? getCreds(integration) : null;
+    if (creds?.baseUrl && creds?.apiKey && creds?.instanceName && lidOnly.length) {
+      try {
+        const r = await evolutionFetch(creds, `/chat/findContacts/${creds.instanceName}`, { method: 'POST', body: JSON.stringify({}) });
+        const list = Array.isArray(r) ? r : (r?.contacts || r?.data || []);
+        for (const x of list) {
+          const jid = String(x?.remoteJid || x?.id || '');
+          if (!jid.endsWith('@lid')) continue;
+          const pn = pnFromObject(x);
+          if (pn) lidToReal.set(jid.split('@')[0].replace(/\D/g, ''), pn);
+        }
+      } catch { /* opcional */ }
+      try {
+        const r = await evolutionFetch(creds, `/chat/findChats/${creds.instanceName}`, { method: 'POST', body: JSON.stringify({}) });
+        const list = Array.isArray(r) ? r : (r?.chats || r?.data || []);
+        for (const x of list) {
+          const jid = String(x?.remoteJid || x?.id || '');
+          const lidJid = [x?.lid, x?.lidJid, jid].find((v) => typeof v === 'string' && v.endsWith('@lid'));
+          const pn = jid.endsWith('@s.whatsapp.net') ? jid.split('@')[0].replace(/\D/g, '') : pnFromObject(x);
+          if (lidJid && pn) lidToReal.set(String(lidJid).split('@')[0].replace(/\D/g, ''), pn);
+        }
+      } catch { /* opcional */ }
+    }
+    const autoLinked: string[] = [];
+    const pending: typeof lidOnly = [];
+    for (const c of lidOnly) {
+      const lid = c.whatsapp!;
+      const pn = lidToReal.get(lid);
+      const target = pn ? real.find((x) => x.whatsapp === pn) : null;
+      if (target) {
+        if (apply) await attachLid(workspaceId, target.id, lid).catch(() => {});
+        autoLinked.push(`${[c.firstName, c.lastName].filter(Boolean).join(' ')} -> ${[target.firstName, target.lastName].filter(Boolean).join(' ')} (…${pn!.slice(-4)})`);
+      } else pending.push(c);
+    }
+
+    // 2) Candidatos para confirmar.
+    const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ');
+    const firstToken = (s: string) => norm(s).split(/\s+/).find((w) => w.length >= 3 && !/^(contacto|whatsapp|znerd)$/.test(w)) || '';
+    const candidates: any[] = [];
+    const { isTriggerText } = await import('../lib/leizpro/engine');
+    const recent = Date.now() - 60 * 86_400_000;
+    for (const c of pending) {
+      if (candidates.length >= 150) break;
+      const firstIn = await prisma.message.findFirst({
+        where: { contactId: c.id, direction: 'INBOUND' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true, content: true },
+      });
+      if (!firstIn || firstIn.createdAt.getTime() < recent) continue;
+      // Comecou com a mensagem do anuncio: e um contacto novo de verdade, nao um duplicado.
+      if (isTriggerText(firstIn.content || '')) continue;
+      // Ja lhe escrevemos antes de ele escrever: a conversa e mesmo deste contacto.
+      const outBefore = await prisma.message.findFirst({ where: { contactId: c.id, direction: 'OUTBOUND', createdAt: { lt: firstIn.createdAt } }, select: { id: true } });
+      if (outBefore) continue;
+      const since = new Date(firstIn.createdAt.getTime() - 3 * 86_400_000);
+      const outs = await prisma.message.findMany({
+        where: { contact: { workspaceId, type: 'PERSON' }, direction: 'OUTBOUND', isInternal: false, createdAt: { gte: since, lte: firstIn.createdAt } },
+        select: { contactId: true, createdAt: true, content: true },
+        orderBy: { createdAt: 'desc' }, take: 400,
+      });
+      const name = firstToken([c.firstName, c.lastName].filter(Boolean).join(' '));
+      const byContact = new Map<string, { last: Date; text: string }>();
+      for (const o of outs) {
+        if (!o.contactId || o.contactId === c.id) continue;
+        const cur = byContact.get(o.contactId);
+        if (!cur) byContact.set(o.contactId, { last: o.createdAt, text: o.content || '' });
+        else cur.text += ' ' + (o.content || '');
+      }
+      const scored: any[] = [];
+      for (const [cid, info] of byContact) {
+        const rc = real.find((x) => x.id === cid);
+        if (!rc) continue;
+        // Respondeu do numero depois da nossa mensagem: nao e ele.
+        const answered = await prisma.message.findFirst({ where: { contactId: cid, direction: 'INBOUND', createdAt: { gt: info.last } }, select: { id: true } });
+        if (answered) continue;
+        const rcName = norm([rc.firstName, rc.lastName].filter(Boolean).join(' '));
+        const nameHit = !!name && (rcName.includes(name) || norm(info.text).includes(name));
+        const mins = Math.round((firstIn.createdAt.getTime() - info.last.getTime()) / 60000);
+        scored.push({ id: rc.id, name: [rc.firstName, rc.lastName].filter(Boolean).join(' '), phone4: (rc.whatsapp || '').slice(-4), minutesBefore: mins, nameMatch: nameHit, score: (nameHit ? 1000 : 0) - mins });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      candidates.push({
+        id: c.id, name: [c.firstName, c.lastName].filter(Boolean).join(' '),
+        firstMessage: (firstIn.content || '').slice(0, 80), firstAt: firstIn.createdAt,
+        options: scored.slice(0, 3),
+      });
+    }
+    // Os que tem um candidato com o nome a bater certo primeiro.
+    candidates.sort((a, b) => Number(!!b.options[0]?.nameMatch) - Number(!!a.options[0]?.nameMatch) || +new Date(b.firstAt) - +new Date(a.firstAt));
+    res.json({ lidOnly: lidOnly.length, autoLinked, applied: apply, candidates });
+  } catch (e) { next(e); }
+});
+
+// POST /api/integrations/evolution/lid-merge  { pairs: [{ fromId, toId }] }
+// Junta o duplicado (so LID) no contacto com numero, confirmado pela equipa.
+router.post('/evolution/lid-merge', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const pairs = Array.isArray(req.body?.pairs) ? req.body.pairs.slice(0, 200) : [];
+    const { mergeContacts } = await import('../lib/lidContacts');
+    const done: string[] = [];
+    const errors: string[] = [];
+    for (const p of pairs) {
+      if (typeof p?.fromId !== 'string' || typeof p?.toId !== 'string') continue;
+      try { await mergeContacts(workspaceId, p.fromId, p.toId); done.push(p.fromId); }
+      catch (e: any) { errors.push(`${p.fromId}: ${e.message}`); }
+    }
+    res.json({ merged: done.length, errors });
+  } catch (e) { next(e); }
+});
+
 router.post('/evolution/fix-names', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;

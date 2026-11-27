@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { MessageCircle, Mail, Globe, CheckCircle2, Settings, Loader2, X, Plus, Trash2, Send, QrCode, Power, RefreshCw, Smartphone, Download } from 'lucide-react';
 import api, { IntegrationItem } from '../lib/api';
 import toast from 'react-hot-toast';
+import LidDuplicatesPanel from '../components/LidDuplicatesPanel';
 import { getSocket } from '../lib/socket';
 
 type IntegrationType = 'WHATSAPP_CLOUD' | 'EVOLUTION' | 'EMAIL' | 'INSTAGRAM' | 'FACEBOOK' | 'TIKTOK';
@@ -716,6 +717,7 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
                         {fixingNames ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                         Corrigir nomes de contactos
                       </button>
+                      <LidDuplicatesPanel />
                     </div>
                   )}
                 </div>

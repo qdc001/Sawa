@@ -137,6 +137,62 @@ export async function linkLid(workspaceId: string, lid: string, real: string, pu
   return realC;
 }
 
+// O LID `lid` pertence a este contacto (sabido por uma mensagem NOSSA: o eco,
+// a confirmacao de entrega ou a resposta do envio trazem o LID da conversa).
+// Guarda o LID no contacto e junta nele o contacto duplicado criado quando a
+// pessoa respondeu so com o LID (27/11, Jurelma: "Ta bem" foi parar a um
+// contacto novo). Devolve true se juntou algum duplicado.
+export async function attachLid(workspaceId: string, contactId: string, lid: string): Promise<boolean> {
+  lid = String(lid || '').replace(/\D/g, '');
+  if (!lid) return false;
+  const c = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { id: true, whatsapp: true, whatsappLid: true, type: true } });
+  if (!c || c.type !== 'PERSON' || !c.whatsapp || c.whatsapp === lid || analysePhone(c.whatsapp).isLid) return false;
+  if (c.whatsappLid !== lid) {
+    // O LID ja estava guardado noutro contacto com numero real: nao mexer (ambiguo).
+    const other = await prisma.contact.findFirst({ where: { workspaceId, whatsappLid: lid, NOT: { id: c.id } }, select: { id: true, whatsapp: true } });
+    if (other && other.whatsapp && other.whatsapp !== lid && !analysePhone(other.whatsapp).isLid) return false;
+    await prisma.contact.update({ where: { id: c.id }, data: { whatsappLid: lid } });
+  }
+  const dups = await prisma.contact.findMany({
+    where: { workspaceId, type: 'PERSON', NOT: { id: c.id }, OR: [{ whatsapp: lid }, { whatsappLid: lid }] },
+    select: { id: true, whatsapp: true },
+  });
+  let merged = false;
+  for (const d of dups) {
+    // So junta contactos que sao so o LID (sem numero real proprio).
+    if (d.whatsapp && d.whatsapp !== lid && !analysePhone(d.whatsapp).isLid) continue;
+    await mergeContacts(workspaceId, d.id, c.id);
+    merged = true;
+  }
+  if (merged) console.log(`[lid] duplicado juntado: LID ${lid.slice(-4)} -> contacto ${c.id.slice(-6)}`);
+  return merged;
+}
+
+// Junta o contacto `fromId` (duplicado) no `toId` (fica). Usado pela revisao
+// manual dos duplicados (Integracoes > WhatsApp).
+export async function mergeContacts(workspaceId: string, fromId: string, toId: string): Promise<void> {
+  if (fromId === toId) return;
+  const [from, to] = await Promise.all([
+    prisma.contact.findFirst({ where: { id: fromId, workspaceId } }),
+    prisma.contact.findFirst({ where: { id: toId, workspaceId } }),
+  ]);
+  if (!from || !to) throw new Error('contacto nao encontrado');
+  const lid = from.whatsappLid || (from.whatsapp && analysePhone(from.whatsapp).isLid ? from.whatsapp : null);
+  if (lid && !to.whatsappLid) await prisma.contact.update({ where: { id: to.id }, data: { whatsappLid: lid } });
+  await mergeInto(from.id, to.id, workspaceId);
+  // mergeInto so apaga contactos com nome de placeholder; aqui a equipa confirmou: apagar se ficou vazio.
+  const left = await prisma.contact.findUnique({ where: { id: from.id } });
+  if (left) {
+    const msgs = await prisma.message.count({ where: { contactId: from.id } });
+    if (!msgs) {
+      // O lead do duplicado (criado sozinho quando a mensagem entrou) sai: o
+      // contacto que fica ja tem o seu. Tarefas/mensagens ficam sem esse lead.
+      await prisma.lead.deleteMany({ where: { contactId: from.id, workspaceId } });
+      try { await prisma.contact.delete({ where: { id: from.id } }); } catch { /* tem outras ligacoes: fica */ }
+    }
+  }
+}
+
 // Contacto ja conhecido por este LID (numero real ja revelado antes).
 export function contactByLid(workspaceId: string, lid: string) {
   return prisma.contact.findFirst({ where: { workspaceId, whatsappLid: lid } });

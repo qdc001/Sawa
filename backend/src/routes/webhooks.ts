@@ -1,4 +1,4 @@
-import { contactByLid, linkLid } from '../lib/lidContacts';
+import { contactByLid, linkLid, attachLid } from '../lib/lidContacts';
 import { Router, Request, Response } from 'express';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
@@ -709,7 +709,11 @@ router.post('/evolution', async (req: Request, res: Response) => {
         // (messages.set, esse já nem chega aqui — ver acima). Sem isto, uma
         // reconexao no momento errado duplicava a mensagem no CRM.
         if (externalId) {
-          const exists = await prisma.message.findFirst({ where: { externalId }, select: { id: true } });
+          const exists = await prisma.message.findFirst({ where: { externalId }, select: { id: true, contactId: true, direction: true } });
+          // Eco de uma mensagem nossa numa conversa com LID: liga o LID ao contacto.
+          if (exists && rawRemoteJid.endsWith('@lid') && exists.direction === 'OUTBOUND' && exists.contactId) {
+            await attachLid(workspaceId, exists.contactId, rawRemoteJid.split('@')[0]).catch(() => {});
+          }
           if (exists) continue;
           // Eco de uma mensagem que o proprio Klaru enviou (Sherone/IA, envio
           // pelo Inbox): o eco do WhatsApp pode chegar antes de o envio gravar
@@ -1003,6 +1007,13 @@ router.post('/evolution', async (req: Request, res: Response) => {
         const items = Array.isArray(data?.messages) ? data.messages : Array.isArray(data) ? data : [data];
         for (const u of items) {
           const id = u?.key?.id || u?.keyId || u?.id;
+          // Confirmacao de uma mensagem NOSSA numa conversa com LID: o LID e do
+          // contacto a quem enviamos. Liga-os (e junta o duplicado, se houver).
+          const ackJid = String(u?.key?.remoteJid || u?.remoteJid || '');
+          if (id && ackJid.endsWith('@lid')) {
+            const sent = await prisma.message.findFirst({ where: { externalId: id, direction: 'OUTBOUND' }, select: { contactId: true } });
+            if (sent?.contactId) await attachLid(workspaceId, sent.contactId, ackJid.split('@')[0]).catch(() => {});
+          }
           const newStatus = (u?.update?.status || u?.status || '').toString().toUpperCase();
           if (!id || !newStatus) continue;
           const mapped =
