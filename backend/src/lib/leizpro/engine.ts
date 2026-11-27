@@ -24,7 +24,7 @@ import {
 } from './guide';
 import { loadTexts, type Texts } from './texts';
 import { subjectListOnly, findSubjects, NOT_YES } from './understand';
-import { understand, norm, LEIZPRO_MODEL, presentIn, validName, titleCase, type Understanding, type Intent, type Slot as AskSlot } from './understand';
+import { understand, norm, LEIZPRO_MODEL, presentIn, validName, titleCase, findUniversity as findUniversityIn, type Understanding, type Intent, type Slot as AskSlot } from './understand';
 import { askVertex, vertexEnabled, vertexModel } from './vertex';
 import { examSubjects, examOptions, findCourseIn } from './courses';
 import { syncStage } from './pipeline';
@@ -1646,11 +1646,27 @@ export async function cleanupPendingReguaWithoutContext(): Promise<number> {
 }
 
 async function contextFromMessages(contactId: string, st: LeizProState): Promise<LeizProState> {
-  const msgs = await prisma.message.findMany({
-    where: { contactId, direction: 'INBOUND', isInternal: false, type: 'TEXT' },
-    orderBy: { createdAt: 'asc' }, take: 60, select: { content: true },
+  const all = await prisma.message.findMany({
+    where: { contactId, isInternal: false, type: 'TEXT' },
+    orderBy: { createdAt: 'asc' }, take: 80, select: { content: true, direction: true },
   });
+  const msgs = all.filter((m) => m.direction === 'INBOUND');
   const texts = msgs.map((m) => m.content || '').filter(Boolean);
+  // Nome e universidade: a resposta curta logo a seguir a nossa pergunta
+  // ("Posso saber o seu nome e para que universidade..." -> "Rosa" / "UEM").
+  let name = st.name;
+  let university = st.university;
+  let askedName = false;
+  for (const m of all) {
+    const c = (m.content || '').trim();
+    if (m.direction === 'OUTBOUND') { askedName = /\bnome\b/.test(norm(c)); continue; }
+    if (!university) university = findUniversityIn(c);
+    if (!name && askedName && c.split(/\s+/).length <= 3) {
+      const first = c.split(/[\n,]/)[0].trim();
+      if (!findUniversityIn(first)) name = validName(first);
+    }
+  }
+  st = { ...st, name, university };
   const course = st.course || findCourseIn(st.university, texts.join(' \n '));
   const subs = new Set(st.examSubjects || []);
   for (const t of texts) {
@@ -1917,24 +1933,44 @@ const INFER_KEYS: Array<[TemplateKey, Step]> = [
   ['connection', 'connection'], ['askCourse', 'diagnosis'], ['askUniCourse', 'diagnosis'], ['askUniOnly', 'diagnosis'],
   ['greeting', 'diagnosis'], ['accountHelp', 'account_help'],
 ];
-function templateProbe(key: TemplateKey): string | null {
-  const parts = CUR[key] as readonly string[] | undefined;
-  if (!parts?.length) return null;
-  const last = norm(parts[parts.length - 1]).replace(/\[[^\]]*\]|\{[^}]*\}/g, '|');
-  const seg = last.split('|').map((x) => x.trim()).sort((a, b) => b.length - a.length)[0] || '';
-  return seg.length >= 18 ? seg : null;
+// Pedaco caracteristico da pergunta final de um texto do guia. Procura nos textos
+// do painel e nos originais (a equipa copia muitas vezes o original).
+function templateProbes(key: TemplateKey): string[] {
+  const out = new Set<string>();
+  for (const src of [CUR, T]) {
+    const parts = src[key] as readonly string[] | undefined;
+    if (!parts?.length) continue;
+    const last = norm(parts[parts.length - 1]).replace(/\[[^\]]*\]|\{[^}]*\}/g, '|');
+    // Frases da pergunta final, sem pontuacao (o "(a)" e os emojis variam).
+    for (const seg of last.split(/[|.!?\n]/).map((x) => x.replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim())) {
+      if (seg.length >= 18) out.add(seg);
+    }
+  }
+  return [...out];
 }
+const flat = (t: string) => norm(t).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ');
 export async function inferStepFromHistory(contactId: string): Promise<Partial<LeizProState> | null> {
   const outs = await prisma.message.findMany({
     where: { contactId, direction: 'OUTBOUND', isInternal: false, type: 'TEXT' },
     orderBy: { createdAt: 'desc' }, take: 12, select: { content: true },
   });
-  for (const m of outs) {
-    const t = norm(m.content || '');
-    for (const [key, step] of INFER_KEYS) {
-      const probe = templateProbe(key);
-      if (probe && t.includes(probe)) return { step, lastKey: key, lastQuestion: key, retries: 0 };
-    }
+  // So as nossas 2 ultimas mensagens: reconhecer uma pergunta antiga e retomar
+  // dai repetia passos ja feitos (27/11, Rosa: compromisso feito a mao, a Leiz
+  // voltou a pedir o nome). Sem reconhecer, a equipa decide.
+  // A segunda so conta se a ultima for curta ("😊", "Ok").
+  const look = outs.length > 1 && (outs[0].content || '').trim().length < 40 ? outs.slice(0, 2) : outs.slice(0, 1);
+  for (const m of look) {
+    const hit = matchInferKey(m.content || '');
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// Que pergunta do guia esta mensagem nossa fez (exportada para os testes).
+export function matchInferKey(content: string): Partial<LeizProState> | null {
+  const t = flat(content);
+  for (const [key, step] of INFER_KEYS) {
+    if (templateProbes(key).some((probe) => t.includes(probe))) return { step, lastKey: key, lastQuestion: key, retries: 0 };
   }
   return null;
 }

@@ -214,7 +214,7 @@ const UNIVERSITIES: Array<[string, RegExp]> = [
   ['IICM', /\biicm\b/],
 ];
 
-function findUniversity(text: string): string | null {
+export function findUniversity(text: string): string | null {
   const t = norm(text);
   for (const [name, re] of UNIVERSITIES) if (re.test(t)) return name;
   return null;
