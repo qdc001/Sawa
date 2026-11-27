@@ -40,6 +40,8 @@ const EXTREME: [string, LeizProState, string][] = [
   ['vou pensar', base({ step: 'pdf_sent' }), 'Vou pensar e depois digo algo'],
   ['quimica 2 meses', base({ step: 'pdf_sent' }), 'Quero só Química por 2 meses, quanto fica?'],
   ['quer pessoa', base({ step: 'ask_online' }), 'Vocês são robôs? Quero falar com uma pessoa'],
+  ['nome sem regra', base({ step: 'diagnosis', name: null, university: null, course: null }), 'Fernando, estudo na UEM'],
+  ['sim simples', base({ step: 'ask_online' }), 'Sim'],
 ];
 
 async function extreme() {

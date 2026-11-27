@@ -419,7 +419,9 @@ function objection(u: Understanding, st: LeizProState, text = ''): Decision | nu
     case 'e_ia': return handoff(st, 'pergunta se esta a falar com uma IA ou com uma pessoa: a equipa responde');
     case 'duvida': return handoff(st, 'pergunta sobre o conteudo/funcionamento que o guia nao cobre');
     case 'instalar_app': return handoff(st, 'quer instalar a app (link do APK ainda por confirmar no guia)');
-    case 'paguei_errado': return handoff(st, 'pagou o valor errado ou pede devolucao (regra por confirmar no guia)');
+    case 'paguei_errado': return handoff(st, /numero|conta/.test(text)
+      ? 'diz que enviou o dinheiro para o numero errado: NAO activar sem confirmar onde caiu o pagamento'
+      : 'pagou o valor errado ou pede devolucao (regra por confirmar no guia)');
     case 'nao_abriu': return handoff(st, 'diz que pagou e o modo Super Nerd nao abriu: verificar no painel (Passo 4.3)');
     // A Leiz Pro nao confirma pagamentos: e sempre a equipa.
     case 'ja_pagou': return handoff({ ...st, paidOnce: true }, `diz que ja pagou${st.pkg ? ` o ${st.pkg}` : ''}: confirmar o pagamento e activar o acesso`);
@@ -1012,7 +1014,12 @@ export function needsSecondOpinion(st: LeizProState, u: Understanding, d: Decisi
   const words = rawText.trim().split(/\s+/).length;
   const question = rawText.includes('?');
   // Diagnostico: dados que as regras leram (nome, universidade, curso, disciplinas).
-  if (st.step === 'diagnosis' && u.intent === 'da_dados' && !question && words <= 25) return null;
+  if (st.step === 'diagnosis' && u.intent === 'da_dados' && !question && words <= 25) {
+    const slot = slotFor(st);
+    const missing = (slot === 'name' && !u.name) || (slot === 'university' && !u.university) || (slot === 'course' && !u.course);
+    if (!missing) return null;
+    return `o ${slot === 'name' ? 'nome' : slot === 'university' ? 'nome da universidade' : 'curso'} pedido nao foi lido pelas regras`;
+  }
   // Uma regra mandou para a equipa (ja pagou, desconfianca...): a equipa ja trata.
   if (u.intentSource === 'rule' && d.action === 'handoff') return null;
   if (u.intentSource !== 'rule') {
@@ -1049,14 +1056,22 @@ const FACT_KEYS: TemplateKey[] = [
   'schedule', 'tooBasic', 'noMoney', 'ambYes', 'isFree', 'whyAsk',
 ];
 
-function guideFacts(st: LeizProState): string {
-  const lines: string[] = [packagesTextParts(st).filter((p) => p.trim() !== PDF_MARK).join(' ')];
+// Sem dados do estudante: o texto fica igual em todas as chamadas e o Gemini
+// guarda-o em cache (cobra so cerca de 10% dessa parte).
+const factsCache = new WeakMap<object, string>();
+function guideFacts(): string {
+  const hit = factsCache.get(CUR);
+  if (hit) return hit;
+  const st: LeizProState = { ...INITIAL_STATE };
+  const lines: string[] = [packagesTextParts(st).filter((p) => p.trim() !== PDF_MARK && !hasPlaceholders([p])).join(' ')];
   for (const k of FACT_KEYS) {
     if (!CUR[k]) continue;
     const parts = fill(CUR[k], st, vars(st)).filter((p) => p.trim() !== PDF_MARK && !hasPlaceholders([p]));
     if (parts.length) lines.push(parts.join(' '));
   }
-  return lines.map((l) => `- ${l.replace(/\s+/g, ' ').trim()}`).join('\n');
+  const out = lines.map((l) => `- ${l.replace(/\s+/g, ' ').trim()}`).join('\n');
+  factsCache.set(CUR, out);
+  return out;
 }
 
 // Verificacao da resposta escrita: so factos do guia, curta e a voltar a etapa.
@@ -1098,7 +1113,9 @@ const SO_WRITE = [
   'uma lista de 1 a 3 mensagens curtas de WhatsApp, em portugues de Mocambique, tratando por tu, no tom da Sherone (simpatica, directa, um emoji no maximo).',
   'Primeiro responde a duvida usando SO os factos do guia; depois volta a conversa ao ponto em que estava, terminando com a pergunta da etapa.',
   'Nunca prometas prestacoes, descontos, outros meios de pagamento, prazos, garantias ou qualquer coisa que nao esteja nos factos: nesse caso escolhe 0.',
-  'Nao escrevas numeros, precos ou links que nao estejam nos factos. Prefere sempre uma resposta da lista quando ela serve.',
+  'Nao escrevas numeros, precos ou links que nao estejam nos factos. Nao acrescentes opinioes nem detalhes que nao estejam nos factos.',
+  'Usa "E" SO quando NENHUMA resposta da lista responde ao que o estudante disse: uma resposta da lista aceitavel e sempre melhor do que escrever.',
+  'No diagnostico (quando pedimos nome, universidade ou curso) nunca escrevas: escolhe da lista e indica os dados lidos.',
   'Responde SO com JSON: {"opcao": numero ou "E", "resposta": [texto, ...] (so com "E"), "confianca": "alta"|"media"|"baixa", "nome": texto|null, "universidade": texto|null, "curso": texto|null, "motivo": "uma frase curta"}.',
 ].join(' ');
 
@@ -1121,7 +1138,7 @@ export async function secondOpinion(st: LeizProState, u: Understanding, d: Decis
   }
   so.options = options.length;
   if (!options.length && !write) return { d, so };
-  const facts = write ? guideFacts(st) : '';
+  const facts = write ? guideFacts() : '';
   const stepQuestion = lastQuestionText(st);
   const prompt = [
     `Etapa: a equipa acabou de perguntar ${expectingFor(st)}.`,
@@ -1129,20 +1146,35 @@ export async function secondOpinion(st: LeizProState, u: Understanding, d: Decis
     `Dados que ja temos: nome=${st.name || '?'}, universidade=${st.university || '?'}, curso=${st.course || '?'}, pacote=${st.pkg || '?'}.`,
     history.length ? `Conversa (da mais antiga para a mais recente):\n${history.join('\n')}` : 'Sem conversa anterior.',
     `Mensagem nova do estudante:\n${rawText.slice(0, 1200)}`,
-    write ? `FACTOS DO GUIA (unica fonte para escrever):\n${facts}` : '',
     'Respostas possiveis:',
     '0. PASSAR A CONVERSA A EQUIPA (nao responder nada)',
     ...options.map((o, i) => `${i + 1}. ${optionText(o.d)}`),
     write ? 'E. ESCREVER uma resposta curta com os factos do guia e voltar a etapa' : '',
   ].filter(Boolean).join('\n');
   try {
-    const r = await askVertex(`${SO_SYSTEM} ${write ? SO_WRITE : SO_PICK_ONLY}`, prompt);
+    // Instrucoes e factos primeiro e sempre iguais (cache implicita do Gemini).
+    const system = write ? `${SO_SYSTEM} ${SO_WRITE}\n\nFACTOS DO GUIA (unica fonte para escrever):\n${facts}` : `${SO_SYSTEM} ${SO_PICK_ONLY}`;
+    const r = await askVertex(system, prompt);
     so.used = true;
     so.usd = r.usd;
     so.ms = r.ms;
     so.confidence = String(r.json?.confianca || '');
     so.motive = String(r.json?.motivo || '').slice(0, 200);
     const raw = r.json?.opcao;
+    // Diagnostico: o guia conduz. Os dados que o Gemini leu (e as regras nao)
+    // entram no motor, que faz a pergunta seguinte do guia.
+    if (st.step === 'diagnosis' && String(raw) !== '0' && so.confidence !== 'baixa') {
+      const name = u.name || validName(presentIn(r.json?.nome, rawText));
+      const uni = u.university || presentIn(r.json?.universidade, rawText);
+      const course = u.course || (presentIn(r.json?.curso, rawText) ? titleCase(presentIn(r.json?.curso, rawText)!) : null);
+      if (name !== u.name || uni !== u.university || course !== u.course) {
+        const re = decide(st, { ...u, name, university: uni, course, intent: 'da_dados', intentSource: 'model' }, rawText);
+        if (re.action !== 'wait' && (re.action === 'handoff' || !hasPlaceholders(re.parts))) {
+          so.choice = Number(raw) || 0;
+          return { d: { ...re, reason: `${re.reason} [Gemini leu os dados: ${so.motive}]` }, so };
+        }
+      }
+    }
     if (write && String(raw).trim().toUpperCase() === 'E') {
       so.choice = -1;
       const parts = (Array.isArray(r.json?.resposta) ? r.json.resposta : [r.json?.resposta])
@@ -1172,16 +1204,19 @@ export async function secondOpinion(st: LeizProState, u: Understanding, d: Decis
     const pick = options[so.choice - 1];
     let chosen = pick.d;
     // Dados que so o modelo local leu: valem os do Gemini (se estiverem na mensagem).
+    // Dados que so o modelo local leu valem os do Gemini; os que faltam, o Gemini preenche
+    // (se estiverem na mensagem).
     const mf = u.modelFields || [];
-    if (mf.length) {
+    {
       const name = validName(presentIn(r.json?.nome, rawText));
       const uni = presentIn(r.json?.universidade, rawText);
       const course = presentIn(r.json?.curso, rawText);
+      const pickField = (k: string, mine: string | null, g: string | null) => (mf.includes(k) ? g : mine || g);
       const fixed: Understanding = {
         ...u,
-        name: mf.includes('name') ? name : u.name,
-        university: mf.includes('university') ? uni : u.university,
-        course: mf.includes('course') ? (course ? titleCase(course) : null) : u.course,
+        name: pickField('name', u.name, name),
+        university: pickField('university', u.university, uni),
+        course: pickField('course', u.course, course ? titleCase(course) : null),
       };
       if (fixed.name !== u.name || fixed.university !== u.university || fixed.course !== u.course) {
         const re = decide(st, { ...fixed, intent: pick.intent || u.intent, intentSource: 'model' }, rawText);
@@ -1198,19 +1233,29 @@ export async function secondOpinion(st: LeizProState, u: Understanding, d: Decis
 // Uma volta completa (compreensao + decisao + verificacao). Exportada para o
 // simulador de testes (scripts/leizProSimulate.ts) usar exactamente o mesmo caminho.
 export async function runTurn(state: LeizProState, text: string, workspaceId?: string, history: string[] = []) {
-  const u = await understand(text, expectingFor(state), slotFor(state), history);
   CUR = workspaceId ? await loadTexts(workspaceId) : T;
-  let d = decide(state, u, text);
-  if (d.action !== 'handoff' && d.action !== 'wait' && hasPlaceholders(d.parts)) {
-    d = handoff(state, 'a resposta ficou com campos por preencher');
-  }
-  // Sem certeza: o Gemini escolhe entre as respostas do guia (se estiver ligado).
+  const decideChecked = (uu: Understanding): Decision => {
+    const dd = decide(state, uu, text);
+    return dd.action !== 'handoff' && dd.action !== 'wait' && hasPlaceholders(dd.parts)
+      ? handoff(state, 'a resposta ficou com campos por preencher') : dd;
+  };
+  // Com o Gemini ligado, as regras leem primeiro: se tiverem a certeza a Leiz
+  // responde logo; senao vai directo ao Gemini. O modelo local (qwen) so e
+  // chamado se o Gemini falhar. Sem Gemini, tudo como antes.
+  const gemini = vertexEnabled();
+  let u = await understand(text, expectingFor(state), slotFor(state), history, { skipModel: gemini });
+  let d = decideChecked(u);
   let so: SecondOpinion | null = null;
-  // Sem Vertex ligado fica so registado o motivo (para medir quantas iriam).
   const why = needsSecondOpinion(state, u, d, text);
   if (why) {
-    if (vertexEnabled()) ({ d, so } = await secondOpinion(state, u, d, text, history, why));
-    else so = { used: false, why };
+    if (gemini) {
+      ({ d, so } = await secondOpinion(state, u, d, text, history, why));
+      if (!so.used) {
+        // Gemini indisponivel (ou sem opcoes): le com o modelo local, como antes.
+        u = await understand(text, expectingFor(state), slotFor(state), history);
+        d = decideChecked(u);
+      }
+    } else so = { used: false, why };   // so registado (para medir quantas iriam)
   }
   // A regua so continua enquanto ele esta a decidir o pacote (pdf_sent).
   if (d.next.step !== 'pdf_sent') d.next = { ...d.next, regua: null };

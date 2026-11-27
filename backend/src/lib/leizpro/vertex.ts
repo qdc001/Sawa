@@ -82,7 +82,7 @@ export function vertexSpend(): { day: string; usd: number; calls: number; limit:
   return { ...spend, limit: dailyLimit() };
 }
 
-export type VertexResult = { json: any; usd: number; tokensIn: number; tokensOut: number; ms: number; model: string };
+export type VertexResult = { json: any; usd: number; tokensIn: number; tokensOut: number; cached: number; ms: number; model: string };
 
 // Uma chamada ao Gemini que devolve JSON. Lanca erro em falha (quem chama decide).
 export async function askVertex(system: string, prompt: string, timeoutMs = 30_000): Promise<VertexResult> {
@@ -138,16 +138,18 @@ export async function askVertex(system: string, prompt: string, timeoutMs = 30_0
     lastModel = model;
     const usage = data?.usageMetadata || {};
     const tokensIn = Number(usage.promptTokenCount) || 0;
+    // Parte do pedido repetida (instrucoes + factos do guia): a Google cobra cerca de 10%.
+    const cached = Math.min(tokensIn, Number(usage.cachedContentTokenCount) || 0);
     const tokensOut = (Number(usage.candidatesTokenCount) || 0) + (Number(usage.thoughtsTokenCount) || 0);
     const pin = Number(env('VERTEX_PRICE_IN')) || 0.50;
     const pout = Number(env('VERTEX_PRICE_OUT')) || 3.00;
-    const usd = (tokensIn * pin + tokensOut * pout) / 1e6;
+    const usd = ((tokensIn - cached) * pin + cached * pin * 0.1 + tokensOut * pout) / 1e6;
     vertexSpend();
     spend.usd += usd;
     spend.calls += 1;
     const text = (data?.candidates?.[0]?.content?.parts || []).filter((p: any) => !p.thought).map((p: any) => p.text || '').join('');
     const clean = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '');
-    return { json: JSON.parse(clean || '{}'), usd, tokensIn, tokensOut, ms: Date.now() - t0, model };
+    return { json: JSON.parse(clean || '{}'), usd, tokensIn, tokensOut, cached, ms: Date.now() - t0, model };
   } finally {
     clearTimeout(timer);
   }

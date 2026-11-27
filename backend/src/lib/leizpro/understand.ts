@@ -62,7 +62,8 @@ const RULES: Array<[Intent, RegExp]> = [
   ['porque_pergunta', /^(e )?(mesmo )?necessario\b|\b(pra|para) que (e|serve|precisas|queres|precisa)\b|\bporque (perguntas|queres saber|precisas de saber)\b/],
   // v26 -------------------------------------------------------------------
   // "Paguei o valor errado" / "quero o dinheiro de volta": regra por confirmar, equipa.
-  ['paguei_errado', /\b(valor errado|paguei (a mais|a menos|errado|mal)|dinheiro de volta|devolu|reembols)/],
+  // "Mandei o dinheiro para o numero errado" (visto nos testes de 27/11): nao e "ja pagou".
+  ['paguei_errado', /\b(valor errado|paguei (a mais|a menos|errado|mal)|dinheiro de volta|devolu|reembols|(numero|conta) errad[oa]|outro numero|enganei(-me)? (no|o|de) numero)/],
   ['acesso_acabou', /\b(acesso|modo super nerd|pacote|plano) (ja )?(acabou|terminou|expirou)|\b(acabou|terminou|expirou) o (meu )?(acesso|pacote)\b/],
   ['esqueci_senha', /\b(esqueci|perdi|nao lembro|nao me lembro) (a |da |de )?(minha )?(palavra-passe|palavra passe|senha|password)\b/],
   ['trocar_disciplinas', /\b(trocar|mudar|alterar) (as |de |minhas )*(minhas )?disciplinas?\b/],
@@ -417,7 +418,8 @@ async function askModel(text: string, expecting: string, history: string[] = [])
 // ("Medicina" sozinho e o curso quando perguntamos o curso).
 export type Slot = 'name' | 'university' | 'course' | 'subjects' | 'date' | null;
 
-export async function understand(text: string, expecting: string, slot: Slot = null, history: string[] = []): Promise<Understanding> {
+export async function understand(text: string, expecting: string, slot: Slot = null, history: string[] = [],
+  opts: { skipModel?: boolean } = {}): Promise<Understanding> {
   const { subjects, missing } = findSubjects(text);
   const out: Understanding = {
     intent: 'outro',
@@ -439,7 +441,9 @@ export async function understand(text: string, expecting: string, slot: Slot = n
   const byRule = ruleIntent(text);
   // Sem texto (so audio/imagem): nao vale a pena chamar o modelo.
   let modelJson: any = null;
-  if (byRule !== 'sem_texto') {
+  // skipModel: com o Gemini ligado, so as regras leem primeiro (o modelo local
+  // fica de reserva para quando o Gemini falhar).
+  if (byRule !== 'sem_texto' && !opts.skipModel) {
     try {
       modelJson = await askModel(text, expecting, history);
       out.modelUsed = LEIZPRO_MODEL;
