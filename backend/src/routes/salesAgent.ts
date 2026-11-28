@@ -796,13 +796,21 @@ router.post('/leizpro/hand-back', async (req: AuthRequest, res: Response, next) 
     const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { id: true } });
     if (!contact) throw new AppError('Contacto nao encontrado neste workspace', 404);
 
+    const out = await handBackAndReply(workspaceId, contactId, leadId || null, req.user!.id);
+    res.json({ ok: true, ...out });
+  } catch (e) { next(e); }
+});
+
+// Devolve a conversa a Leiz (descarta pendentes, religa-a nesta conversa) e,
+// se a ultima mensagem for do estudante, a Sherone responde.
+async function handBackAndReply(workspaceId: string, contactId: string, leadId: string | null, userId: string) {
     // Sugestoes por enviar desta conversa ja nao servem.
     await prisma.aiSalesSuggestion.updateMany({
       where: { workspaceId, contactId, status: 'PENDING' },
-      data: { status: 'DISCARDED', decidedAt: new Date(), decidedById: req.user!.id, errorDetail: 'Descartada: conversa devolvida a Leiz' },
+      data: { status: 'DISCARDED', decidedAt: new Date(), decidedById: userId, errorDetail: 'Descartada: conversa devolvida a Leiz' },
     });
     const { handBackToLeiz } = await import('../lib/leizpro/engine');
-    const r = await handBackToLeiz(workspaceId, contactId, leadId || null, req.user!.id);
+    const r = await handBackToLeiz(workspaceId, contactId, leadId, userId);
 
     // Volta a ligar a Leiz nesta conversa (se tinha sido desligada).
     const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { aiSalesDisabledConversationIds: true } });
@@ -820,10 +828,65 @@ router.post('/leizpro/hand-back', async (req: AuthRequest, res: Response, next) 
       replying = true;
       const { maybeTriggerSalesSuggestion } = await import('../lib/aiSalesAgent');
       maybeTriggerSalesSuggestion({
-        workspaceId, contactId, leadId: leadId || null, triggerMessageId: last.id, triggerMessageContent: last.content || null, io: (global as any).io,
+        workspaceId, contactId, leadId: leadId, triggerMessageId: last.id, triggerMessageContent: last.content || null, io: (global as any).io,
       }).catch((e: any) => console.error('[leizpro] devolver: resposta falhou:', e?.message || e));
     }
-    res.json({ ok: true, step: r.step, summary: r.summary, replying, reenabled: disabled.includes(contactId) });
+  return { step: r.step, summary: r.summary, replying, reenabled: disabled.includes(contactId) };
+}
+
+// POST /api/sales-agent/leizpro/import-chat
+// Conversas exportadas do telemovel ("Exportar conversa") do periodo em que o
+// CRM nao recebeu mensagens (restricao da Evolution, 27-28/11). Grava as que
+// faltam com a hora original (sem duplicar as que ja estao) e devolve a
+// conversa a Leiz, que le o contexto (nome, universidade, passo) e responde se
+// a ultima mensagem for do estudante. Nada e enviado alem dessa resposta.
+router.post('/leizpro/import-chat', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const workspaceId = req.user!.workspaceId;
+    if (!(await isLeizProWorkspace(workspaceId))) throw new AppError('Disponivel so no workspace da Leiz Pro', 400);
+    const { phone, messages } = req.body || {};
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (digits.length < 8 || !Array.isArray(messages) || !messages.length) throw new AppError('phone e messages obrigatorios', 400);
+    const { analysePhone } = await import('../lib/phoneFormat');
+    const info = analysePhone(digits);
+    let contact = await prisma.contact.findFirst({ where: { workspaceId, whatsapp: info.rawDigits } });
+    if (!contact) {
+      contact = await prisma.contact.create({ data: { firstName: info.display, whatsapp: info.rawDigits, phone: info.display, workspaceId, type: 'PERSON' } });
+    }
+    let lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
+    if (!lead) {
+      const { newLeadTarget } = await import('../lib/leadTarget');
+      const pipeline = await newLeadTarget(workspaceId);
+      const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
+      if (pipeline?.stages[0] && owner) {
+        lead = await prisma.lead.create({ data: {
+          title: `WhatsApp - ${contact.firstName || ''}`.trim(), source: 'Anúncio WhatsApp', workspaceId,
+          pipelineId: pipeline.id, stageId: pipeline.stages[0].id, contactId: contact.id, createdById: owner.id,
+        } });
+      }
+    }
+    const norm = (t: string) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    let added = 0, skipped = 0;
+    for (const m of messages) {
+      const at = new Date(m.at);
+      const text = String(m.text || '').trim();
+      const dir = m.dir === 'out' ? 'OUTBOUND' : 'INBOUND';
+      if (!text || isNaN(at.getTime())) { skipped++; continue; }
+      const near = await prisma.message.findMany({
+        where: { contactId: contact.id, direction: dir as any, createdAt: { gte: new Date(at.getTime() - 15 * 60_000), lte: new Date(at.getTime() + 15 * 60_000) } },
+        select: { content: true },
+      });
+      if (near.some((x) => norm(x.content || '') === norm(text))) { skipped++; continue; }
+      await prisma.message.create({ data: {
+        content: text, type: 'TEXT', direction: dir as any, channel: 'WHATSAPP',
+        status: dir === 'OUTBOUND' ? 'SENT' : 'READ', leadId: lead?.id, contactId: contact.id, createdAt: at,
+        externalId: `import:${contact.id}:${at.getTime()}:${added}`,
+      } as any });
+      added++;
+    }
+    const out = await handBackAndReply(workspaceId, contact.id, lead?.id || null, req.user!.id);
+    res.json({ ok: true, contactId: contact.id, added, skipped, ...out });
   } catch (e) { next(e); }
 });
 
