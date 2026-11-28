@@ -877,9 +877,13 @@ router.post('/leizpro/import-chat', async (req: AuthRequest, res: Response, next
         where: { contactId: contact.id, direction: dir as any, createdAt: { gte: new Date(at.getTime() - 15 * 60_000), lte: new Date(at.getTime() + 15 * 60_000) } },
         select: { content: true },
       });
-      if (near.some((x) => norm(x.content || '') === norm(text))) { skipped++; continue; }
+      // "<Ficheiro nao revelado>" enviado por nos = o PDF dos pacotes (a Leiz
+      // reconhece "pacotes enviados" por um documento com "pacote" no nome).
+      const isPdf = dir === 'OUTBOUND' && /ficheiro n[aã]o revelado/i.test(text);
+      if (near.some((x) => norm(x.content || '') === norm(isPdf ? '[Documento]' : text))) { skipped++; continue; }
       await prisma.message.create({ data: {
-        content: text, type: 'TEXT', direction: dir as any, channel: 'WHATSAPP',
+        content: isPdf ? '[Documento]' : text, type: isPdf ? 'DOCUMENT' : 'TEXT', direction: dir as any, channel: 'WHATSAPP',
+        ...(isPdf ? { fileName: 'Pacotes de Acesso Completo.pdf', mediaType: 'application/pdf' } : {}),
         status: dir === 'OUTBOUND' ? 'SENT' : 'READ', leadId: lead?.id, contactId: contact.id, createdAt: at,
         externalId: `import:${contact.id}:${at.getTime()}:${added}`,
       } as any });

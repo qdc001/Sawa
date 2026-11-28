@@ -1835,6 +1835,7 @@ export async function handBackToLeiz(workspaceId: string, contactId: string, lea
   const payIdx = outs.findIndex((m) => /871443442|858395481|canais de pagamento/i.test(m.content || ''));
   const pdfIdx = outs.findIndex((m) => m.type === 'DOCUMENT' && /pacote/i.test(m.fileName || ''));
   let summary: string;
+  let inferredHit = false;
   if (welcome) {
     const access = parseWelcome(welcome.content || '', welcome.createdAt, st.snMonths, st.examSubjects?.length ? st.examSubjects.join(' e ') : null);
     st = { ...st, step: access ? 'active' : 'followup', access: access || st.access };
@@ -1848,11 +1849,23 @@ export async function handBackToLeiz(workspaceId: string, contactId: string, lea
     st = { ...st, step: 'pdf_sent', lastKey: 'packagesPdf', lastQuestion: 'packagesPdf' };
     summary = 'recebeu os pacotes';
   } else {
-    summary = `continua no passo "${st.step}"`;
+    // A ultima pergunta nossa (da equipa ou da Sherone) diz onde a conversa
+    // esta; o passo guardado pode ser de antes (28/11: conversas atendidas a mao
+    // durante a restricao; a Leiz repetiu a apresentacao a quem ja a tinha).
+    CUR = await loadTexts(workspaceId);
+    const inferred = await inferStepFromHistory(contactId);
+    if (inferred?.step) {
+      st = { ...st, ...inferred };
+      inferredHit = true;
+      summary = `retoma na ultima pergunta enviada (passo "${st.step}")`;
+    } else {
+      summary = `continua no passo "${st.step}"`;
+    }
   }
+  const keepKey = st.step === 'pdf_sent' || inferredHit;
   const next: LeizProState = {
     ...st, retries: 0, fu: null, regua: null,
-    ...(st.step === 'pdf_sent' ? {} : { lastKey: null, lastQuestion: null }),
+    ...(keepKey ? {} : { lastKey: null, lastQuestion: null }),
     ...(st.step === 'paying' ? {} : { payFollow: null }),
   };
   await prisma.aiSalesSuggestion.create({
