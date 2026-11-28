@@ -132,9 +132,9 @@ export default function WhatsAppCloudModal({ onClose, onSaved }: { onClose: () =
 
             <div className="space-y-2">
               <p className="font-medium">3. Modelo de follow-up</p>
-              <p className="text-xs" style={muted}>Usado quando passaram mais de 24 h desde a última mensagem do contacto. Tem de ter 2 variáveis: {'{{1}}'} = primeiro nome, {'{{2}}'} = texto da Leiz.</p>
+              <p className="text-xs" style={muted}>Usado quando passaram mais de 24 h desde a última mensagem do contacto. Corpo: "Olá, {'{{1}}'} {'{{2}}'}" + assinatura. {'{{1}}'} = nome com a pontuação do guia (ex.: "Ana! 😊"), {'{{2}}'} = resto do texto da Leiz.</p>
               <div className="flex gap-2">
-                <input className={input} placeholder="Nome do modelo (ex.: zn_seguimento)" value={f.templateName} onChange={(e) => setF({ ...f, templateName: e.target.value })} list="wa-templates" />
+                <input className={input} placeholder="Nome do modelo (ex.: zn_ola)" value={f.templateName} onChange={(e) => setF({ ...f, templateName: e.target.value })} list="wa-templates" />
                 <input className="input text-sm w-24" placeholder="pt_PT" value={f.templateLang} onChange={(e) => setF({ ...f, templateLang: e.target.value })} />
               </div>
               <datalist id="wa-templates">

@@ -218,11 +218,44 @@ export function templateParam(text: string, max = 900): string {
 }
 
 // "Ola Ana, tudo bem?" -> "tudo bem?" (o modelo ja cumprimenta com o nome).
-export function dropGreeting(text: string): string {
-  const out = text
-    .replace(/^\s*(ol[aá]|oi|bom dia|boa tarde|boa noite)(?=[\s,!.])[^,!.?\n]{0,30}[,!.]\s*/iu, '')
-    .replace(/^[\p{Extended_Pictographic}️‍\s]+/u, '');
-  return out ? out.charAt(0).toUpperCase() + out.slice(1) : text;
+// Divide o texto do guia nos 2 parametros do modelo "Ola, {{1}} {{2}}\n\nSherone, Znerd."
+// {{1}} leva o nome com a pontuacao do guia ("Ana! 😊", "Ana.", "Ana, tudo bem? 😊");
+// {{2}} o resto. "Bom dia/Boa tarde, Ana!" passa a "Ola, Ana!" e "Ana, o teu
+// acesso..." passa a "Ola, Ana! O teu acesso...".
+const EMOJI_RUN = /^[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}]+/u;
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+export function splitForTemplate(text: string, firstName: string | null): [string, string] {
+  const name = (firstName || '').trim().split(/\s+/)[0] || '';
+  const fallback1 = name ? `${name}!` : 'tudo bem?';
+  let t = String(text || '').trim();
+  const g = t.match(/^(ol[aá]|oi|bom dia|boa tarde|boa noite)(?=[\s,!.])\s*,?\s*/iu);
+  if (g) {
+    t = t.slice(g[0].length);
+    {
+      // Nome (o que estiver no texto) + pontuacao, ate 30 caracteres:
+      // "Ana!", "Ana.", "Ana, tudo bem?".
+      const m = t.match(/^[^,!.?\n]{1,30}?(?:\s*,\s*tudo bem\?|[!.?])/iu);
+      if (m && !/^\s/.test(t)) {
+        let rest = t.slice(m[0].length);
+        const emo = rest.match(EMOJI_RUN)?.[0] || '';
+        rest = rest.slice(emo.length);
+        const p1 = (m[0].trim() + (/[!.?]$/.test(m[0]) ? '' : '!') + (emo.trim() ? ' ' + emo.trim() : '')).trim();
+        return [p1, cap(rest.replace(/^[,\s]+/, '').trim())];
+      }
+    }
+    // Cumprimento sem o nome ("Ola! Estou..."): tira a pontuacao e os emojis.
+    t = t.replace(/^[!.,]+/, '');
+    t = t.replace(EMOJI_RUN, '');
+    return [fallback1, cap(t.trim())];
+  }
+  // Comeca pelo nome: "Ana, o teu acesso termina hoje."
+  if (name) {
+    const m = t.match(new RegExp(`^${escRe(name)}\\s*[,!.]\\s*`, 'iu'));
+    if (m) return [`${name}!`, cap(t.slice(m[0].length).trim())];
+  }
+  return [fallback1, t];
 }
 
 export function renderTemplate(body: string | null | undefined, params: string[]): string {
@@ -233,8 +266,8 @@ export function renderTemplate(body: string | null | undefined, params: string[]
 export async function sendFollowupTemplate(c: Cloud, to: string, firstName: string | null, text: string): Promise<GraphResult & { rendered?: string }> {
   const t = c.settings.followupTemplate;
   if (!t?.name) return { ok: false, error: 'Janela de 24 h fechada e não há modelo de follow-up configurado (Integrações > WhatsApp oficial).' };
-  const name = templateParam((firstName || '').split(/\s+/)[0] || 'olá', 60) || 'olá';
-  const params = [name, templateParam(dropGreeting(text))];
+  const [p1, p2] = splitForTemplate(text, firstName);
+  const params = [templateParam(p1, 60) || 'tudo bem?', templateParam(p2) || '😊'];
   const r = await graphSend(c, {
     to, type: 'template',
     template: { name: t.name, language: { code: t.lang || 'pt_PT', policy: 'deterministic' }, components: [{ type: 'body', parameters: params.map((p) => ({ type: 'text', text: p })) }] },
