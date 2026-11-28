@@ -12,6 +12,7 @@ import path from 'path';
 import { newLeadTarget } from '../lib/leadTarget';
 import prisma from '../lib/prisma';
 import { getCreds } from '../lib/integrationCrypto';
+import { cloudPrimary } from '../lib/metaCloud';
 import { propagateAssignee } from '../lib/propagateAssignee';
 const router = Router();
 
@@ -50,7 +51,7 @@ export function invalidateEvoInstanceCache(): void {
 }
 
 // Helper: round-robin auto-assignment
-async function autoAssignConversation(workspaceId: string, contactId: string, channel: string): Promise<string | null> {
+export async function autoAssignConversation(workspaceId: string, contactId: string, channel: string): Promise<string | null> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { autoAssignEnabled: true } });
   if (!ws?.autoAssignEnabled) return null;
 
@@ -578,6 +579,13 @@ router.post('/evolution', async (req: Request, res: Response) => {
       const count = Array.isArray(data) ? data.length : Array.isArray(data?.messages) ? data.messages.length : 0;
       console.log(`Evolution webhook: messages.set ignorado (resync de histórico, ${count} mensagens). Usa "Sincronizar conversas" para importar histórico.`);
       return res.json({ ok: true, ignored: 'messages.set (usa sync-chats para historico)' });
+    }
+
+    // API oficial da Meta como canal principal: as mensagens chegam pelo webhook
+    // da Meta (com ids proprios). Gravar tambem as da Evolution duplicava tudo
+    // e punha a Leiz a responder duas vezes.
+    if (await cloudPrimary(workspaceId)) {
+      return res.json({ ok: true, ignored: 'WhatsApp oficial e o canal principal' });
     }
 
     // Mensagens novas (inbound + fromMe do telefone)

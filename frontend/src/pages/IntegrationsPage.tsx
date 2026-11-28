@@ -3,6 +3,7 @@ import { MessageCircle, Mail, Globe, CheckCircle2, Settings, Loader2, X, Plus, T
 import api, { IntegrationItem } from '../lib/api';
 import toast from 'react-hot-toast';
 import LidDuplicatesPanel from '../components/LidDuplicatesPanel';
+import WhatsAppCloudModal from '../components/WhatsAppCloudModal';
 import { getSocket } from '../lib/socket';
 
 type IntegrationType = 'WHATSAPP_CLOUD' | 'EVOLUTION' | 'EMAIL' | 'INSTAGRAM' | 'FACEBOOK' | 'TIKTOK';
@@ -23,11 +24,11 @@ const DEFINITIONS: IntegrationDef[] = [
   {
     type: 'WHATSAPP_CLOUD',
     backendType: 'WHATSAPP',
-    name: 'WhatsApp Cloud API',
+    name: 'WhatsApp oficial (Cloud API)',
     icon: MessageCircle,
     color: '#25D366',
     bg: '#E7F9EE',
-    desc: 'Envia mensagens via Meta Cloud API. Requer Phone Number ID e Access Token.',
+    desc: 'API oficial da Meta: sem restrições por QR. Pode ficar como canal principal, com modelo de follow-up para fora das 24 h.',
     fields: [
       { key: 'accessToken', label: 'Access Token', type: 'password', required: true, placeholder: 'EAAG...' },
       { key: 'phoneNumberId', label: 'Phone Number ID', required: true, placeholder: '123456789012345' },
@@ -777,6 +778,7 @@ export default function IntegrationsPage() {
   const [editing, setEditing] = useState<{ def: IntegrationDef; existing: IntegrationItem | null } | null>(null);
   const [testing, setTesting] = useState<IntegrationType | null>(null);
   const [showEvoConnect, setShowEvoConnect] = useState(false);
+  const [showCloud, setShowCloud] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -844,7 +846,11 @@ export default function IntegrationsPage() {
                 </div>
                 <p className="text-xs flex-1" style={{ color: 'var(--text-secondary)' }}>{def.desc}</p>
                 <div className="flex gap-2">
-                  {def.type === 'EVOLUTION' ? (
+                  {def.type === 'WHATSAPP_CLOUD' ? (
+                    <button onClick={() => setShowCloud(true)} className="btn w-full text-xs py-1.5 text-white" style={{ background: def.color }}>
+                      <Settings size={12} /> {configured ? 'Gerir WhatsApp oficial' : 'Configurar'}
+                    </button>
+                  ) : def.type === 'EVOLUTION' ? (
                     configured ? (
                       <>
                         <button onClick={() => setShowEvoConnect(true)} className="btn flex-1 text-xs py-1.5 text-white" style={{ background: '#25D366' }}>
@@ -947,6 +953,7 @@ export default function IntegrationsPage() {
         />
       )}
       {testing && <TestSendModal type={testing} onClose={() => setTesting(null)} />}
+      {showCloud && <WhatsAppCloudModal onClose={() => setShowCloud(false)} onSaved={load} />}
       {showEvoConnect && (
         <EvolutionConnectModal
           existing={items.find((i) => i.type === 'WEBHOOK' && i.name?.toLowerCase().includes('evolution')) || null}

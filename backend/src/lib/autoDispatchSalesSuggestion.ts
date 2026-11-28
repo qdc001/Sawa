@@ -10,6 +10,7 @@
 import prisma from './prisma';
 import { sendWhatsAppOut, sendWhatsAppPresence } from './whatsappSend';
 import { triggerAutomations } from './automationEngine';
+import { cloudPrimary, cloudPrimaryKnown, windowOpenFor } from './metaCloud';
 
 // ---- Leiz Pro: menos mensagens e mais espacadas (restricao do WhatsApp, 25/11) ----
 // 1. As partes de uma resposta vao numa so mensagem (com linhas em branco no
@@ -28,7 +29,11 @@ export function waitSendSlot(workspaceId: string, contactId: string, kind: 'text
   const prev = sendChain.get(workspaceId) || Promise.resolve();
   const p = prev.then(async () => {
     const same = lastSendContact.get(workspaceId) === contactId;
-    const gap = same
+    // API oficial: sem risco de restricao por ritmo; so uma pausa curta.
+    const base = cloudPrimaryKnown(workspaceId) ? 4_000 : SEND_GAP_MS;
+    const gap = cloudPrimaryKnown(workspaceId)
+      ? (same ? 2_000 : base + Math.floor(Math.random() * 2_000))
+      : same
       ? (kind === 'file' ? 15_000 : 10_000) * (SEND_GAP_MS / 30_000)
       : SEND_GAP_MS + Math.floor(Math.random() * (SEND_GAP_MS / 3));
     const wait = (lastSendAt.get(workspaceId) || 0) + gap - Date.now();
@@ -92,10 +97,23 @@ export async function dispatchSalesParts(opts: {
   sentById: string | null;
   io: any;
 }): Promise<{ sentMessageIds: string[]; failedAt?: number; error?: string }> {
-  const { workspaceId, contactId, contactPhone, leadId, productFiles, sentById, io } = opts;
+  const { workspaceId, contactId, contactPhone, leadId, sentById, io } = opts;
   const sentMessageIds: string[] = [];
   const leiz = await isLeizPro(workspaceId);
-  const parts = leiz ? joinParts(opts.parts) : opts.parts;
+  let parts = leiz ? joinParts(opts.parts) : opts.parts;
+  let productFiles = opts.productFiles;
+
+  // API oficial com a janela de 24 h fechada (follow-up, reactivacao): so pode
+  // sair um modelo, e depois dele nada ate o contacto responder. Junta-se o
+  // texto numa so mensagem e os ficheiros ficam para quando ele responder.
+  if (await cloudPrimary(workspaceId) && !(await windowOpenFor(contactId))) {
+    const text = parts.filter((p) => p.trim() !== '<<PDF>>').join(' ').trim();
+    if (productFiles.length || parts.some((p) => p.trim() === '<<PDF>>')) {
+      console.log(`[dispatch] janela fechada: ${productFiles.length} ficheiro(s) nao enviado(s) para ${contactId}`);
+    }
+    parts = text ? [text] : [];
+    productFiles = [];
+  }
 
   // A parte "<<PDF>>" (Leiz Pro) marca onde entram os anexos no meio das
   // mensagens; sem ela, os anexos vao no fim, como antes.
@@ -122,7 +140,7 @@ export async function dispatchSalesParts(opts: {
 
     const msg = await prisma.message.create({
       data: {
-        content: text,
+        content: result.renderedText || text,
         type: 'TEXT',
         direction: 'OUTBOUND',
         channel: 'WHATSAPP',

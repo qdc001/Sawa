@@ -104,7 +104,12 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: '100mb' }));
+// rawBody so para o webhook da Meta (WhatsApp oficial): a assinatura
+// X-Hub-Signature-256 e calculada sobre os bytes exactos do pedido.
+app.use(express.json({
+  limit: '100mb',
+  verify: (req: any, _res, buf) => { if (req.originalUrl?.startsWith('/api/whatsapp/')) req.rawBody = buf; },
+}));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
   maxAge: '7d',

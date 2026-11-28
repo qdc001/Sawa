@@ -1,13 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
-import { runChatbotForMessage } from '../lib/chatbotEngine';
-import { triggerAutomations } from '../lib/automationEngine';
-import { notifyNewMessage } from '../lib/notify';
-import { maybeTriggerSalesSuggestion } from '../lib/aiSalesAgent';
 
-import { newLeadTarget } from '../lib/leadTarget';
 import prisma from '../lib/prisma';
 import { getCreds, encryptForStore } from '../lib/integrationCrypto';
+import { allClouds, fetchTemplateBody, getCloud, invalidateCloudCache, listTemplates, phoneInfo, sendCloud, verifySignature, verifyYcloudSignature, ycloudCreateWebhook } from '../lib/metaCloud';
+import { handleCloudWebhook, handleYcloudWebhook } from '../lib/metaCloudWebhook';
 const router = Router();
 
 // ── Helpers ──────────────────────────────────────────
@@ -60,12 +57,14 @@ async function sendWhatsAppMedia(to: string, type: string, mediaUrl: string, cap
 }
 
 // ── Webhook verification (GET) ────────────────────────
-router.get('/webhook', (req: Request, res: Response) => {
+// URL a colar na app da Meta: <API>/api/whatsapp/webhook. O token de
+// verificacao e o WHATSAPP_VERIFY_TOKEN da env ou o guardado na integracao.
+router.get('/webhook', async (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
+  const token = String(req.query['hub.verify_token'] || '');
   const challenge = req.query['hub.challenge'];
-
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+  const known = [process.env.WHATSAPP_VERIFY_TOKEN, ...(await allClouds()).map((c) => c.verifyToken)].filter(Boolean);
+  if (mode === 'subscribe' && token && known.includes(token)) {
     console.log('WhatsApp webhook verificado');
     return res.status(200).send(challenge);
   }
@@ -73,183 +72,17 @@ router.get('/webhook', (req: Request, res: Response) => {
 });
 
 // ── Webhook receive (POST) ────────────────────────────
+// Responde logo 200 (a Meta repete o envio se demorarmos) e processa a seguir.
 router.post('/webhook', async (req: Request, res: Response) => {
-  try {
-    const body = req.body;
-    if (body.object !== 'whatsapp_business_account') return res.sendStatus(404);
-
-    for (const entry of body.entry || []) {
-      for (const change of entry.changes || []) {
-        if (change.field !== 'messages') continue;
-        const value = change.value;
-        const phoneId = value.metadata?.phone_number_id;
-
-        // Find integration by phoneId
-        const integration = await prisma.integration.findFirst({
-          where: { type: 'WHATSAPP', isActive: true },
-        });
-        if (!integration) continue;
-
-        const workspaceId = integration.workspaceId;
-        const creds: any = getCreds(integration);
-
-        // Process incoming messages
-        for (const msg of value.messages || []) {
-          const from = msg.from; // sender phone number
-          const msgId = msg.id;
-          const timestamp = new Date(Number(msg.timestamp) * 1000);
-
-          let content = '';
-          let mediaUrl: string | undefined;
-          let msgType = 'TEXT';
-
-          let interactiveButtonId: string | null = null; // id do botão clicado (para o motor)
-
-          if (msg.type === 'text') {
-            content = msg.text.body;
-          } else if (msg.type === 'image') {
-            msgType = 'IMAGE';
-            content = msg.image?.caption || '[Imagem]';
-            mediaUrl = msg.image?.id;
-          } else if (msg.type === 'audio') {
-            msgType = 'AUDIO';
-            content = '[Audio]';
-          } else if (msg.type === 'document') {
-            msgType = 'DOCUMENT';
-            content = msg.document?.filename || '[Documento]';
-          } else if (msg.type === 'location') {
-            msgType = 'LOCATION';
-            content = `Localização: ${msg.location?.latitude}, ${msg.location?.longitude}`;
-          } else if (msg.type === 'interactive') {
-            msgType = 'INTERACTIVE';
-            const inter = msg.interactive || {};
-            if (inter.button_reply) {
-              interactiveButtonId = inter.button_reply.id || null;
-              content = inter.button_reply.title || interactiveButtonId || '[Botão]';
-            } else if (inter.list_reply) {
-              interactiveButtonId = inter.list_reply.id || null;
-              content = inter.list_reply.title || interactiveButtonId || '[Lista]';
-            } else {
-              content = '[Interactive]';
-            }
-          } else {
-            content = `[${msg.type}]`;
-          }
-
-          // Find or create contact
-          let contact = await prisma.contact.findFirst({
-            where: { whatsapp: from, workspaceId },
-          });
-
-          if (!contact) {
-            const profileName = value.contacts?.[0]?.profile?.name || from;
-            contact = await prisma.contact.create({
-              data: {
-                firstName: profileName,
-                whatsapp: from,
-                phone: from,
-                workspaceId,
-                type: 'PERSON',
-              },
-            });
-          }
-
-          // Find open lead for this contact or create one
-          let lead = await prisma.lead.findFirst({
-            where: { contactId: contact.id, status: 'OPEN', workspaceId },
-          });
-
-          if (!lead) {
-            const pipeline = await newLeadTarget(workspaceId);
-            if (pipeline && pipeline.stages[0]) {
-              lead = await prisma.lead.create({
-                data: {
-                  title: `WhatsApp - ${contact.firstName}`,
-                  source: 'WhatsApp',
-                  workspaceId,
-                  pipelineId: pipeline.id,
-                  stageId: pipeline.stages[0].id,
-                  contactId: contact.id,
-                  createdById: (await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } }))!.id,
-                },
-              });
-            }
-          }
-
-          // Save message
-          const savedMessage = await prisma.message.create({
-            data: {
-              content,
-              type: msgType as any,
-              direction: 'INBOUND',
-              channel: 'WHATSAPP',
-              status: 'DELIVERED',
-              externalId: msgId,
-              mediaUrl,
-              leadId: lead?.id,
-              contactId: contact.id,
-              createdAt: timestamp,
-            },
-          });
-
-          // Emit via socket
-          const io = (global as any).io;
-          if (io) {
-            io.to(`workspace:${workspaceId}`).emit('message:new', savedMessage);
-            if (lead) io.to(`lead:${lead.id}`).emit('message:new', savedMessage);
-          }
-
-          // Mark message as read
-          await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.token}` },
-            body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: msgId }),
-          });
-
-          // Disparar motor de chatbots (não bloqueia o webhook)
-          // Para interactive: passa o id do botão clicado como mensagem (para condições matched contra esse id)
-          if ((msgType === 'TEXT' || msgType === 'INTERACTIVE') && content) {
-            runChatbotForMessage({
-              workspaceId,
-              contactId: contact.id,
-              leadId: lead?.id,
-              message: interactiveButtonId || content,
-              channel: 'WHATSAPP',
-              io,
-            }).catch((e) => console.error('Chatbot engine error:', e));
-          }
-
-          // Disparar motor de automações
-          triggerAutomations({
-            type: 'message_received', workspaceId,
-            entityType: 'message', entityId: savedMessage.id,
-          }).catch((e) => console.error('Automation message_received error:', e));
-
-          // Disparar IA Vendedora (gated por workspace.aiSalesEnabled ou conversa especifica)
-          maybeTriggerSalesSuggestion({
-            workspaceId, contactId: contact.id, leadId: lead?.id,
-            triggerMessageId: savedMessage.id, triggerMessageContent: content, io,
-          });
-
-          // Notificação opt-in por email
-          notifyNewMessage(savedMessage.id).catch((e) => console.error('notifyNewMessage error:', e));
-        }
-
-        // Process status updates
-        for (const status of value.statuses || []) {
-          await prisma.message.updateMany({
-            where: { externalId: status.id },
-            data: { status: status.status.toUpperCase() as any },
-          });
-        }
-      }
-    }
-
-    res.sendStatus(200);
-  } catch (error) {
-    console.error('WhatsApp webhook error:', error);
-    res.sendStatus(500);
+  const body = req.body;
+  if (body?.object !== 'whatsapp_business_account') return res.sendStatus(404);
+  const secrets = [process.env.META_APP_SECRET, ...(await allClouds()).filter((c) => c.provider === 'meta').map((c) => c.appSecret)].filter(Boolean) as string[];
+  if (!verifySignature((req as any).rawBody, req.get('x-hub-signature-256'), secrets)) {
+    console.warn('[cloud] webhook com assinatura invalida (ip=' + (req.ip || '?') + ')');
+    return res.sendStatus(401);
   }
+  res.sendStatus(200);
+  handleCloudWebhook(body, (global as any).io || req.app.get('io')).catch((e) => console.error('WhatsApp webhook error:', e));
 });
 
 // ── Send message (authenticated) ─────────────────────
@@ -302,29 +135,126 @@ router.post('/send', authMiddleware, async (req: AuthRequest, res: Response, nex
   }
 });
 
+// ── Webhook da YCloud (parceiro, coexistencia) ────────
+router.post('/ycloud-webhook', async (req: Request, res: Response) => {
+  const secrets = (await allClouds()).filter((c) => c.provider === 'ycloud').map((c) => c.appSecret).filter(Boolean) as string[];
+  if (!verifyYcloudSignature((req as any).rawBody, req.get('ycloud-signature'), secrets)) {
+    console.warn('[ycloud] webhook com assinatura invalida (ip=' + (req.ip || '?') + ')');
+    return res.sendStatus(401);
+  }
+  res.sendStatus(200);
+  handleYcloudWebhook(req.body, (global as any).io || req.app.get('io')).catch((e) => console.error('YCloud webhook error:', e));
+});
+
 // ── Configure integration ─────────────────────────────
+// Campos vazios mantem o valor guardado (o token nao volta ao frontend).
 router.post('/configure', authMiddleware, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { token, phoneId, businessAccountId, verifyToken } = req.body;
-    if (!token || !phoneId) return res.status(400).json({ message: 'Token e Phone ID são obrigatórios' });
-
-    const existing = await prisma.integration.findFirst({
-      where: { workspaceId: req.user!.workspaceId, type: 'WHATSAPP' },
-    });
-
-    const data = {
-      type: 'WHATSAPP' as const,
-      name: 'WhatsApp Business',
-      isActive: true,
-      credentials: encryptForStore({ token, phoneId, businessAccountId, verifyToken }) as any,
-      workspaceId: req.user!.workspaceId,
+    const { token, phoneId, businessAccountId, verifyToken, appSecret, primary, fallbackEvolution, templateName, templateLang, isActive } = req.body;
+    const existing = await prisma.integration.findFirst({ where: { workspaceId: req.user!.workspaceId, type: 'WHATSAPP' } });
+    const old: any = existing ? getCreds(existing) : {};
+    const provider = (req.body.provider || old.provider || 'meta') === 'ycloud' ? 'ycloud' : 'meta';
+    const switched = (old.provider || 'meta') !== provider;
+    const creds: any = {
+      provider,
+      token: token || (switched ? '' : old.token || old.accessToken),
+      phoneId: provider === 'ycloud' ? String(phoneId || (switched ? '' : old.phoneId) || '').replace(/\D/g, '') : (phoneId || old.phoneId || old.phoneNumberId),
+      businessAccountId: businessAccountId || (switched ? '' : old.businessAccountId),
+      verifyToken: verifyToken || old.verifyToken,
+      appSecret: appSecret || (switched ? '' : old.appSecret),
+      ycloudWebhookId: switched ? null : old.ycloudWebhookId || null,
     };
-
-    const integration = existing
+    if (!creds.token || !creds.phoneId) {
+      return res.status(400).json({ message: provider === 'ycloud' ? 'API key e número da empresa são obrigatórios' : 'Token e Phone Number ID são obrigatórios' });
+    }
+    // YCloud: o CRM cria sozinho o webhook la e guarda o segredo.
+    if (provider === 'ycloud' && !creds.appSecret) {
+      const base = (process.env.PUBLIC_API_URL || `https://${req.get('host')}`).replace(/\/$/, '');
+      try {
+        const w = await ycloudCreateWebhook(creds.token, `${base}/api/whatsapp/ycloud-webhook`);
+        creds.appSecret = w.secret; creds.ycloudWebhookId = w.id;
+      } catch (e: any) {
+        return res.status(400).json({ message: `Não consegui criar o webhook na YCloud: ${e.message}` });
+      }
+    }
+    const prev: any = existing?.settings || {};
+    const settings: any = {
+      ...prev,
+      primary: primary === undefined ? !!prev.primary : !!primary,
+      fallbackEvolution: fallbackEvolution === undefined ? !!prev.fallbackEvolution : !!fallbackEvolution,
+    };
+    if (templateName !== undefined) {
+      settings.followupTemplate = templateName ? { name: String(templateName).trim(), lang: String(templateLang || 'pt_PT').trim(), body: null } : null;
+    }
+    const data = {
+      type: 'WHATSAPP' as const, name: 'WhatsApp Business (oficial)',
+      isActive: isActive === undefined ? true : !!isActive,
+      credentials: encryptForStore(creds) as any, settings, workspaceId: req.user!.workspaceId,
+    };
+    let integration = existing
       ? await prisma.integration.update({ where: { id: existing.id }, data })
       : await prisma.integration.create({ data });
+    invalidateCloudCache();
+    // Texto do modelo (para o CRM mostrar o que o contacto recebe).
+    let template: any = null;
+    let c = await getCloud(req.user!.workspaceId);
+    // YCloud: o WABA vem da lista de numeros da conta.
+    if (c && c.provider === 'ycloud' && !c.wabaId) {
+      const info = await phoneInfo(c).catch(() => null);
+      if (info?.wabaId) {
+        creds.businessAccountId = info.wabaId;
+        integration = await prisma.integration.update({ where: { id: integration.id }, data: { credentials: encryptForStore(creds) as any } });
+        invalidateCloudCache();
+        c = await getCloud(req.user!.workspaceId);
+      }
+    }
+    if (c && settings.followupTemplate?.name) {
+      template = await fetchTemplateBody(c, settings.followupTemplate.name, settings.followupTemplate.lang).catch(() => null);
+      if (template?.body) {
+        settings.followupTemplate.body = template.body;
+        integration = await prisma.integration.update({ where: { id: integration.id }, data: { settings } });
+        invalidateCloudCache();
+      }
+    }
+    res.json({ message: 'WhatsApp oficial guardado', integration: { id: integration.id, isActive: integration.isActive }, template });
+  } catch (error) { next(error); }
+});
 
-    res.json({ message: 'WhatsApp configurado com sucesso', integration: { id: integration.id, isActive: integration.isActive } });
+// ── Estado (para o painel) ────────────────────────────
+router.get('/status', authMiddleware, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const existing = await prisma.integration.findFirst({ where: { workspaceId: req.user!.workspaceId, type: 'WHATSAPP' } });
+    const base = (process.env.PUBLIC_API_URL || `https://${req.get('host')}`).replace(/\/$/, '');
+    const webhookUrl = `${base}/api/whatsapp/webhook`;
+    if (!existing) return res.json({ configured: false, webhookUrl, provider: 'meta' });
+    const cr: any = getCreds(existing);
+    const settings: any = existing.settings || {};
+    const out: any = {
+      configured: true, isActive: existing.isActive, provider: cr.provider === 'ycloud' ? 'ycloud' : 'meta',
+      webhookUrl: cr.provider === 'ycloud' ? `${base}/api/whatsapp/ycloud-webhook` : webhookUrl,
+      ycloudWebhookCreated: !!cr.ycloudWebhookId,
+      phoneId: cr.phoneId || cr.phoneNumberId || '', businessAccountId: cr.businessAccountId || '',
+      hasToken: !!(cr.token || cr.accessToken), hasAppSecret: !!cr.appSecret, hasVerifyToken: !!(cr.verifyToken || process.env.WHATSAPP_VERIFY_TOKEN),
+      primary: !!settings.primary, fallbackEvolution: !!settings.fallbackEvolution,
+      followupTemplate: settings.followupTemplate || null,
+    };
+    const c = await getCloud(req.user!.workspaceId);
+    if (c) {
+      try { out.phone = await phoneInfo(c); } catch (e: any) { out.phoneError = e.message; }
+      try { out.templates = await listTemplates(c); } catch { out.templates = []; }
+    }
+    res.json(out);
+  } catch (error) { next(error); }
+});
+
+// ── Teste de envio ────────────────────────────────────
+router.post('/test', authMiddleware, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { to, text } = req.body;
+    const c = await getCloud(req.user!.workspaceId);
+    if (!c) return res.status(400).json({ message: 'WhatsApp oficial não configurado' });
+    const r = await sendCloud(c, String(to || ''), String(text || 'Teste do CRM (API oficial)'), 'TEXT');
+    res.json(r);
   } catch (error) { next(error); }
 });
 

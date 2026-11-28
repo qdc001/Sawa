@@ -12,6 +12,7 @@ import prisma from './prisma';
 import { getCreds } from './integrationCrypto';
 import { publicMediaUrl } from './evolutionMedia';
 import { evoNumber } from './phoneFormat';
+import { cloudPrimary, contactForPhone, getCloud, markRead, sendCloud } from './metaCloud';
 
 // Acima disto, preferimos mandar URL em vez de base64. O base64 infla o
 // payload em ~33% e vai tudo num unico JSON; ficheiros grandes (viram-se
@@ -73,6 +74,10 @@ export type WhatsAppSendResult = {
   externalId?: string;
   via?: string;
   error?: string;
+  // API oficial com a janela de 24 h fechada: o texto saiu dentro do modelo
+  // aprovado; e isto que o contacto recebeu (para gravar no CRM).
+  renderedText?: string;
+  windowClosed?: boolean;
 };
 
 export async function sendWhatsAppOut(
@@ -83,6 +88,15 @@ export async function sendWhatsAppOut(
   mediaUrl?: string,
   fileName?: string,
 ): Promise<WhatsAppSendResult> {
+  // 0. API oficial da Meta como canal principal (Integracoes > WhatsApp oficial).
+  const primary = await cloudPrimary(workspaceId);
+  if (primary) {
+    const r = await sendCloud(primary, phone, content, type, mediaUrl, fileName);
+    // Janela fechada nao se resolve pela Evolution (seria o mesmo numero por fora da API).
+    if (r.ok || r.windowClosed || !primary.settings.fallbackEvolution) return r;
+    console.warn(`[whatsappSend] API oficial falhou (${r.error}); a tentar a Evolution`);
+  }
+
   // 1. Tentar Evolution
   const evo = await prisma.integration.findFirst({
     where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
@@ -237,33 +251,10 @@ export async function sendWhatsAppOut(
     }
   }
 
-  // 2. Fallback WhatsApp Cloud (Meta)
-  const cloud = await prisma.integration.findFirst({
-    where: { workspaceId, type: 'WHATSAPP', isActive: true },
-  });
-  if (cloud) {
-    const creds: any = getCreds(cloud);
-    const token = creds.accessToken || creds.token;
-    const phoneId = creds.phoneNumberId || creds.phoneId;
-    if (token && phoneId) {
-      try {
-        let body: any;
-        if (type === 'TEXT' || !mediaUrl) {
-          body = { messaging_product: 'whatsapp', to: phone.replace(/\D/g, ''), type: 'text', text: { body: content } };
-        } else {
-          const mtype = type.toLowerCase();
-          body = { messaging_product: 'whatsapp', to: phone.replace(/\D/g, ''), type: mtype, [mtype]: { link: mediaUrl, caption: content } };
-        }
-        const r = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify(body),
-        });
-        const data = await r.json();
-        if (r.ok) return { ok: true, externalId: data.messages?.[0]?.id, via: 'cloud' };
-        return { ok: false, error: data?.error?.message || `HTTP ${r.status}` };
-      } catch (e: any) { return { ok: false, error: e.message }; }
-    }
+  // 2. Fallback WhatsApp Cloud (Meta), quando nao e o principal
+  if (!primary) {
+    const cloud = await getCloud(workspaceId);
+    if (cloud) return sendCloud(cloud, phone, content, type, mediaUrl, fileName);
   }
 
   return { ok: false, error: 'Sem integracao WhatsApp activa' };
@@ -281,6 +272,20 @@ export async function sendWhatsAppPresence(
   delayMs?: number,
 ): Promise<void> {
   try {
+    // API oficial: o "a escrever" vai junto com o "lido" da ultima mensagem do
+    // contacto (a Meta so o aceita assim, e dura no maximo 25 s).
+    const cloud = await cloudPrimary(workspaceId);
+    if (cloud) {
+      if (presence !== 'composing') return;
+      const c = await contactForPhone(workspaceId, String(phone));
+      if (!c) return;
+      const last = await prisma.message.findFirst({
+        where: { contactId: c.id, direction: 'INBOUND', isInternal: false, externalId: { not: null } },
+        orderBy: { createdAt: 'desc' }, select: { externalId: true, createdAt: true },
+      });
+      if (last?.externalId && Date.now() - last.createdAt.getTime() < 24 * 3600_000) await markRead(cloud, last.externalId, true);
+      return;
+    }
     const evo = await prisma.integration.findFirst({
       where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
     });

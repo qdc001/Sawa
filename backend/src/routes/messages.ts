@@ -311,6 +311,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     let externalId: string | undefined;
     let status = 'PENDING';
     let sendError: string | undefined;
+    let sentText: string | undefined; // API oficial fora das 24 h: o texto do modelo
 
     // Enviar via canal externo se não for nota interna nem inbound
     const shouldSendExternal = !isInternal && (direction || 'OUTBOUND') === 'OUTBOUND' && contactId &&
@@ -325,7 +326,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
           sendError = 'Contacto sem número de WhatsApp';
         } else {
           const result = await sendWhatsAppOut(req.user!.workspaceId, phone, content, type || 'TEXT', mediaUrl, fileName);
-          if (result.ok) { externalId = result.externalId; status = 'SENT'; }
+          if (result.ok) { externalId = result.externalId; status = 'SENT'; sentText = result.renderedText; }
           else { sendError = result.error; status = 'FAILED'; }
         }
       } else if (channel === 'INSTAGRAM' || channel === 'FACEBOOK') {
@@ -344,7 +345,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 
     const message = await prisma.message.create({
       data: {
-        content: content || '',
+        content: sentText || content || '',
         channel,
         type: type || 'TEXT',
         direction: direction || 'OUTBOUND',
