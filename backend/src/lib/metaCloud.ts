@@ -267,7 +267,11 @@ export async function sendFollowupTemplate(c: Cloud, to: string, firstName: stri
   const t = c.settings.followupTemplate;
   if (!t?.name) return { ok: false, error: 'Janela de 24 h fechada e não há modelo de follow-up configurado (Integrações > WhatsApp oficial).' };
   const [p1, p2] = splitForTemplate(text, firstName);
-  const params = [templateParam(p1, 60) || 'tudo bem?', templateParam(p2) || '😊'];
+  // Modelo com 1 variavel ("Ola, {{1}}"): nome e texto vao juntos no {{1}}.
+  const vars = new Set((t.body || '').match(/\{\{\d+\}\}/g) || []).size;
+  const params = vars === 1
+    ? [templateParam(`${p1} ${p2}`.trim()) || 'tudo bem?']
+    : [templateParam(p1, 60) || 'tudo bem?', templateParam(p2) || '😊'];
   const r = await graphSend(c, {
     to, type: 'template',
     template: { name: t.name, language: { code: t.lang || 'pt_PT', policy: 'deterministic' }, components: [{ type: 'body', parameters: params.map((p) => ({ type: 'text', text: p })) }] },
