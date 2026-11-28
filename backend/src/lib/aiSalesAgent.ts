@@ -574,7 +574,7 @@ export async function maybeTriggerSalesSuggestion(opts: {
       // "Universidade Zambeze"). Sem isto saiam duas respostas ao mesmo tempo
       // (visto a 21/11). Espera uns segundos, so a ultima mensagem responde, e
       // uma conversa so e tratada de cada vez (incluindo o envio automatico).
-      await leizpro.debounceInbound();
+      await leizpro.debounceInbound(opts.workspaceId);
       if (opts.triggerMessageId && !(await leizpro.isLatestInbound(opts.contactId, opts.triggerMessageId))) return;
       await leizpro.withContactLock(opts.contactId, async () => {
         if (await leizpro.lastIsOutbound(opts.contactId)) return; // ja respondida entretanto

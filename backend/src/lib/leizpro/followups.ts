@@ -38,11 +38,18 @@ const WARMUP_UNTIL = new Date('2026-12-03T00:00:00+02:00');
 export const PACE = { gapMin: 6, gapJitter: 4, perHour: 8, perDay: 40 };
 
 // Pode sair agora mais uma mensagem por iniciativa da Sherone neste workspace?
+// API oficial (28/11): o limite e o da Meta (250 contactos novos por dia no
+// nivel actual); so um espacamento curto e as janelas do guia.
+export const CLOUD_PACE = { gapMin: 1, gapJitter: 2, perHour: 60, perDay: 200 };
+
 export async function proactiveSlotFree(workspaceId: string, now = new Date()): Promise<boolean> {
   if (!inSendWindow(now)) return false;
-  const warm = now.getTime() < WARMUP_UNTIL.getTime();
-  const perHour = warm ? PACE.perHour / 2 : PACE.perHour;
-  const perDay = warm ? PACE.perDay / 2 : PACE.perDay;
+  const { cloudPrimary } = await import('../metaCloud');
+  const cloud = await cloudPrimary(workspaceId).catch(() => false);
+  const P = cloud ? CLOUD_PACE : PACE;
+  const warm = !cloud && now.getTime() < WARMUP_UNTIL.getTime();
+  const perHour = warm ? P.perHour / 2 : P.perHour;
+  const perDay = warm ? P.perDay / 2 : P.perDay;
   const recent = await prisma.aiSalesSuggestion.findMany({
     where: {
       workspaceId, modelUsed: { in: PROACTIVE }, action: { in: ['send_text', 'send_pdf', 'send_product'] },
@@ -56,8 +63,8 @@ export async function proactiveSlotFree(workspaceId: string, now = new Date()): 
   const last = recent[0];
   if (last) {
     // 6 a 9 minutos (ate 03/12: 12 a 15), variando de mensagem para mensagem.
-    const jitter = [...last.id].reduce((a, c) => a + c.charCodeAt(0), 0) % PACE.gapJitter;
-    const gap = ((warm ? 2 * PACE.gapMin : PACE.gapMin) + jitter) * 60_000;
+    const jitter = [...last.id].reduce((a, c) => a + c.charCodeAt(0), 0) % P.gapJitter;
+    const gap = ((warm ? 2 * P.gapMin : P.gapMin) + jitter) * 60_000;
     if (now.getTime() - last.createdAt.getTime() < gap) return false;
   }
   return true;
@@ -68,10 +75,15 @@ export async function proactiveSlotFree(workspaceId: string, now = new Date()): 
 // 40 a 45 minutos entre elas, das 9h as 20h de Maputo. Sozinhas, espalham-se
 // pelos dias seguintes sem ser preciso aplicar por partes.
 export const REACT_PACE = { perDay: 15, gapMin: 40, gapJitter: 6, fromHour: 9, toHour: 20 };
+// Pela API oficial: ate 40 por dia, 8 a 13 minutos entre elas (numeros frios:
+// cada bloqueio baixa a qualidade do numero na Meta).
+export const REACT_PACE_CLOUD = { perDay: 40, gapMin: 8, gapJitter: 6, fromHour: 9, toHour: 20 };
 export async function reactivationSlotFree(workspaceId: string, now = new Date()): Promise<boolean> {
+  const { cloudPrimary } = await import('../metaCloud');
+  const RP = (await cloudPrimary(workspaceId).catch(() => false)) ? REACT_PACE_CLOUD : REACT_PACE;
   const { maputoHour } = await import('./fuTiming');
   const h = maputoHour(now);
-  if (h < REACT_PACE.fromHour || h >= REACT_PACE.toHour) return false;
+  if (h < RP.fromHour || h >= RP.toHour) return false;
   const recent = await prisma.aiSalesSuggestion.findMany({
     where: {
       workspaceId, modelUsed: { in: PROACTIVE }, actionPayload: { path: ['fuKey'], equals: 'reactivation' },
@@ -80,11 +92,11 @@ export async function reactivationSlotFree(workspaceId: string, now = new Date()
     orderBy: { createdAt: 'desc' },
     select: { id: true, createdAt: true },
   });
-  if (recent.length >= REACT_PACE.perDay) return false;
+  if (recent.length >= RP.perDay) return false;
   const last = recent[0];
   if (last) {
-    const jitter = [...last.id].reduce((a, c) => a + c.charCodeAt(0), 0) % REACT_PACE.gapJitter;
-    if (now.getTime() - last.createdAt.getTime() < (REACT_PACE.gapMin + jitter) * 60_000) return false;
+    const jitter = [...last.id].reduce((a, c) => a + c.charCodeAt(0), 0) % RP.gapJitter;
+    if (now.getTime() - last.createdAt.getTime() < (RP.gapMin + jitter) * 60_000) return false;
   }
   return true;
 }

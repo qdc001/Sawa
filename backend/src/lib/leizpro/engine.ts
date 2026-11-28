@@ -1749,8 +1749,12 @@ export async function findPackagesPdf(workspaceId: string): Promise<{ productId:
 const DEBOUNCE_FIXED = process.env.LEIZPRO_DEBOUNCE_MS ? Number(process.env.LEIZPRO_DEBOUNCE_MS) : null;
 const contactLocks = new Map<string, Promise<void>>();
 
-export function debounceInbound(): Promise<void> {
-  const ms = DEBOUNCE_FIXED ?? 80_000 + Math.floor(Math.random() * 20_000);
+export async function debounceInbound(workspaceId?: string): Promise<void> {
+  // API oficial (28/11): sem risco de restricao por ritmo; so a espera para o
+  // estudante acabar de escrever (25 a 35 s).
+  const { cloudPrimary } = await import('../metaCloud');
+  const cloud = workspaceId ? await cloudPrimary(workspaceId).catch(() => false) : false;
+  const ms = DEBOUNCE_FIXED ?? (cloud ? 25_000 + Math.floor(Math.random() * 10_000) : 80_000 + Math.floor(Math.random() * 20_000));
   return new Promise((r) => setTimeout(r, ms));
 }
 
