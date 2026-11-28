@@ -915,12 +915,28 @@ router.post('/leizpro/resend-failed', async (req: AuthRequest, res: Response, ne
     const { windowOpenFor } = await import('../lib/metaCloud');
     const { sendWhatsAppOut } = await import('../lib/whatsappSend');
     const report: any[] = [];
+    const only: string[] | null = Array.isArray(req.body?.contactIds) ? req.body.contactIds : null;
     for (const [contactId, msgs] of byContact) {
+      if (only && !only.includes(contactId)) continue;
       const contact = await prisma.contact.findUnique({ where: { id: contactId }, select: { firstName: true, whatsapp: true, phone: true } });
       const lastOk = await prisma.message.findFirst({
         where: { contactId, isInternal: false, NOT: { status: 'FAILED' } }, orderBy: { createdAt: 'desc' }, select: { createdAt: true },
       });
-      const tail = msgs.filter((m) => !lastOk || m.createdAt > lastOk.createdAt);
+      // Sem repetidas, sem "." e sem o que ja chegou ao estudante por outra via
+      // (ex.: a Sherone voltou a gerar a mesma resposta e essa saiu).
+      const okRecent = await prisma.message.findMany({
+        where: { contactId, direction: 'OUTBOUND', isInternal: false, NOT: { status: 'FAILED' }, createdAt: { gte: new Date(Date.now() - 2 * 86_400_000) } },
+        select: { content: true },
+      });
+      const key = (t: string | null) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const seenTxt = new Set(okRecent.map((x) => key(x.content)));
+      const tail = msgs.filter((m) => !lastOk || m.createdAt > lastOk.createdAt).filter((m) => {
+        if (m.type !== 'TEXT') return true;
+        const k = key(m.content);
+        if (k.replace(/[^\p{L}\p{N}]/gu, '').length < 2 || seenTxt.has(k)) return false;
+        seenTxt.add(k);
+        return true;
+      });
       const phone = contact?.whatsapp || contact?.phone || '';
       const open = await windowOpenFor(contactId);
       const row: any = {
