@@ -756,6 +756,11 @@ export function decide(stIn: LeizProState, u0: Understanding, rawText = ''): Dec
       if (!progressed && (u.intent === 'sim' || isThanks) && !st.retries) {
         return diagnosisQuestion({ ...st, retries: 1 }, `respondeu "${rawText.trim().slice(0, 30)}" sem os dados: pede o que falta`);
       }
+      // Dados que ja estavam no estado (lidos das mensagens ao devolver a Leiz):
+      // segue para a pergunta seguinte, uma vez (28/11: "Medicina" ia para a equipa).
+      if (!progressed && gotData && !st.retries) {
+        return diagnosisNext({ ...st, retries: 1 }, 'dados recebidos (ja conhecidos)', false);
+      }
       if (!progressed) return repeatOrHandoff(st, `resposta nao trouxe o que foi perguntado (intencao ${u.intent})`);
       return diagnosisNext({ ...st, retries: 0 }, 'dados recebidos', !stIn.name && !!st.name);
     }
@@ -1666,9 +1671,12 @@ export async function cleanupPendingReguaWithoutContext(): Promise<number> {
   return n;
 }
 
-async function contextFromMessages(contactId: string, st: LeizProState): Promise<LeizProState> {
+// until: so as mensagens ate a nossa ultima (ao devolver a Leiz, a mensagem do
+// estudante ainda por responder fica para a resposta; senao os dados dela ja
+// estavam no estado e a resposta "nao trazia nada de novo": 28/11, Dalva e Helena).
+async function contextFromMessages(contactId: string, st: LeizProState, until?: Date): Promise<LeizProState> {
   const all = await prisma.message.findMany({
-    where: { contactId, isInternal: false, type: 'TEXT' },
+    where: { contactId, isInternal: false, type: 'TEXT', ...(until ? { createdAt: { lte: until } } : {}) },
     orderBy: { createdAt: 'asc' }, take: 80, select: { content: true, direction: true },
   });
   const msgs = all.filter((m) => m.direction === 'INBOUND');
@@ -1848,7 +1856,10 @@ export async function handBackToLeiz(workspaceId: string, contactId: string, lea
     const prev = hist.map((h) => (h.actionPayload as any)?.leizpro).find((s: any) => s && s.step && s.step !== 'handoff' && KNOWN_STEPS.includes(s.step));
     st = { ...st, step: prev ? prev.step : (st.name && st.university ? 'diagnosis' : 'start') };
   }
-  st = await contextFromMessages(contactId, st);
+  const lastOutMsg = await prisma.message.findFirst({
+    where: { contactId, direction: 'OUTBOUND', isInternal: false }, orderBy: { createdAt: 'desc' }, select: { createdAt: true },
+  });
+  st = await contextFromMessages(contactId, st, lastOutMsg?.createdAt);
   // O que a equipa (ou a Sherone) mandou nos ultimos 45 dias.
   const outs = await prisma.message.findMany({
     where: { contactId, direction: 'OUTBOUND', isInternal: false, createdAt: { gte: new Date(Date.now() - 45 * 86_400_000) } },
