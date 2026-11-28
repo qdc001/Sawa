@@ -890,6 +890,58 @@ router.post('/leizpro/import-chat', async (req: AuthRequest, res: Response, next
   } catch (e) { next(e); }
 });
 
+// POST /api/sales-agent/leizpro/resend-failed  { dryRun?: boolean, since?: ISO }
+// Mensagens de WhatsApp que falharam (Evolution restringida). So reenvia as que
+// ficaram no fim da conversa (ninguem escreveu depois delas); as outras ja
+// foram ultrapassadas. Reenvia pelo canal actual (API oficial) e actualiza a
+// propria mensagem (sem duplicar). Com dryRun so lista.
+router.post('/leizpro/resend-failed', async (req: AuthRequest, res: Response, next) => {
+  try {
+    requireAdmin(req);
+    const workspaceId = req.user!.workspaceId;
+    const dryRun = req.body?.dryRun !== false;
+    const since = new Date(req.body?.since || '2026-11-27T15:00:00Z');
+    const failed = await prisma.message.findMany({
+      where: { contact: { workspaceId }, channel: 'WHATSAPP', direction: 'OUTBOUND', status: 'FAILED', isInternal: false, createdAt: { gte: since } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, contactId: true, content: true, type: true, mediaUrl: true, fileName: true, createdAt: true },
+    });
+    const byContact = new Map<string, typeof failed>();
+    for (const m of failed) { if (m.contactId) byContact.set(m.contactId, [...(byContact.get(m.contactId) || []), m]); }
+    const { windowOpenFor } = await import('../lib/metaCloud');
+    const { sendWhatsAppOut } = await import('../lib/whatsappSend');
+    const report: any[] = [];
+    for (const [contactId, msgs] of byContact) {
+      const contact = await prisma.contact.findUnique({ where: { id: contactId }, select: { firstName: true, whatsapp: true, phone: true } });
+      const lastOk = await prisma.message.findFirst({
+        where: { contactId, isInternal: false, NOT: { status: 'FAILED' } }, orderBy: { createdAt: 'desc' }, select: { createdAt: true },
+      });
+      const tail = msgs.filter((m) => !lastOk || m.createdAt > lastOk.createdAt);
+      const phone = contact?.whatsapp || contact?.phone || '';
+      const open = await windowOpenFor(contactId);
+      const row: any = {
+        contactId, name: contact?.firstName || '', last4: phone.replace(/\D/g, '').slice(-4),
+        failed: msgs.length, toResend: tail.length, stale: msgs.length - tail.length, windowOpen: open,
+        preview: tail.map((m) => (m.type === 'TEXT' ? (m.content || '').slice(0, 70) : `[${m.type}] ${m.fileName || ''}`)),
+      };
+      if (!dryRun && tail.length && phone) {
+        let sent = 0; const errors: string[] = [];
+        for (const m of tail) {
+          const r = await sendWhatsAppOut(workspaceId, phone, m.content || '', m.type, m.mediaUrl || undefined, m.fileName || undefined);
+          if (r.ok) {
+            await prisma.message.update({ where: { id: m.id }, data: { status: 'SENT', externalId: r.externalId, content: r.renderedText || m.content, createdAt: new Date() } as any });
+            sent++;
+          } else { errors.push(r.error || 'erro'); break; }
+          await new Promise((x) => setTimeout(x, 2000));
+        }
+        row.sent = sent; row.errors = errors;
+      }
+      report.push(row);
+    }
+    res.json({ ok: true, dryRun, contacts: report.length, report });
+  } catch (e) { next(e); }
+});
+
 // ---- Leiz Pro (Zona Nerd): textos da Sherone editaveis no painel ------------
 // GET devolve cada mensagem com o texto do guia, o texto em uso e as regras.
 router.get('/leizpro/texts', async (req: AuthRequest, res: Response, next) => {
