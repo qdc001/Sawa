@@ -326,6 +326,13 @@ setInterval(() => {
   runScheduledDeliveries().catch((e) => console.error('runScheduledDeliveries error:', e));
 }, 60_000);
 
+// Leiz Pro: depois de um reinicio (deploy), retoma as respostas que ficaram a meio
+setTimeout(() => {
+  import('./lib/leizpro/followups')
+    .then((m) => m.resumeUnansweredAfterRestart(io))
+    .catch((e) => console.error('resumeUnansweredAfterRestart error:', e));
+}, 45_000);
+
 // Leiz Pro: régua de follow-up depois dos pacotes (Fluxo 6) — corre a cada minuto
 setInterval(() => {
   import('./lib/leizpro/followups')

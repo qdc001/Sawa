@@ -22,7 +22,7 @@ const hm = (x: Date | null | undefined) => {
   const l = new Date(x.getTime() + 2 * 3600_000);
   return `${l.getUTCDate()}/${l.getUTCHours()}h${String(l.getUTCMinutes()).padStart(2, '0')}`;
 };
-const inWindow = (x: Date) => { const h = new Date(x.getTime() + 2 * 3600_000); const v = h.getUTCHours() + h.getUTCMinutes() / 60; return (v >= 12 && v < 13) || (v >= 18 && v < 20); };
+const inWindow = (x: Date) => { const h = new Date(x.getTime() + 2 * 3600_000); const v = h.getUTCHours() + h.getUTCMinutes() / 60; return (v >= 8 && v < 9) || (v >= 12 && v < 13) || (v >= 18 && v < 20); };
 
 const base = (over: Partial<FuInput['last']>, sent = 0, receiptsOff = false): FuInput => ({
   sent, receiptsOff,
@@ -46,10 +46,10 @@ d = fuDue(base({ readAt: M(24, 15, 30) }));
 ok(!!d && hm(d.at) === '24/18h30', '✓✓ azul lida as 15h30: 1.o follow-up as 18h30', hm(d?.at));
 // Lida as 19h (noite) -> dia seguinte 12h.
 d = fuDue(base({ createdAt: M(24, 18, 50), deliveredAt: M(24, 18, 50), readAt: M(24, 19) }));
-ok(!!d && hm(d.at) === '25/12h00', '✓✓ azul lida as 19h: 1.o follow-up no dia seguinte as 12h', hm(d?.at));
+ok(!!d && hm(d.at) === '25/8h00', '✓✓ azul lida as 19h: 1.o follow-up no dia seguinte as 8h', hm(d?.at));
 // Lida as 23h -> dia seguinte 12h (nunca depois das 21h).
 d = fuDue(base({ readAt: M(24, 23) }));
-ok(!!d && hm(d.at) === '25/12h00', '✓✓ azul lida as 23h: dia seguinte as 12h', hm(d?.at));
+ok(!!d && hm(d.at) === '25/8h00', '✓✓ azul lida as 23h: dia seguinte as 8h', hm(d?.at));
 // ✓✓ cinzento (enviada as 12h10, entregue): 24h depois, a outra hora do dia -> 25/18h.
 d = fuDue(base({ status: 'DELIVERED', createdAt: M(24, 12, 10), deliveredAt: M(24, 12, 10), readAt: null }));
 ok(!!d && hm(d.at) === '25/18h00' && d.kind === 'fu', '✓✓ cinzento enviada as 12h10: 1.o follow-up 24h depois, a outra hora (18h)', hm(d?.at));
@@ -61,13 +61,13 @@ d = fuDue(base({ status: 'DELIVERED', createdAt: M(24, 10), deliveredAt: M(25, 9
 ok(!!d && hm(d.at) === '26/12h00', '✓ -> ✓✓ entregue no dia seguinte as 9h: conta a partir da entrega (26/12h)', hm(d?.at));
 // 2.o follow-up: o 1.o foi visto -> no dia seguinte.
 d = fuDue(base({ createdAt: M(24, 18), deliveredAt: M(24, 18), readAt: M(24, 18, 30) }, 1));
-ok(!!d && hm(d.at) === '25/12h00' && d.kind === 'fu', '2.o follow-up (1.o visto): dia seguinte as 12h', hm(d?.at));
+ok(!!d && hm(d.at) === '25/8h00' && d.kind === 'fu', '2.o follow-up (1.o visto): dia seguinte as 8h', hm(d?.at));
 // 3.o: dois dias depois.
 d = fuDue(base({ createdAt: M(25, 12), deliveredAt: M(25, 12), readAt: M(25, 12, 5) }, 2));
-ok(!!d && hm(d.at) === '27/12h00' && d.kind === 'fu', '3.o follow-up: dois dias depois as 12h', hm(d?.at));
+ok(!!d && hm(d.at) === '27/8h00' && d.kind === 'fu', '3.o follow-up: dois dias depois as 8h', hm(d?.at));
 // 1.o follow-up continua cinzento (48h sem ver): ultima tentativa e parar.
 d = fuDue(base({ status: 'DELIVERED', createdAt: M(25, 12), deliveredAt: M(25, 12), readAt: null }, 1));
-ok(!!d && d.kind === 'last' && hm(d.at) === '26/18h00', '✓✓ cinzento ao fim de 48h: ultima tentativa no dia seguinte, a outra hora', `${d?.kind} ${hm(d?.at)}`);
+ok(!!d && d.kind === 'last' && hm(d.at) === '26/8h00', '✓✓ cinzento ao fim de 48h: ultima tentativa no dia seguinte, a outra hora', `${d?.kind} ${hm(d?.at)}`);
 // Depois do 3.o: Reactivacao 16 dias depois.
 d = fuDue(base({ createdAt: M(1, 12), deliveredAt: M(1, 12), readAt: M(1, 13) }, 3));
 ok(!!d && d.kind === 'reactivation' && hm(d.at) === '17/12h00', 'depois do 3.o: Reactivacao 16 dias depois', `${d?.kind} ${hm(d?.at)}`);
@@ -82,8 +82,8 @@ for (let h = 0; h < 24; h++) for (const st of ['READ', 'DELIVERED'] as const) fo
   if (x && !inWindow(x.at)) { allIn = false; console.log('  fora da janela:', st, h, sent, hm(x.at)); }
   if (x && x.at.getTime() < M(24, h).getTime()) { allIn = false; console.log('  antes da mensagem:', st, h, sent, hm(x.at)); }
 }
-ok(allIn, 'todas as horas calculadas ficam das 12h as 13h ou das 18h as 20h, e nunca antes da mensagem');
-ok(hm(nextSendTime(M(24, 20, 30))) === '25/12h00', 'depois das 20h passa para o dia seguinte (nunca depois das 21h)');
+ok(allIn, 'todas as horas calculadas ficam das 8h as 9h, das 12h as 13h ou das 18h as 20h, e nunca antes da mensagem');
+ok(hm(nextSendTime(M(24, 20, 30))) === '25/8h00', 'depois das 20h passa para o dia seguinte (nunca depois das 21h)');
 
 // ---- 2. Textos ----------------------------------------------------------------
 console.log('\n== Textos dos follow-ups ==');
@@ -163,17 +163,17 @@ ok(fuStageOf({ ...INITIAL_STATE, step: 'diagnosis', lastKey: 'greeting', lastQue
   const sentAt = new Date('2026-11-24T08:00:00Z'); // 10h Maputo
   const read = (at: Date) => ({ status: 'READ' as const, createdAt: at, deliveredAt: at, readAt: new Date(at.getTime() + 3600_000) });
   const p1 = fuDue({ sent: 0, last: read(sentAt), receiptsOff: false, pace: 'pay' });
-  ok(loc(p1?.at) === '25/11, 12', 'pagamento: 1.o follow-up 1 dia depois de ver', loc(p1?.at));
+  ok(loc(p1?.at) === '25/11, 08', 'pagamento: 1.o follow-up 1 dia depois de ver', loc(p1?.at));
   const fu1At = new Date('2026-11-25T10:00:00Z');
   const p2 = fuDue({ sent: 1, last: read(fu1At), receiptsOff: false, pace: 'pay' });
-  ok(loc(p2?.at) === '28/11, 12' && p2?.kind === 'fu', 'pagamento: 2.o follow-up 3 dias depois do 1.o', loc(p2?.at));
+  ok(loc(p2?.at) === '28/11, 08' && p2?.kind === 'fu', 'pagamento: 2.o follow-up 3 dias depois do 1.o', loc(p2?.at));
   const fu2At = new Date('2026-11-28T10:00:00Z');
   const p3 = fuDue({ sent: 2, last: read(fu2At), receiptsOff: false, pace: 'pay' });
-  ok(loc(p3?.at) === '03/12, 12', 'pagamento: 3.o follow-up 5 dias depois do 2.o (fecha em ~9 dias)', loc(p3?.at));
+  ok(loc(p3?.at) === '03/12, 08', 'pagamento: 3.o follow-up 5 dias depois do 2.o (fecha em ~9 dias)', loc(p3?.at));
   const p4 = fuDue({ sent: 3, last: read(new Date('2026-12-03T10:00:00Z')), receiptsOff: false, pace: 'pay' });
   ok(p4?.kind === 'reactivation', 'pagamento: depois do 3.o, a Reactivacao', p4?.kind);
   const other = fuDue({ sent: 1, last: read(fu1At), receiptsOff: false });
-  ok(loc(other?.at) === '26/11, 12', 'outras etapas: 2.o no dia seguinte (sem mudanca)', loc(other?.at));
+  ok(loc(other?.at) === '26/11, 08', 'outras etapas: 2.o no dia seguinte (sem mudanca)', loc(other?.at));
 }
 
 // ---- Guia v34: acesso activo (boas-vindas da equipa) ------------------------------

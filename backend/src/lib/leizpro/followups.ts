@@ -25,6 +25,7 @@
 import prisma from '../prisma';
 import {
   isLeizProWorkspace, loadState, reguaDue, accessTurn, loadTextsFor, generateLeizProFollowup, generateLeizProStageFollowup, fuStageOf, withContactLock, cleanupPendingReguaWithoutContext,
+  teamTookOver, teamWroteAfterState, absorbTeamMessages, lastIsOutbound,
 } from './engine';
 import { decisionSlot, parseTimeChoice, slotLabel } from './schedule';
 import { moveToStage, syncStage, syncReguaStage, syncPayStage } from './pipeline';
@@ -377,6 +378,19 @@ export async function runLeizProFollowups(io: any): Promise<void> {
         // O estudante escreveu e ainda nao lhe respondemos: nao e follow-up.
         if (last?.direction !== 'OUTBOUND') continue;
 
+        // A equipa escreveu por ultimo (28/11): passados 5 minutos, a Sherone le
+        // as mensagens dela (passo e dia combinado) e os follow-ups continuam.
+        // Conversas que a equipa leva ha mais de 3 dias ficam com ela.
+        if (st.step !== 'handoff' && ((await teamTookOver(r.contactId)) || (await teamWroteAfterState(r.workspaceId, r.contactId)))) {
+          const age = Date.now() - last.createdAt.getTime();
+          if (age < 5 * 60_000 || age > 3 * 86_400_000) continue;
+          await withContactLock(r.contactId, async () => {
+            const summary = await absorbTeamMessages(r.workspaceId, r.contactId, r.leadId || null);
+            console.log(`[leizpro] follow-ups: a Sherone leu as mensagens da equipa (${r.contactId}): ${summary}`);
+          });
+          continue; // o follow-up sai numa proxima volta, ja com o estado novo
+        }
+
         if (st.step === 'paying') {
           await syncPayStage(r.workspaceId, r.contactId, st);
           await syncPayTask(r.workspaceId, r.contactId, st);
@@ -440,4 +454,34 @@ export async function runLeizProFollowups(io: any): Promise<void> {
   } finally {
     running = false;
   }
+}
+
+// Depois de um reinicio do servidor (deploy): as respostas que estavam na
+// espera de 25-35 s perdem-se. Retoma as conversas da ultima hora em que o
+// estudante foi o ultimo a escrever e ainda nao ha resposta nem sugestao.
+export async function resumeUnansweredAfterRestart(io: any): Promise<number> {
+  const since = new Date(Date.now() - 60 * 60_000);
+  const msgs = await prisma.message.findMany({
+    where: { direction: 'INBOUND', isInternal: false, channel: 'WHATSAPP', createdAt: { gte: since }, contactId: { not: null } },
+    orderBy: { createdAt: 'desc' }, distinct: ['contactId'],
+    select: { id: true, contactId: true, leadId: true, content: true, createdAt: true, contact: { select: { workspaceId: true } } },
+    take: 200,
+  });
+  const { maybeTriggerSalesSuggestion } = await import('../aiSalesAgent');
+  let n = 0;
+  for (const m of msgs) {
+    const workspaceId = m.contact?.workspaceId;
+    if (!workspaceId || !m.contactId || !(await isLeizProWorkspace(workspaceId))) continue;
+    if (await lastIsOutbound(m.contactId)) continue;
+    const after = await prisma.aiSalesSuggestion.findFirst({
+      where: { contactId: m.contactId, createdAt: { gte: m.createdAt }, modelUsed: { not: 'leizpro:devolvida' } }, select: { id: true },
+    });
+    if (after) continue;
+    n++;
+    maybeTriggerSalesSuggestion({
+      workspaceId, contactId: m.contactId, leadId: m.leadId, triggerMessageId: m.id, triggerMessageContent: m.content, io,
+    }).catch((e: any) => console.error('[leizpro] retomar depois do reinicio falhou:', e?.message || e));
+  }
+  if (n) console.log(`[leizpro] reinicio: ${n} conversa(s) sem resposta retomada(s)`);
+  return n;
 }

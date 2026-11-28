@@ -72,6 +72,9 @@ export type LeizProState = {
   paidOnce: boolean;
   // Follow-ups por etapa (guia v31): etapa e quantos ja foram (4 = reactivacao feita).
   fu: { stage: FuStage; n: number } | null;
+  // Dia combinado pela equipa numa mensagem dela ("ficamos com quarta"): o 1.o
+  // follow-up da etapa sai nesse dia, em vez do compasso dos tiques.
+  fuAt?: string | null;
   // Acesso activo (guia v34): datas lidas das boas-vindas da equipa.
   access: Access | null;
   lastKey: TemplateKey | null;
@@ -1262,7 +1265,7 @@ export async function runTurn(state: LeizProState, text: string, workspaceId?: s
   // O follow-up de pagamento so existe enquanto ele esta a pagar.
   if (d.next.step !== 'paying') d.next = { ...d.next, payFollow: null };
   // Respondeu: os follow-ups da etapa recomecam do zero (na etapa onde ficar).
-  d.next = { ...d.next, fu: null };
+  d.next = { ...d.next, fu: null, fuAt: null };
   return { u, d, so };
 }
 
@@ -1454,19 +1457,35 @@ async function ticksWork(workspaceId: string): Promise<boolean> {
 export async function generateLeizProStageFollowup(opts: { workspaceId: string; contactId: string; leadId?: string | null }) {
   const st = await loadState(opts.workspaceId, opts.contactId);
   if (st.step === 'handoff' || !fuStageOf(st)) return null;
+  // A ultima mensagem nossa que chegou a sair (as que falharam na restricao
+  // de 27/11 nao contam: com elas os follow-ups ficavam parados).
   const lastOut = await prisma.message.findFirst({
-    where: { contactId: opts.contactId, direction: 'OUTBOUND', isInternal: false },
+    where: { contactId: opts.contactId, direction: 'OUTBOUND', isInternal: false, NOT: { status: 'FAILED' } },
     orderBy: { createdAt: 'desc' },
     select: { id: true, status: true, createdAt: true, deliveredAt: true, readAt: true },
   });
   if (!lastOut) return null;
-  // A ultima mensagem foi escrita pela equipa: ela e que acompanha.
+  // A ultima mensagem foi escrita pela equipa (e ainda nao foi lida pela
+  // Sherone, ver absorbTeamMessages): espera.
   if (await teamTookOver(opts.contactId)) return null;
   const followupKey = `etapa:${lastOut.id}`;
+  // Descartada pela equipa = parar. Descartada por ter ficado 24 h por enviar,
+  // ou falhada, nao conta: volta a gerar.
   const exists = await prisma.aiSalesSuggestion.findFirst({
-    where: { contactId: opts.contactId, actionPayload: { path: ['followupKey'], equals: followupKey } }, select: { id: true },
+    where: {
+      contactId: opts.contactId, actionPayload: { path: ['followupKey'], equals: followupKey }, status: { not: 'FAILED' },
+      OR: [{ errorDetail: null }, { NOT: { errorDetail: { startsWith: 'Descartada: mais de 24 horas' } } }],
+    },
+    select: { id: true },
   });
   if (exists) return null; // ja gerado (ou descartado pela equipa: parar)
+  // Falhou ha pouco (ex.: modelo de follow-up ainda por aprovar): tenta de novo
+  // so 12 horas depois, para nao gastar o ritmo a falhar.
+  const failedRecently = await prisma.aiSalesSuggestion.findFirst({
+    where: { contactId: opts.contactId, actionPayload: { path: ['followupKey'], equals: followupKey }, status: 'FAILED', createdAt: { gte: new Date(Date.now() - 12 * 3_600_000) } },
+    select: { id: true },
+  });
+  if (failedRecently) return null;
 
   const works = await ticksWork(opts.workspaceId);
   const anyRead = works ? await prisma.message.findFirst({ where: { contactId: opts.contactId, direction: 'OUTBOUND', status: 'READ' }, select: { id: true } }) : null;
@@ -1474,7 +1493,9 @@ export async function generateLeizProStageFollowup(opts: { workspaceId: string; 
   const { fuDue } = await import('./fuTiming');
   const stage0 = fuStageOf(st);
   const payDay = stage0 === 'pay' && (st.fu?.n ?? 0) === 0 && st.payFollow?.day ? new Date(st.payFollow.day) : null;
-  const due = payDay ? { at: payDay, kind: 'fu' as const, why: 'dia que disse que pagava (guia v32)' } : fuDue({
+  const teamDay = !payDay && (st.fu?.n ?? 0) === 0 && st.fuAt ? new Date(st.fuAt) : null;
+  const due = payDay ? { at: payDay, kind: 'fu' as const, why: 'dia que disse que pagava (guia v32)' }
+    : teamDay ? { at: teamDay, kind: 'fu' as const, why: 'dia combinado pela equipa' } : fuDue({
     sent: st.fu?.n ?? 0,
     last: {
       status: (works ? lastOut.status : (lastOut.status === 'SENT' ? 'DELIVERED' : lastOut.status)) as any,
@@ -2104,7 +2125,13 @@ export async function generateLeizProSuggestion(opts: {
       orderBy: { createdAt: 'asc' },
       select: { content: true },
     });
-    if (!isTriggerText(first?.content || '')) return null;
+    // Contacto novo (a primeira mensagem de sempre e das ultimas 72 horas): a
+    // Sherone tambem comeca (28/11). Contactos antigos sem passo ficam com a equipa.
+    const firstAny = await prisma.message.findFirst({
+      where: { contactId: opts.contactId, isInternal: false }, orderBy: { createdAt: 'asc' }, select: { createdAt: true },
+    });
+    const isNew = !!firstAny && firstAny.createdAt.getTime() > Date.now() - 72 * 3_600_000;
+    if (!isTriggerText(first?.content || '') && !isNew) return null;
   }
 
   let { u, d, so } = await runTurn(state, text, opts.workspaceId, await recentHistory(opts.contactId));
@@ -2163,3 +2190,49 @@ export async function generateLeizProSuggestion(opts: {
 }
 
 export { LEIZPRO_MODEL, AVAILABLE_SUBJECTS };
+
+// ---- Mensagens da equipa (28/11) -------------------------------------------------
+// A equipa escreveu (no telemovel ou no CRM) e a Sherone continua: le as
+// mensagens dela (passo, pacotes, pagamento) e o dia combinado ("ficamos com
+// quarta", "amanha as 18h") para agendar o proximo contacto.
+export async function absorbTeamMessages(workspaceId: string, contactId: string, leadId: string | null): Promise<string> {
+  const lastStep = await prisma.aiSalesSuggestion.findFirst({
+    where: { workspaceId, contactId, modelUsed: { startsWith: 'leizpro' }, status: { notIn: ['DISCARDED', 'FAILED'] } },
+    orderBy: { createdAt: 'desc' }, select: { createdAt: true },
+  });
+  const teamMsgs = await prisma.message.findMany({
+    where: {
+      contactId, direction: 'OUTBOUND', isInternal: false, type: 'TEXT', NOT: { status: 'FAILED' },
+      ...(lastStep ? { createdAt: { gt: lastStep.createdAt } } : {}),
+    },
+    orderBy: { createdAt: 'desc' }, take: 4, select: { id: true, content: true, createdAt: true },
+  });
+  const r = await handBackToLeiz(workspaceId, contactId, leadId, null);
+  // Dia combinado numa mensagem da equipa (ou na resposta do estudante a ela).
+  const DAY_RE = /amanh|hoje|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo|\b\d{1,2}\s*(h|horas)\b/i;
+  const withDay = teamMsgs.find((m) => DAY_RE.test(m.content || ''));
+  if (!withDay) return r.summary;
+  let tc = parseTimeChoice(withDay.content || '', null, withDay.createdAt);
+  if (tc.kind === 'day_only') tc = parseTimeChoice(`${withDay.content} as 18h`, null, withDay.createdAt);
+  if (tc.kind !== 'slot' || tc.at.getTime() < Date.now() - 3_600_000) return r.summary;
+  const at = tc.at.toISOString();
+  let st = await loadState(workspaceId, contactId);
+  st = st.step === 'pdf_sent' ? { ...st, regua: { startAt: at, sent: 0 }, offered: [{ iso: at, label: slotLabel(tc.at, withDay.createdAt) }] }
+    : st.step === 'paying' ? { ...st, payFollow: { at, sent: false, day: at } }
+    : { ...st, fuAt: at };
+  const label = slotLabel(tc.at, new Date());
+  await prisma.aiSalesSuggestion.create({
+    data: {
+      workspaceId, contactId, leadId, parts: [] as any, action: 'wait', productFileIds: [] as any,
+      actionPayload: { leizpro: st, teamDayFrom: withDay.id } as any,
+      reasoning: `A equipa combinou com o estudante: próximo contacto ${label}.`,
+      principlesUsed: [] as any, modelUsed: 'leizpro:devolvida', status: 'APPROVED', decidedAt: new Date(),
+    },
+  });
+  if (st.step === 'pdf_sent' || st.step === 'paying') {
+    const { syncReguaTasks, syncPayTask } = await import('./reguaTasks');
+    await syncReguaTasks(workspaceId, contactId, st);
+    await syncPayTask(workspaceId, contactId, st);
+  }
+  return `${r.summary}; próximo contacto ${label}`;
+}

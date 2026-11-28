@@ -482,6 +482,9 @@ async function createHandoffShortCircuit(opts: {
 // Em modo autonomo (aiSalesMode='auto'), aprova e despoleta o envio
 // automaticamente quando a accao for send_text ou send_product. Handoff
 // e wait ficam sempre PENDING para o humano confirmar (preservar controlo).
+// Leiz Pro: quanto tempo a Sherone espera depois de a equipa ter escrito.
+const TEAM_GRACE_MS = process.env.LEIZPRO_TEAM_GRACE_MS ? Number(process.env.LEIZPRO_TEAM_GRACE_MS) : 5 * 60_000;
+
 export async function maybeTriggerSalesSuggestion(opts: {
   workspaceId: string;
   contactId: string;
@@ -576,12 +579,30 @@ export async function maybeTriggerSalesSuggestion(opts: {
       // uma conversa so e tratada de cada vez (incluindo o envio automatico).
       await leizpro.debounceInbound(opts.workspaceId);
       if (opts.triggerMessageId && !(await leizpro.isLatestInbound(opts.contactId, opts.triggerMessageId))) return;
+      // A equipa escreveu nesta conversa (telemovel ou CRM): a Sherone espera 5
+      // minutos desde a mensagem do estudante. Se a equipa responder nesse tempo,
+      // fica com ela; senao a Sherone le as mensagens da equipa e continua
+      // (28/11: antes ficava calada ate "Devolver a Leiz"). Para a equipa ficar
+      // com a conversa, desliga a Leizy nela.
+      const teamActive = (await leizpro.teamTookOver(opts.contactId)) || (await leizpro.teamWroteAfterState(opts.workspaceId, opts.contactId));
+      if (teamActive) {
+        const trig = opts.triggerMessageId
+          ? await prisma.message.findUnique({ where: { id: opts.triggerMessageId }, select: { createdAt: true } })
+          : null;
+        const wait = (trig?.createdAt.getTime() ?? Date.now()) + TEAM_GRACE_MS - Date.now();
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        if (opts.triggerMessageId && !(await leizpro.isLatestInbound(opts.contactId, opts.triggerMessageId))) return;
+        if (await leizpro.lastIsOutbound(opts.contactId)) return; // a equipa respondeu
+        const w2 = await prisma.workspace.findUnique({ where: { id: opts.workspaceId }, select: { aiSalesDisabledConversationIds: true } });
+        const off = Array.isArray(w2?.aiSalesDisabledConversationIds) ? (w2!.aiSalesDisabledConversationIds as string[]) : [];
+        if (off.includes(opts.contactId)) return; // desligada nesses 5 minutos
+      }
       await leizpro.withContactLock(opts.contactId, async () => {
         if (await leizpro.lastIsOutbound(opts.contactId)) return; // ja respondida entretanto
-        if (await leizpro.teamTookOver(opts.contactId)) return;   // a equipa esta a conduzir esta conversa
-        // A equipa escreveu depois do ultimo passo da Sherone (mesmo que a ultima
-        // mensagem seja dela): fica com a equipa ate "Devolver a Leiz".
-        if (await leizpro.teamWroteAfterState(opts.workspaceId, opts.contactId)) return;
+        if (teamActive && ((await leizpro.teamTookOver(opts.contactId)) || (await leizpro.teamWroteAfterState(opts.workspaceId, opts.contactId)))) {
+          const summary = await leizpro.absorbTeamMessages(opts.workspaceId, opts.contactId, opts.leadId || null);
+          console.log(`[leizpro] contacto ${opts.contactId}: a equipa escreveu e nao respondeu em 5 min; a Sherone continua (${summary})`);
+        }
         const gen = await leizpro.generateLeizProSuggestion({
           workspaceId: opts.workspaceId,
           contactId: opts.contactId,

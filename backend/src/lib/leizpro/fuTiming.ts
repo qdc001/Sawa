@@ -8,7 +8,7 @@
 //    nao viu, uma ultima tentativa no dia seguinte e parar.
 //  - ✓ um so tique (nao entregue): nada. O tempo conta a partir dos dois tiques.
 //  - Nunca ficam azuis (confirmacao de leitura desligada): "viu" ao fim de 24 horas.
-// Envia so das 12h as 13h ou das 18h as 20h (hora de Maputo), nunca depois das 21h.
+// Envia so das 8h as 9h, das 12h as 13h ou das 18h as 20h (hora de Maputo; 8h-9h desde 28/11).
 // Maximo 3 por etapa; depois, a Reactivacao 2 a 3 semanas depois.
 //
 // Sem base de dados: o agendador e os testes usam exactamente esta funcao.
@@ -18,7 +18,7 @@ const HOUR = 3600_000;
 const DAY = 24 * HOUR;
 
 // Janelas de envio, em hora de Maputo: [inicio, fim).
-export const SEND_WINDOWS: Array<[number, number]> = [[12, 13], [18, 20]];
+export const SEND_WINDOWS: Array<[number, number]> = [[8, 9], [12, 13], [18, 20]];
 export const REACTIVATION_DAYS = 16; // "2 a 3 semanas depois"
 
 function localHour(d: Date): number {
